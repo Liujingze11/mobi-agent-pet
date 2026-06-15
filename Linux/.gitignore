@@ -9,11 +9,6 @@ release/
 *.log
 
 # 平台构建产物（太大不上传 git）
-Linux/*.AppImage
-Linux/*.deb
-Linux/linux-unpacked/
-Mac/*.dmg
-Mac/*.zip
-Mac/mac*/
-Windows/*.exe
-Windows/win*/
+*.AppImage
+*.deb
+linux-unpacked/
