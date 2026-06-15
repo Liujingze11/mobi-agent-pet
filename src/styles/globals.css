@@ -2,32 +2,23 @@
 @tailwind components;
 @tailwind utilities;
 
-/* 整个窗口是拖拽区域 — 抓手光标 */
+/* 窗口透明 */
 .pulsecore-window {
-  -webkit-app-region: drag;
-  background: rgba(0, 0, 0, 0.002) !important;
-  cursor: grab;
-}
-.pulsecore-window:active {
-  cursor: grabbing;
+  background: transparent !important;
 }
 
-/* 核心交互区域取消拖拽 — 指针光标 */
+/* 核心区域 — 可点击，不可拖动 */
 .pulsecore-core {
   -webkit-app-region: no-drag;
   cursor: pointer;
 }
 
-/* 所有表单控件取消拖拽 */
+/* 表单控件 */
 input, select, button, textarea {
   -webkit-app-region: no-drag;
-  cursor: default;
 }
 
-/* 自定义滚动条 */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #475569; }
-
-.no-select { user-select: none; -webkit-user-select: none; }
