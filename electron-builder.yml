@@ -16,6 +16,7 @@ linux:
   target:
     - AppImage
     - deb
+  icon: resources/icons/icon.png
   category: Development
   maintainer: devpulse@example.com
 
