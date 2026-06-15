@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS projects (
   description   TEXT,
   status        TEXT NOT NULL DEFAULT 'active',
   color         TEXT DEFAULT '#6366f1',
+  source_folder TEXT,
   total_seconds INTEGER NOT NULL DEFAULT 0,
   created_at    TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at    TEXT NOT NULL DEFAULT (datetime('now'))

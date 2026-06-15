@@ -93,6 +93,16 @@ const electronAPI = {
     getAll: () => ipcRenderer.invoke('settings:get-all')
   },
 
+  // Dialog
+  dialog: {
+    openFolder: () => ipcRenderer.invoke('dialog:open-folder')
+  },
+
+  // Project tools
+  projectTools: {
+    scanFolder: (folderPath: string) => ipcRenderer.invoke('project:scan-folder', folderPath)
+  },
+
   // Window controls
   window: {
     openGui: () => ipcRenderer.invoke('window:open-gui'),

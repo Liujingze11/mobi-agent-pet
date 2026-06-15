@@ -54,6 +54,12 @@ declare global {
         update: (id: string, d: any) => Promise<any>
         remove: (id: string) => Promise<any>
       }
+      dialog: {
+        openFolder: () => Promise<string | null>
+      }
+      projectTools: {
+        scanFolder: (folderPath: string) => Promise<{ name: string; description: string; techStack: string; color: string; folderName: string; folderPath: string }>
+      }
       tasks: {
         listByProject: (projectId: string) => Promise<any[]>
         create: (d: any) => Promise<any>

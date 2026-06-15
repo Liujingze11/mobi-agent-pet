@@ -13,11 +13,11 @@ export function getProject(db: Database.Database, id: string) {
   return db.prepare(`SELECT * FROM projects WHERE id = ?`).get(id)
 }
 
-export function createProject(db: Database.Database, data: { companyId?: string; name: string; description?: string; color?: string }) {
+export function createProject(db: Database.Database, data: { companyId?: string; name: string; description?: string; color?: string; sourceFolder?: string }) {
   const id = generateId()
   const timestamp = now()
-  db.prepare(`INSERT INTO projects (id, company_id, name, description, color, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
-    id, data.companyId || null, data.name, data.description || null, data.color || '#6366f1', timestamp, timestamp
+  db.prepare(`INSERT INTO projects (id, company_id, name, description, color, source_folder, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    id, data.companyId || null, data.name, data.description || null, data.color || '#6366f1', data.sourceFolder || null, timestamp, timestamp
   )
   return getProject(db, id)
 }

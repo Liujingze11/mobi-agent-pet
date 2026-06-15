@@ -1,5 +1,7 @@
-import { ipcMain, BrowserWindow } from 'electron'
+import { ipcMain, BrowserWindow, dialog } from 'electron'
 import { getDatabase } from './db/connection'
+import fs from 'node:fs'
+import path from 'node:path'
 import { timerEngine, aiRegistry, reportGenerator } from './main'
 import * as ProjectQueries from './db/queries/projects'
 import * as TaskQueries from './db/queries/tasks'
@@ -45,6 +47,90 @@ export function initIpcHandlers(): void {
     ProjectQueries.updateProject(db, id, data))
   ipcMain.handle('projects:remove', (_e, id: string) =>
     ProjectQueries.removeProject(db, id))
+
+  // ---- Dialog ----
+  ipcMain.handle('dialog:open-folder', async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory']
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    return result.filePaths[0]
+  })
+
+  // ---- Project Tools (Folder Scan + AI) ----
+  ipcMain.handle('project:scan-folder', async (_e, folderPath: string) => {
+    const files: Record<string, string> = {}
+    const keyFiles = ['package.json', 'README.md', 'Cargo.toml', 'go.mod', 'requirements.txt', 'pyproject.toml', '.git/config']
+    for (const f of keyFiles) {
+      const fp = path.join(folderPath, f)
+      if (fs.existsSync(fp)) {
+        const content = fs.readFileSync(fp, 'utf-8')
+        // 限制大小
+        files[f] = content.slice(0, 3000)
+      }
+    }
+
+    const folderName = path.basename(folderPath)
+
+    // 快速从 package.json 提取信息
+    let pkgInfo: any = {}
+    if (files['package.json']) {
+      try { pkgInfo = JSON.parse(files['package.json']) } catch {}
+    }
+
+    // 调用 AI 生成项目描述
+    let aiResult = { name: folderName, description: '', techStack: '', color: '#6366f1' }
+    try {
+      const { aiRegistry } = await import('./main')
+      const summary = await aiRegistry.summarize({
+        type: 'work',
+        projectName: folderName,
+        rawNotes: `请分析以下项目文件，生成项目描述和技术栈摘要。
+
+文件夹名: ${folderName}
+${pkgInfo.name ? `package.json name: ${pkgInfo.name}` : ''}
+${pkgInfo.description ? `package.json description: ${pkgInfo.description}` : ''}
+${Object.keys(files).join(', ') ? `包含文件: ${Object.keys(files).join(', ')}` : ''}
+
+README.md 摘要:
+${files['README.md']?.slice(0, 1500) || '无'}
+
+package.json:
+${files['package.json']?.slice(0, 1500) || '无'}
+
+请输出JSON:
+{
+  "completed_work": ["项目名建议"],
+  "problems": [],
+  "solutions": [],
+  "knowledge_gained": ["技术栈"],
+  "next_steps": [],
+  "tags": ["标签"],
+  "summary": "一段话项目描述",
+  "is_milestone": false,
+  "can_generate_achievement": false
+}`,
+        durationMinutes: 0,
+        userAnswers: {}
+      })
+      aiResult.name = summary.completedWork?.[0] || pkgInfo.name || folderName
+      aiResult.description = summary.summary || pkgInfo.description || ''
+      aiResult.techStack = summary.knowledgeGained?.join(', ') || Object.keys(pkgInfo.dependencies || {}).slice(0, 8).join(', ')
+      // 根据技术栈选颜色
+      const ts = aiResult.techStack.toLowerCase()
+      if (ts.includes('react') || ts.includes('vue')) aiResult.color = '#3b82f6'
+      else if (ts.includes('python') || ts.includes('django') || ts.includes('flask')) aiResult.color = '#22c55e'
+      else if (ts.includes('rust') || ts.includes('cargo')) aiResult.color = '#f59e0b'
+      else if (ts.includes('go')) aiResult.color = '#06b6d4'
+    } catch (err) {
+      // AI 失败时用基础信息
+      aiResult.name = pkgInfo.name || folderName
+      aiResult.description = pkgInfo.description || `项目文件夹: ${folderName}`
+      aiResult.techStack = Object.keys(pkgInfo.dependencies || {}).slice(0, 6).join(', ')
+    }
+
+    return { ...aiResult, folderName, folderPath }
+  })
 
   // ---- Tasks ----
   ipcMain.handle('tasks:list-by-project', (_e, projectId: string) =>

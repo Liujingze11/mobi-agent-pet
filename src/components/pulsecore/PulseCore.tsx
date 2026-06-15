@@ -56,7 +56,9 @@ function updateParticles(p: Particle[], cx: number, cy: number, dt: number, pull
 //  4 形态的绘制
 // ============================================================
 
-function drawEnergyCore(ctx: CanvasRenderingContext2D, cx: number, cy: number, c: ReturnType<typeof palette[string]>, phase: number, status: string, particles: Particle[]) {
+type ColorSet = { main: string; glow: string; accent: string; dark: string }
+
+function drawEnergyCore(ctx: CanvasRenderingContext2D, cx: number, cy: number, c: ColorSet, phase: number, status: string, particles: Particle[]) {
   const intensity = status === 'paused' ? 0.25 : status === 'deep_focus' ? 0.7 + Math.sin(phase * 0.4) * 0.1 : 0.8 + Math.sin(phase * 0.7) * 0.2
 
   // 外层光环
@@ -106,7 +108,7 @@ function drawEnergyCore(ctx: CanvasRenderingContext2D, cx: number, cy: number, c
   ctx.beginPath(); ctx.arc(flx, fly, cr * 0.22, 0, Math.PI * 2); ctx.fill()
 }
 
-function drawPulseRing(ctx: CanvasRenderingContext2D, cx: number, cy: number, c: ReturnType<typeof palette[string]>, phase: number, status: string, particles: Particle[]) {
+function drawPulseRing(ctx: CanvasRenderingContext2D, cx: number, cy: number, c: ColorSet, phase: number, status: string, particles: Particle[]) {
   const intensity = status === 'paused' ? 0.2 : 0.9
   // 三层旋转环，不同速度方向
   for (let ring = 0; ring < 3; ring++) {
@@ -133,7 +135,7 @@ function drawPulseRing(ctx: CanvasRenderingContext2D, cx: number, cy: number, c:
   ctx.shadowBlur = 0
 }
 
-function drawHexCrystal(ctx: CanvasRenderingContext2D, cx: number, cy: number, c: ReturnType<typeof palette[string]>, phase: number, status: string, _particles: Particle[]) {
+function drawHexCrystal(ctx: CanvasRenderingContext2D, cx: number, cy: number, c: ColorSet, phase: number, status: string, _particles: Particle[]) {
   const rot = phase * 0.4, sz = 24, intensity = status === 'paused' ? 0.3 : 1
 
   // 发光
@@ -173,7 +175,7 @@ function drawHexCrystal(ctx: CanvasRenderingContext2D, cx: number, cy: number, c
   ctx.beginPath(); ctx.arc(cx, cy, 12, 0, Math.PI * 2); ctx.stroke()
 }
 
-function drawDataStream(ctx: CanvasRenderingContext2D, cx: number, cy: number, c: ReturnType<typeof palette[string]>, phase: number, status: string, _particles: Particle[]) {
+function drawDataStream(ctx: CanvasRenderingContext2D, cx: number, cy: number, c: ColorSet, phase: number, status: string, _particles: Particle[]) {
   const count = 30, intensity = status === 'paused' ? 0.12 : 0.7
   // 数据粒子流
   for (let i = 0; i < count; i++) {
