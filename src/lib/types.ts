@@ -100,6 +100,7 @@ declare global {
       window: {
         openGui: () => Promise<void>
         drag: (dx: number, dy: number) => Promise<void>
+        resize: (scale: number) => Promise<void>
       }
       app: {
         getMode: () => Promise<string>

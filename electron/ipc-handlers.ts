@@ -169,6 +169,15 @@ export function initIpcHandlers(): void {
       win.setPosition(x + dx, y + dy)
     }
   })
+  ipcMain.handle('window:resize', (_e, scale: number) => {
+    const win = BrowserWindow.fromWebContents(_e.sender)
+    if (win && win.isAlwaysOnTop()) {
+      const baseW = 180, baseH = 220
+      const s = Math.max(0.6, Math.min(2, scale))
+      const [x, y] = win.getPosition()
+      win.setBounds({ x, y, width: Math.round(baseW * s), height: Math.round(baseH * s) })
+    }
+  })
 
   // ---- App ----
   ipcMain.handle('app:get-mode', () =>
