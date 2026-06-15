@@ -4,12 +4,14 @@ import { api } from '../../lib/ipc'
 interface Props {
   timerState: any
   tick: any
+  petForm: string
   onPause: () => void
   onResume: () => void
   onStop: () => void
   onStartWork: (projectId: string, taskId?: string) => void
   onStartLearning: (topicId: string) => void
   onOpenGui: () => void
+  onChangeForm: (form: any) => void
   onClose: () => void
 }
 
@@ -21,9 +23,11 @@ function formatTimer(ms: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
 }
 
+const petForms: Record<string, string> = { energyCore: '能量核心', pulseRing: '脉冲光环', hexCrystal: '六棱晶核', dataStream: '数据流' }
+
 export default function QuickPanel({
-  timerState, tick, onPause, onResume, onStop,
-  onStartWork, onStartLearning, onOpenGui, onClose
+  timerState, tick, petForm, onPause, onResume, onStop,
+  onStartWork, onStartLearning, onOpenGui, onChangeForm, onClose
 }: Props) {
   const [projects, setProjects] = useState<any[]>([])
   const [topics, setTopics] = useState<any[]>([])
@@ -90,6 +94,16 @@ export default function QuickPanel({
               <button onClick={onOpenGui} className="w-full bg-slate-700/50 hover:bg-slate-700 text-slate-300 rounded-lg py-2 text-xs">
                 📊 打开管理面板
               </button>
+              <div className="border-t border-slate-700 pt-2 mt-2">
+                <div className="text-[10px] text-slate-500 mb-1.5">PulseCore 形态</div>
+                <div className="grid grid-cols-2 gap-1">
+                  {Object.entries(petForms).map(([key, name]) => (
+                    <button key={key} onClick={() => onChangeForm(key)}
+                      className={`text-[10px] rounded-lg py-1.5 px-1 transition-colors ${petForm === key ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/40' : 'bg-slate-700/50 text-slate-400 hover:bg-slate-700 border border-transparent'}`}
+                    >{name}</button>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
 

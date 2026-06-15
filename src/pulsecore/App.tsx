@@ -1,10 +1,12 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { api } from '../lib/ipc'
 import PulseCore from '../components/pulsecore/PulseCore'
 import QuickPanel from '../components/pulsecore/QuickPanel'
 import ReviewDialog from '../components/pulsecore/ReviewDialog'
 import AchievementToast from '../components/pulsecore/AchievementToast'
 import type { TimerState, TickPayload } from '../lib/types'
+
+export type PetForm = 'energyCore' | 'pulseRing' | 'hexCrystal' | 'dataStream'
 
 export default function App() {
   const [timerState, setTimerState] = useState<TimerState>({
@@ -20,46 +22,16 @@ export default function App() {
   const [showReview, setShowReview] = useState(false)
   const [sessionResult, setSessionResult] = useState<any>(null)
   const [achievements, setAchievements] = useState<any[]>([])
+  const [petForm, setPetForm] = useState<PetForm>('energyCore')
 
-  // ---- 自定义窗口拖动 ----
-  const draggingRef = useRef(false)
-  const lastPosRef = useRef({ x: 0, y: 0 })
-
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    // 只在 pulsecore-window 背景区域（非 pulsecore-core 区域）触发拖动
-    const target = e.target as HTMLElement
-    if (target.closest('.pulsecore-core') || target.closest('button') || target.closest('input') || target.closest('select')) {
-      return // 交互元素不触发拖动
-    }
-    draggingRef.current = true
-    lastPosRef.current = { x: e.screenX, y: e.screenY }
-    e.preventDefault()
-  }, [])
-
+  // 加载保存的形态
   useEffect(() => {
-    const handleMouseMove = async (e: MouseEvent) => {
-      if (!draggingRef.current) return
-      const dx = e.screenX - lastPosRef.current.x
-      const dy = e.screenY - lastPosRef.current.y
-      lastPosRef.current = { x: e.screenX, y: e.screenY }
-      if (dx !== 0 || dy !== 0) {
-        await api.window.drag(dx, dy)
-      }
-    }
-
-    const handleMouseUp = () => {
-      draggingRef.current = false
-    }
-
-    window.addEventListener('mousemove', handleMouseMove)
-    window.addEventListener('mouseup', handleMouseUp)
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove)
-      window.removeEventListener('mouseup', handleMouseUp)
-    }
+    api.settings.get('pet_form').then(v => {
+      if (v && JSON.parse(v)) setPetForm(JSON.parse(v) as PetForm)
+    })
   }, [])
 
-  // ---- Timer 状态同步 ----
+  // Timer 状态同步
   useEffect(() => {
     api.timer.getState().then(setTimerState)
     api.timer.getTodayStats().then((stats: any) => {
@@ -88,12 +60,15 @@ export default function App() {
     if (newAchs.length > 0) setAchievements(newAchs)
   }
 
+  const handleFormChange = async (form: PetForm) => {
+    setPetForm(form)
+    await api.settings.set('pet_form', JSON.stringify(form))
+  }
+
   return (
-    <div
-      className="pulsecore-window relative w-full h-screen"
-      onMouseDown={handleMouseDown}
-    >
+    <div className="pulsecore-window w-full h-screen flex items-center justify-center">
       <PulseCore
+        form={petForm}
         status={timerState.status}
         effectiveMs={tick.effectiveMs}
         onClick={() => setPanelExpanded(!panelExpanded)}
@@ -102,6 +77,7 @@ export default function App() {
         <QuickPanel
           timerState={timerState}
           tick={tick}
+          petForm={petForm}
           onPause={() => api.timer.pause()}
           onResume={() => api.timer.resume()}
           onStop={handleStop}
@@ -114,6 +90,7 @@ export default function App() {
             setPanelExpanded(false)
           }}
           onOpenGui={() => api.window.openGui()}
+          onChangeForm={handleFormChange}
           onClose={() => setPanelExpanded(false)}
         />
       )}

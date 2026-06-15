@@ -2,33 +2,32 @@
 @tailwind components;
 @tailwind utilities;
 
-/* PulseCore 窗口—极低不透明度确保鼠标事件捕获 */
+/* 整个窗口是拖拽区域 — 抓手光标 */
 .pulsecore-window {
-  background: rgba(0, 0, 0, 0.001) !important;
+  -webkit-app-region: drag;
+  background: rgba(0, 0, 0, 0.002) !important;
+  cursor: grab;
+}
+.pulsecore-window:active {
+  cursor: grabbing;
 }
 
-/* 所有表单控件取消拖动 */
+/* 核心交互区域取消拖拽 — 指针光标 */
+.pulsecore-core {
+  -webkit-app-region: no-drag;
+  cursor: pointer;
+}
+
+/* 所有表单控件取消拖拽 */
 input, select, button, textarea {
   -webkit-app-region: no-drag;
+  cursor: default;
 }
 
 /* 自定义滚动条 */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: #334155;
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #475569;
-}
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #475569; }
 
-.no-select {
-  user-select: none;
-  -webkit-user-select: none;
-}
+.no-select { user-select: none; -webkit-user-select: none; }
