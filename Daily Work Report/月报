@@ -1,0 +1,13 @@
+四月（2026.04）
+
+入职适应与 YOLO-LAB 项目启动：入职第一周完成合同签署、熟悉团队，快速上手 YOLO 目标检测——从手动标注到半自动标注方案，完成全部图片标注并完善训练脚本。第二周创建 YOLO-LAB 仓库，完成图像增强、推理脚本、通用 segment 推理模块等核心功能，脚本支持命令行参数。第三周转向 Agent 项目（IMRGo），完成多目标跟踪研究收尾；IMRGo 正式启动，先后使用 LangChain、LangGraph 开发，完成初步搭建与节点优化。参加新员工培训。
+
+
+五月（2026.05）
+
+Agent 项目深化与 YOLO-LAB 工程化：月初劳动节调休（05/01-05/05），周六补班（05/09）。第四周完善 LangGraph 功能、绘制架构图，启动 DeepAgent 开发，向领导汇报后敲定 LangGraph 方案。第五周 IMRGo 持续迭代（终端多行输入、文件生成功能、提示词优化），YOLO-LAB 新增 Apple 风格 GUI 界面、子进程模式、训练进度条。第六周 YOLO-LAB GUI 全面重构（多模块拆分、跨平台兼容、Monorepo 合并），IMRGo 新增内部思考工作流。第七周 YOLO-LAB 完成桌面打包方案（PyInstaller + 全平台 CI）、多语言 i18n；IMRGo 重构为 4-node 双模型 V2 架构，拆分 Base/V1/V2 三版本并迭代至稳定版。
+
+
+六月上旬（2026.06.01 — 06.12）
+
+IMRGo 多线推进 + NeraCore V1 启动：第八周 CLI 端迭代 V2.1、V2.2，Web 版正式启动（FastAPI + React + SSE 流式），Robot 项目启动。第九周 Web 稳定版交付、仓库结构重构；新开 NeraCore V1 项目，从零搭建到试验版落地。

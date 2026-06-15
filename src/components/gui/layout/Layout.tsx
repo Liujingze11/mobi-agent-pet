@@ -1,0 +1,14 @@
+import Sidebar from './Sidebar'
+
+export default function Layout({ children, currentPage, onNavigate }: {
+  children: React.ReactNode
+  currentPage: string
+  onNavigate: (p: any) => void
+}) {
+  return (
+    <div className="h-screen flex bg-surface-dark text-white">
+      <Sidebar currentPage={currentPage} onNavigate={onNavigate} />
+      <main className="flex-1 overflow-y-auto p-6">{children}</main>
+    </div>
+  )
+}
