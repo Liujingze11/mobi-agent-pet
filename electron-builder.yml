@@ -3,7 +3,7 @@ productName: DevPulse AI
 copyright: Copyright © 2026
 
 directories:
-  output: release
+  output: Linux
   buildResources: resources
 
 electronDist: node_modules/electron/dist
