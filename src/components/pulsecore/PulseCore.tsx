@@ -6,7 +6,7 @@ interface Props {
   form: PetForm
   status: string
   effectiveMs: number
-  onClick: () => void
+  onMouseUp: (e: React.MouseEvent) => void
 }
 
 const statusColors: Record<string, string> = {
@@ -172,7 +172,7 @@ const formNames: Record<PetForm, string> = {
 
 export { formNames }
 
-export default function PulseCore({ form, status, effectiveMs, onClick }: Props) {
+export default function PulseCore({ form, status, effectiveMs, onMouseUp }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
@@ -217,7 +217,7 @@ export default function PulseCore({ form, status, effectiveMs, onClick }: Props)
     <div
       className="pulsecore-core"
       style={{ width: 120, height: 150 }}
-      onClick={onClick}
+      onMouseUp={onMouseUp}
     >
       <canvas ref={canvasRef} width={120} height={150} className="block" />
     </div>
