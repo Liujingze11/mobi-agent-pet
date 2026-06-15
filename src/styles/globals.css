@@ -2,15 +2,23 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 整个窗口是拖拽区域 */
 .pulsecore-window {
   -webkit-app-region: drag;
   background: transparent !important;
 }
 
-.pulsecore-window .interactive {
+/* 核心交互区域取消拖拽，可点击 */
+.pulsecore-core {
   -webkit-app-region: no-drag;
 }
 
+/* 所有表单控件取消拖拽 */
+input, select, button, textarea {
+  -webkit-app-region: no-drag;
+}
+
+/* 自定义滚动条 */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;

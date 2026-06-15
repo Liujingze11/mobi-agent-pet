@@ -135,10 +135,7 @@ export default function PulseCore({ status, effectiveMs, onClick }: Props) {
   }, [status, effectiveMs])
 
   return (
-    <div
-      className="interactive flex flex-col items-center cursor-pointer"
-      onClick={onClick}
-    >
+    <div className="pulsecore-core flex flex-col items-center cursor-pointer" onClick={onClick}>
       <canvas ref={canvasRef} width={120} height={140} className="block" />
     </div>
   )

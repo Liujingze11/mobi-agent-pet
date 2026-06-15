@@ -11,9 +11,9 @@ export function createPulseCoreWindow(): BrowserWindow {
   const { width: screenWidth } = screen.getPrimaryDisplay().workAreaSize
 
   const win = new BrowserWindow({
-    width: 140,
-    height: 160,
-    x: screenWidth - 180,
+    width: 160,
+    height: 190,
+    x: screenWidth - 200,
     y: 100,
     transparent: true,
     frame: false,
