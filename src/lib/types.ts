@@ -99,6 +99,7 @@ declare global {
       }
       window: {
         openGui: () => Promise<void>
+        drag: (dx: number, dy: number) => Promise<void>
       }
       app: {
         getMode: () => Promise<string>

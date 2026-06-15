@@ -9,7 +9,7 @@ import * as ReportQueries from './db/queries/reports'
 import * as AchievementQueries from './db/queries/achievements'
 import * as SettingsQueries from './db/queries/settings'
 import * as UserQueries from './db/queries/users'
-import { createGuiWindow } from './windows'
+import { createGuiWindow, getGuiWindow } from './windows'
 
 export function initIpcHandlers(): void {
   const db = getDatabase()
@@ -155,13 +155,19 @@ export function initIpcHandlers(): void {
   ipcMain.handle('window:open-gui', () => createGuiWindow())
   ipcMain.handle('window:minimize-pulsecore', () => {
     const wins = BrowserWindow.getAllWindows()
-    const pulseCoreWin = wins.find(w => w.getTitle() === '' || w.isAlwaysOnTop())
+    const pulseCoreWin = wins.find(w => w.isAlwaysOnTop())
     if (pulseCoreWin) pulseCoreWin.minimize()
   })
   ipcMain.handle('window:close-gui', () => {
-    const wins = BrowserWindow.getAllWindows()
-    const guiWin = wins.find(w => w.getTitle() === 'DevPulse AI')
+    const guiWin = getGuiWindow()
     if (guiWin) guiWin.close()
+  })
+  ipcMain.handle('window:drag', (_e, dx: number, dy: number) => {
+    const win = BrowserWindow.fromWebContents(_e.sender)
+    if (win && win.isAlwaysOnTop()) {
+      const [x, y] = win.getPosition()
+      win.setPosition(x + dx, y + dy)
+    }
   })
 
   // ---- App ----

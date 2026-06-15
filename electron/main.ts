@@ -15,7 +15,6 @@ export let aiRegistry: AIProviderRegistry
 export let reportGenerator: ReportGenerator
 
 let pulseCoreWindow: BrowserWindow | null = null
-let guiWindow: BrowserWindow | null = null
 
 app.whenReady().then(async () => {
   // 初始化数据库
@@ -33,7 +32,7 @@ app.whenReady().then(async () => {
 
   // 创建窗口
   pulseCoreWindow = createPulseCoreWindow()
-  createTray(pulseCoreWindow, () => guiWindow)
+  createTray(pulseCoreWindow)
 
   // 崩溃恢复
   await timerEngine.recoverFromSnapshot()

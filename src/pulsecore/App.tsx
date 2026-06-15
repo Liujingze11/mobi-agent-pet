@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { api } from '../lib/ipc'
 import PulseCore from '../components/pulsecore/PulseCore'
 import QuickPanel from '../components/pulsecore/QuickPanel'
@@ -21,6 +21,45 @@ export default function App() {
   const [sessionResult, setSessionResult] = useState<any>(null)
   const [achievements, setAchievements] = useState<any[]>([])
 
+  // ---- 自定义窗口拖动 ----
+  const draggingRef = useRef(false)
+  const lastPosRef = useRef({ x: 0, y: 0 })
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    // 只在 pulsecore-window 背景区域（非 pulsecore-core 区域）触发拖动
+    const target = e.target as HTMLElement
+    if (target.closest('.pulsecore-core') || target.closest('button') || target.closest('input') || target.closest('select')) {
+      return // 交互元素不触发拖动
+    }
+    draggingRef.current = true
+    lastPosRef.current = { x: e.screenX, y: e.screenY }
+    e.preventDefault()
+  }, [])
+
+  useEffect(() => {
+    const handleMouseMove = async (e: MouseEvent) => {
+      if (!draggingRef.current) return
+      const dx = e.screenX - lastPosRef.current.x
+      const dy = e.screenY - lastPosRef.current.y
+      lastPosRef.current = { x: e.screenX, y: e.screenY }
+      if (dx !== 0 || dy !== 0) {
+        await api.window.drag(dx, dy)
+      }
+    }
+
+    const handleMouseUp = () => {
+      draggingRef.current = false
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [])
+
+  // ---- Timer 状态同步 ----
   useEffect(() => {
     api.timer.getState().then(setTimerState)
     api.timer.getTodayStats().then((stats: any) => {
@@ -50,7 +89,10 @@ export default function App() {
   }
 
   return (
-    <div className="pulsecore-window relative w-full h-screen">
+    <div
+      className="pulsecore-window relative w-full h-screen"
+      onMouseDown={handleMouseDown}
+    >
       <PulseCore
         status={timerState.status}
         effectiveMs={tick.effectiveMs}

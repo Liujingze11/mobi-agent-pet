@@ -97,7 +97,8 @@ const electronAPI = {
   window: {
     openGui: () => ipcRenderer.invoke('window:open-gui'),
     minimizePulseCore: () => ipcRenderer.invoke('window:minimize-pulsecore'),
-    closeGui: () => ipcRenderer.invoke('window:close-gui')
+    closeGui: () => ipcRenderer.invoke('window:close-gui'),
+    drag: (dx: number, dy: number) => ipcRenderer.invoke('window:drag', dx, dy)
   },
 
   // App

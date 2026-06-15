@@ -2,18 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
-/* 整个窗口是拖拽区域 */
+/* PulseCore 窗口—极低不透明度确保鼠标事件捕获 */
 .pulsecore-window {
-  -webkit-app-region: drag;
-  background: transparent !important;
+  background: rgba(0, 0, 0, 0.001) !important;
 }
 
-/* 核心交互区域取消拖拽，可点击 */
-.pulsecore-core {
-  -webkit-app-region: no-drag;
-}
-
-/* 所有表单控件取消拖拽 */
+/* 所有表单控件取消拖动 */
 input, select, button, textarea {
   -webkit-app-region: no-drag;
 }
