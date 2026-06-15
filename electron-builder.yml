@@ -6,6 +6,8 @@ directories:
   output: release
   buildResources: resources
 
+electronDist: node_modules/electron/dist
+
 files:
   - dist-electron/**/*
   - dist/**/*

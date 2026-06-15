@@ -3,6 +3,23 @@ import react from '@vitejs/plugin-react'
 import electron from 'vite-plugin-electron'
 import electronRenderer from 'vite-plugin-electron-renderer'
 import path from 'node:path'
+import fs from 'node:fs'
+
+// Plugin: copy schema.sql to dist-electron after electron build
+function copySchemaPlugin() {
+  return {
+    name: 'copy-schema',
+    writeBundle(_opts: any, bundle: any) {
+      const outDir = _opts.dir || path.dirname(Object.values(bundle)[0]?.fileName || __dirname)
+      const src = path.resolve(__dirname, 'electron/db/schema.sql')
+      const dest = path.resolve(outDir, 'schema.sql')
+      if (fs.existsSync(src)) {
+        fs.copyFileSync(src, dest)
+        console.log('  ✓ schema.sql copied to', path.relative(__dirname, dest))
+      }
+    }
+  }
+}
 
 export default defineConfig({
   plugins: [
@@ -11,6 +28,7 @@ export default defineConfig({
       {
         entry: 'electron/main.ts',
         vite: {
+          plugins: [copySchemaPlugin()],
           build: {
             outDir: 'dist-electron',
             rollupOptions: {
