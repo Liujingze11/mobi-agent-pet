@@ -114,7 +114,48 @@ export class HeartbeatForm extends PetForm {
     ctx.fill()
     ctx.strokeStyle = hexa(c.accent, 0.5); ctx.lineWidth = 1.8 * s; ctx.stroke()
 
-    // ======== 3. 血液充涌层（心室内部亮红血液上下起伏）========
+    // ======== 3. 血管网络（随充血变色）========
+    ctx.save()
+    drawHeartPath(ctx, cx, cy - 3 * s, heartScale * 0.96)
+    ctx.clip()
+
+    // 血管颜色：空→暗紫黑，满→亮红
+    const vesselAlpha = 0.25 + fill * 0.55
+    const vesselColor = fill > 0.5
+      ? `rgba(${180 + fill * 75},${10 + fill * 30},${5 + fill * 15},${vesselAlpha})`
+      : `rgba(${60 + fill * 120},${3 + fill * 10},${2 + fill * 5},${vesselAlpha})`
+
+    const drawVessel = (sx: number, sy: number, ex: number, ey: number, w: number) => {
+      ctx.strokeStyle = vesselColor; ctx.lineWidth = w * s; ctx.lineCap = 'round'
+      ctx.beginPath(); ctx.moveTo(sx, sy)
+      const mx = (sx + ex) / 2 + Math.sin(sx * 0.1 + phase * 0.5) * 4 * s
+      const my = (sy + ey) / 2 + Math.cos(sy * 0.1 + phase * 0.5) * 4 * s
+      ctx.quadraticCurveTo(mx, my, ex, ey); ctx.stroke()
+    }
+
+    // 主动脉（顶部向上）
+    drawVessel(cx + 3 * s, cy - 28 * s, cx + 2 * s, cy - 42 * s, 2.5)
+    drawVessel(cx - 5 * s, cy - 26 * s, cx - 4 * s, cy - 38 * s, 1.8)
+    // 左右冠状动脉
+    drawVessel(cx - 2 * s, cy - 22 * s, cx - 20 * s, cy - 6 * s, 2.0)
+    drawVessel(cx + 4 * s, cy - 20 * s, cx + 22 * s, cy - 4 * s, 2.0)
+    drawVessel(cx - 20 * s, cy - 6 * s, cx - 28 * s, cy + 10 * s, 1.5)
+    drawVessel(cx + 22 * s, cy - 4 * s, cx + 26 * s, cy + 12 * s, 1.5)
+    // 下行血管
+    drawVessel(cx - 26 * s, cy + 10 * s, cx - 18 * s, cy + 18 * s, 1.2)
+    drawVessel(cx + 24 * s, cy + 12 * s, cx + 16 * s, cy + 18 * s, 1.2)
+    // 分支小血管
+    drawVessel(cx - 14 * s, cy, cx - 6 * s, cy + 10 * s, 0.8)
+    drawVessel(cx + 16 * s, cy + 2 * s, cx + 8 * s, cy + 10 * s, 0.8)
+    drawVessel(cx - 8 * s, cy - 10 * s, cx - 12 * s, cy - 2 * s, 0.7)
+    drawVessel(cx + 10 * s, cy - 8 * s, cx + 14 * s, cy, 0.7)
+    // 中心交织
+    drawVessel(cx - 3 * s, cy - 14 * s, cx - 8 * s, cy - 6 * s, 0.6)
+    drawVessel(cx + 5 * s, cy - 14 * s, cx + 10 * s, cy - 5 * s, 0.6)
+
+    ctx.restore()
+
+    // ======== 4. 血液充涌层（心室内部亮红血液上下起伏）========
     ctx.save()
     drawHeartPath(ctx, cx, cy - 3 * s, heartScale * 0.88)
     ctx.clip()
