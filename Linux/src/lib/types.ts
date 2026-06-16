@@ -125,6 +125,8 @@ declare global {
         getMode: () => Promise<string>
         setMode: (m: string) => Promise<string>
         onboardingComplete: () => Promise<void>
+        notifyPetChanged: (petId: string) => Promise<void>
+        onPetChanged: (cb: (petId: string) => void) => () => void
         quit: () => Promise<void>
       }
     }

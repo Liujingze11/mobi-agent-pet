@@ -63,13 +63,25 @@ export default function App() {
 
   const handleCoreMouseUp = useCallback((_e: React.MouseEvent) => {
     if (dragRef.current.moved) return
-    setPanelExpanded(v => !v)
+    setPanelExpanded(v => {
+      if (!v) api.window.resize(1.4)  // 展开面板时放大窗口
+      else api.window.resize(1.0)       // 收起时恢复
+      return !v
+    })
   }, [])
+
+  const closePanel = () => {
+    setPanelExpanded(false)
+    api.window.resize(1.0)
+  }
 
   // 加载语言 & 形态
   useEffect(() => {
     api.settings.get('language').then(v => { if (v === 'zh-CN' || v === 'en-US') setLanguage(v as Language) })
     api.settings.get('pet_form').then(v => { if (v) { try { const f = JSON.parse(v); if (petRegistry.some(p => p.id === f)) setPetForm(f) } catch {} } })
+    // 监听来自 Settings 页面的宠物切换通知
+    const unsub = api.app.onPetChanged((id: string) => { if (petRegistry.some(p => p.id === id)) setPetForm(id) })
+    return () => unsub()
   }, [])
 
   // Timer 订阅
@@ -100,10 +112,10 @@ export default function App() {
 
         {panelExpanded && !isActive && !isPaused && (
           <QuickPanel
-            onStartWork={() => { setShowDialog('work'); setPanelExpanded(false) }}
-            onStartLearning={() => { setShowDialog('learning'); setPanelExpanded(false) }}
+            onStartWork={() => { setShowDialog('work'); closePanel() }}
+            onStartLearning={() => { setShowDialog('learning'); closePanel() }}
             onOpenGui={() => api.window.openGui()}
-            onClose={() => setPanelExpanded(false)}
+            onClose={closePanel}
           />
         )}
 

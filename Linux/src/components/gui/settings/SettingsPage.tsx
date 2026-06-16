@@ -21,6 +21,7 @@ export default function SettingsPage() {
   const handlePetChange = async (id: PetFormId) => {
     setPetForm(id)
     await api.settings.set('pet_form', JSON.stringify(id))
+    await api.app.notifyPetChanged(id)  // 通知 PulseCore 窗口同步切换
   }
 
   const handleSave = async () => {

@@ -181,6 +181,13 @@ ${files['package.json']?.slice(0, 1500) || '无'}
     aiRegistry.generateReport(input))
   ipcMain.handle('ai:validate-connection', async () =>
     aiRegistry.validateConnection())
+  // ---- 跨窗口同步 ----
+  ipcMain.handle('app:notify-pet-changed', (_e, petId: string) => {
+    // 广播给所有窗口：宠物形态已变更
+    BrowserWindow.getAllWindows().forEach(win =>
+      win.webContents.send('settings:pet-changed', petId))
+  })
+
   ipcMain.handle('app:has-api-key', () => {
     const key = SettingsQueries.getSetting(db, 'ai_api_key')
     return !!key && key.length > 0

@@ -51,7 +51,7 @@ function createPulseCoreWindow(): BrowserWindow {
     skipTaskbar: true,
     resizable: false,
     hasShadow: false,
-    type: 'normal',
+    type: 'toolbar',
     backgroundColor: '#00000000',
     webPreferences: {
       preload: getPreloadPath(),
@@ -60,6 +60,9 @@ function createPulseCoreWindow(): BrowserWindow {
       sandbox: false
     }
   })
+
+  // 若 GUI 窗口存在，挂载为子窗口（合并任务栏条目）
+  if (guiWindow && !guiWindow.isDestroyed()) win.setParentWindow(guiWindow)
 
   // 显式确保鼠标事件被捕获
   win.setIgnoreMouseEvents(false)
@@ -105,7 +108,17 @@ export function createGuiWindow(): BrowserWindow {
     }
   })
   guiWindow.once('ready-to-show', () => guiWindow!.show())
-  guiWindow.on('closed', () => { guiWindow = null })
+  guiWindow.on('close', (e) => {
+    // 不真正关闭，隐藏到托盘
+    e.preventDefault()
+    guiWindow!.hide()
+  })
+  // 当 GUI 重新显示时，重新挂载 PulseCore 为子窗口
+  guiWindow.on('show', () => {
+    if (pulseCoreWindow && !pulseCoreWindow.isDestroyed()) {
+      pulseCoreWindow.setParentWindow(guiWindow)
+    }
+  })
   if (isDev) guiWindow.loadURL('http://localhost:5173/src/gui/index.html')
   else guiWindow.loadFile(path.join(__dirname, '../dist/src/gui/index.html'))
   return guiWindow

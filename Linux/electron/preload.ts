@@ -128,6 +128,12 @@ const electronAPI = {
     getMode: () => ipcRenderer.invoke('app:get-mode'),
     setMode: (mode: string) => ipcRenderer.invoke('app:set-mode', mode),
     onboardingComplete: () => ipcRenderer.invoke('app:onboarding-complete'),
+    notifyPetChanged: (petId: string) => ipcRenderer.invoke('app:notify-pet-changed', petId),
+    onPetChanged: (cb: (petId: string) => void) => {
+      const h = (_e: any, petId: string) => cb(petId)
+      ipcRenderer.on('settings:pet-changed', h)
+      return () => ipcRenderer.removeListener('settings:pet-changed', h)
+    },
     quit: () => ipcRenderer.invoke('app:quit')
   }
 }
