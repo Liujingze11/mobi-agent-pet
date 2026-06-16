@@ -53,140 +53,120 @@ function drawHeartPath(ctx: CanvasRenderingContext2D, cx: number, cy: number, s:
 }
 
 // ============================================================
-//  1. 真实心跳 ❤️ — 血液充涌 + 血管纹理 + 粒子迸发
+//  1. 心脏 ❤️ — 心室血液充涌 + 收缩喷涌
 // ============================================================
 export class HeartbeatForm extends PetForm {
   readonly id = 'heartbeat'
   readonly displayName = '心跳'
-  particleCount = 45
+  particleCount = 60
 
   colors(status: string): PetColors {
     const map: Record<string, PetColors> = {
-      idle:       { main: '#dc2626', glow: 'rgba(220,38,38,0.30)',  accent: '#b91c1c', dark: '#3b0000' },
-      working:    { main: '#ef4444', glow: 'rgba(239,68,68,0.50)',  accent: '#dc2626', dark: '#450000' },
-      learning:   { main: '#ef4444', glow: 'rgba(239,68,68,0.50)',  accent: '#dc2626', dark: '#450000' },
-      deep_focus: { main: '#f87171', glow: 'rgba(248,113,113,0.55)', accent: '#ef4444', dark: '#4c0000' },
+      idle:       { main: '#dc2626', glow: 'rgba(220,38,38,0.30)',  accent: '#b91c1c', dark: '#2d0000' },
+      working:    { main: '#ef4444', glow: 'rgba(239,68,68,0.50)',  accent: '#dc2626', dark: '#3b0000' },
+      learning:   { main: '#ef4444', glow: 'rgba(239,68,68,0.50)',  accent: '#dc2626', dark: '#3b0000' },
+      deep_focus: { main: '#f87171', glow: 'rgba(248,113,113,0.55)', accent: '#ef4444', dark: '#450000' },
       paused:     { main: '#9ca3af', glow: 'rgba(156,163,175,0.2)', accent: '#6b7280', dark: '#1f2937' },
     }
     return map[status] || map.idle
   }
 
-  // lub-dub 心跳曲线: 返回 0.85 ~ 1.15
-  private beatIntensity(phase: number, status: string): number {
-    if (status === 'idle') return 1 + Math.sin(phase * 0.7) * 0.03
-    if (status === 'paused') return 0.93
+  /** 血液充涌强度：在 0(空) ~ 1(满) 之间随心跳周期变化 */
+  private fillLevel(phase: number, status: string): number {
+    if (status === 'idle')   return 0.45 + Math.sin(phase * 0.8) * 0.10
+    if (status === 'paused') return 0.35
     const t = (phase * 3.5) % (Math.PI * 2)
-    // lub: 0 → 0.3
-    if (t < 0.3)       return 1 + Math.sin(t / 0.3 * Math.PI) * 0.14
-    // 回弹
-    if (t < 0.5)       return 1 - Math.sin((t - 0.3) / 0.2 * Math.PI) * 0.06
-    // dub: 0.5 → 0.8
-    if (t < 0.8)       return 1 + Math.sin((t - 0.5) / 0.3 * Math.PI) * 0.10
-    // 再回弹
-    if (t < 1.0)       return 1 - Math.sin((t - 0.8) / 0.2 * Math.PI) * 0.05
-    return 1  //暂停期
+    // Systole 收缩期 — 血液快速充满
+    if (t < 0.25)       return Math.sin(t / 0.25 * Math.PI * 0.5) * 0.7 + 0.3
+    if (t < 0.4)        return 1.0 - Math.sin((t - 0.25) / 0.15 * Math.PI * 0.5) * 0.4
+    // Diastole 舒张期 — 部分回流
+    if (t < 0.6)        return 0.6 - Math.sin((t - 0.4) / 0.2 * Math.PI * 0.5) * 0.15
+    // 第二次收缩 (dub)
+    if (t < 0.85)       return 0.45 + Math.sin((t - 0.6) / 0.25 * Math.PI * 0.5) * 0.55
+    // 缓缓回流
+    return 0.45 - Math.sin((t - 0.85) / 0.15 * Math.PI * 0.5) * 0.15
   }
 
   draw(ctx: CanvasRenderingContext2D, cx: number, cy: number, phase: number, status: string, particles: Particle[], scale = 1) {
     const c = this.colors(status)
-    const beat = this.beatIntensity(phase, status)
+    const fill = this.fillLevel(phase, status)
     const s = scale * 0.9
     const active = status !== 'idle' && status !== 'paused'
 
-    // ---- 1. 外层光晕（血液弥散）----
-    const glowR = (52 + (beat - 1) * 25) * s
-    const gradOuter = ctx.createRadialGradient(cx, cy, 5 * s, cx, cy, glowR)
-    gradOuter.addColorStop(0, c.glow)
-    gradOuter.addColorStop(0.5, hexa(c.dark, 0.25))
-    gradOuter.addColorStop(1, 'transparent')
-    ctx.fillStyle = gradOuter
-    ctx.beginPath(); ctx.arc(cx, cy, glowR, 0, Math.PI * 2); ctx.fill()
+    // 心脏尺寸随充血微微膨胀
+    const heartScale = (0.92 + fill * 0.10) * s
 
-    // ---- 2. 脉冲波纹（血液泵出）----
-    if (active) {
-      const ripplePhase = (phase * 2.2) % (Math.PI * 2)
-      for (let i = 0; i < 2; i++) {
-        const rr = (38 + ((ripplePhase + i * Math.PI) % (Math.PI * 2)) / (Math.PI * 2) * 28) * s
-        ctx.strokeStyle = hexa(c.accent, 0.45 * (1 - (rr / s - 38) / 28))
-        ctx.lineWidth = 1.8 * s
-        ctx.beginPath(); ctx.arc(cx, cy, rr, 0, Math.PI * 2); ctx.stroke()
-      }
-    }
+    // ======== 1. 外层血雾光晕 ========
+    const glowR = (25 + fill * 30) * s
+    const go = ctx.createRadialGradient(cx, cy, 6 * s, cx, cy, glowR)
+    go.addColorStop(0, `rgba(220,30,30,${0.25 + fill * 0.3})`)
+    go.addColorStop(0.6, `rgba(120,10,10,${0.12 + fill * 0.1})`)
+    go.addColorStop(1, 'transparent')
+    ctx.fillStyle = go; ctx.beginPath(); ctx.arc(cx, cy, glowR, 0, Math.PI * 2); ctx.fill()
 
-    // ---- 3. 血管纹路（在心脏内部）----
+    // ======== 2. 心脏外壳（暗红器官壁）========
+    const outerGrad = ctx.createRadialGradient(cx, cy - 5 * s, 2 * s, cx, cy + 5 * s, 48 * heartScale)
+    outerGrad.addColorStop(0, '#5c1010')
+    outerGrad.addColorStop(0.6, c.dark)
+    outerGrad.addColorStop(1, '#0d0000')
+    ctx.fillStyle = outerGrad
+    drawHeartPath(ctx, cx, cy - 3 * s, heartScale)
+    ctx.fill()
+    ctx.strokeStyle = hexa(c.accent, 0.5); ctx.lineWidth = 1.8 * s; ctx.stroke()
+
+    // ======== 3. 血液充涌层（心室内部亮红血液上下起伏）========
     ctx.save()
-    drawHeartPath(ctx, cx, cy - 2 * s, beat * s * 0.92)
+    drawHeartPath(ctx, cx, cy - 3 * s, heartScale * 0.88)
     ctx.clip()
-    ctx.strokeStyle = hexa(c.dark, 0.4)
-    ctx.lineWidth = 1.2 * s
-    // 几条主要"血管"
-    const vesselOffsets = [
-      { sx: -8, sy: -18, ex: -18, ey: 18 },
-      { sx: 8, sy: -20, ex: 18, ey: 14 },
-      { sx: 0, sy: -24, ex: -5, ey: 8 },
-      { sx: -3, sy: 8, ex: -14, ey: -10 },
-    ]
-    for (const v of vesselOffsets) {
+
+    // 血液液面：用线性渐变模拟血液从底部充上来
+    const topY = cy + 20 * s - fill * 44 * s  // fill=1 时液面到顶部
+    const bloodGrad = ctx.createLinearGradient(cx, topY, cx, cy + 22 * s)
+    bloodGrad.addColorStop(0, `rgba(255,60,60,${0.85 * fill})`)     // 液面顶点 — 鲜红
+    bloodGrad.addColorStop(0.15, `rgba(230,30,30,${0.8 * fill})`)
+    bloodGrad.addColorStop(0.5, `rgba(180,15,15,${0.7 * fill})`)
+    bloodGrad.addColorStop(1, `rgba(80,5,5,${0.3 * fill})`)         // 底部暗红
+    ctx.fillStyle = bloodGrad
+    ctx.fillRect(cx - 40 * s, topY, 80 * s, cy + 22 * s - topY)
+
+    // 液面波动微调
+    if (fill > 0.5) {
+      ctx.fillStyle = `rgba(255,100,80,${0.3 * fill})`
       ctx.beginPath()
-      ctx.moveTo(cx + v.sx * s, cy + v.sy * s)
-      ctx.quadraticCurveTo(
-        cx + (v.sx + v.ex) / 2 * s + Math.sin(phase * 2 + v.sx) * 4 * s,
-        cy + (v.sy + v.ey) / 2 * s + Math.cos(phase * 2 + v.sy) * 4 * s,
-        cx + v.ex * s, cy + v.ey * s
-      )
-      ctx.stroke()
-    }
-    // 细小血管分支
-    ctx.strokeStyle = hexa(c.dark, 0.2)
-    ctx.lineWidth = 0.5 * s
-    for (let i = 0; i < 6; i++) {
-      const bx = cx + (Math.sin(i * 1.2) * 18) * s
-      const by = cy + (Math.cos(i * 1.2) * 16 - 4) * s
-      ctx.beginPath(); ctx.moveTo(bx, by)
-      ctx.lineTo(bx + (Math.cos(phase + i) * 12) * s, by + (Math.sin(phase + i) * 10) * s)
-      ctx.stroke()
+      ctx.ellipse(cx, topY, 22 * s, 3 * s, 0, 0, Math.PI * 2)
+      ctx.fill()
     }
     ctx.restore()
 
-    // ---- 4. 心脏本体（深红色渐变）----
-    const bodyGrad = ctx.createRadialGradient(cx, cy - 8 * s, 3 * s, cx, cy, 55 * s)
-    bodyGrad.addColorStop(0, beat > 1.05 ? '#ff6b6b' : c.main)  // 心跳顶点更亮
-    bodyGrad.addColorStop(0.4, c.main)
-    bodyGrad.addColorStop(0.85, c.dark)
-    bodyGrad.addColorStop(1, '#0a0000')
-    ctx.fillStyle = bodyGrad
-    drawHeartPath(ctx, cx, cy - 2 * s, beat * s)
-    ctx.fill()
-
-    // 外轮廓（霓虹暗红）
-    ctx.strokeStyle = hexa(c.accent, 0.6)
-    ctx.lineWidth = 2 * s
-    ctx.stroke()
-
-    // ---- 5. 血液粒子迸发（心脏内部→外部）----
-    for (const p of particles) {
-      const dist = Math.hypot(p.x - cx, p.y - cy)
-      const maxDist = 42 * s * beat
-      const alpha = dist < maxDist * 0.6 ? 0.7 : Math.max(0, 0.7 * (1 - (dist - maxDist * 0.6) / (maxDist * 0.4)))
-      // 血液颜色：深红粒子和亮红粒子混合
-      const bright = dist < 20 * s * beat
-      const clr = bright ? c.main : c.accent
-      ctx.fillStyle = hexa(clr, alpha)
-      ctx.beginPath(); ctx.arc(p.x, p.y, p.size * s * (bright ? 1.3 : 1), 0, Math.PI * 2); ctx.fill()
+    // ======== 4. 主动脉喷涌粒子（心脏收缩时血液射出）========
+    if (fill > 0.7 && active) {
+      const burstCount = Math.floor((fill - 0.7) / 0.3 * 12)
+      for (let i = 0; i < burstCount; i++) {
+        const ang = -Math.PI / 2 + (Math.random() - 0.5) * 0.6  // 向上喷射
+        const dist = 30 * s + Math.random() * 20 * s * (fill - 0.7)
+        const sx = cx + Math.cos(ang) * 12 * s, sy = cy - 30 * s + Math.sin(ang) * 8 * s
+        ctx.fillStyle = hexa(c.main, 0.7 * fill)
+        ctx.beginPath(); ctx.arc(sx + Math.cos(ang) * dist, sy + Math.sin(ang) * dist, 2 + Math.random() * 2.5 * s, 0, Math.PI * 2); ctx.fill()
+      }
     }
 
-    // ---- 6. 中心亮核（心脏最深处的反射）----
-    const hlx = cx - 3 * s, hly = cy - 18 * s
-    const coreGrad = ctx.createRadialGradient(hlx, hly, 1 * s, hlx, hly, 12 * beat * s)
-    coreGrad.addColorStop(0, 'rgba(255,180,180,0.6)')
-    coreGrad.addColorStop(0.5, hexa(c.main, 0.3))
-    coreGrad.addColorStop(1, 'transparent')
-    ctx.fillStyle = coreGrad
-    ctx.beginPath(); ctx.arc(hlx, hly, 12 * beat * s, 0, Math.PI * 2); ctx.fill()
+    // ======== 5. 内部血液粒子（心室内的血细胞）========
+    for (const p of particles) {
+      const px = cx + (p.x - cx) * 0.5, py = cy + (p.y - cy) * 0.5  // 粒子限制在内圈
+      const alpha = 0.25 + fill * 0.55
+      ctx.fillStyle = hexa(fill > 0.5 ? '#ff4444' : '#cc2222', alpha)
+      ctx.beginPath(); ctx.arc(px, py, p.size * s * (0.6 + fill * 0.5), 0, Math.PI * 2); ctx.fill()
+    }
 
-    // 小白点高光
-    ctx.fillStyle = 'rgba(255,200,200,0.5)'
-    ctx.beginPath(); ctx.arc(hlx - 1 * s, hly - 4 * s, 3 * beat * s, 0, Math.PI * 2); ctx.fill()
+    // ======== 6. 中心高光反射 ========
+    const hlx = cx - 3 * s, hly = cy - 20 * s
+    const hlg = ctx.createRadialGradient(hlx, hly, 1 * s, hlx, hly, 10 * s)
+    hlg.addColorStop(0, 'rgba(255,200,180,0.45)')
+    hlg.addColorStop(1, 'transparent')
+    ctx.fillStyle = hlg
+    ctx.beginPath(); ctx.arc(hlx, hly, 10 * s, 0, Math.PI * 2); ctx.fill()
+    ctx.fillStyle = 'rgba(255,240,230,0.4)'
+    ctx.beginPath(); ctx.arc(hlx - 1 * s, hly - 3 * s, 2.5 * s, 0, Math.PI * 2); ctx.fill()
   }
 }
 
