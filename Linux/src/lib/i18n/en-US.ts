@@ -6,7 +6,7 @@ export const enUS: TranslationMap = {
   pulsecore: {
     status: { idle: 'Idle', working: '● Working', learning: '● Learning', deepFocus: '◉ Deep Focus', paused: '◌ Paused' },
     statusDot: { idle: 'Idle', working: 'Working', learning: 'Learning', deepFocus: 'Deep Focus', paused: 'Paused' },
-    forms: { energyCore: 'Energy Core', pulseRing: 'Pulse Ring', hexCrystal: 'Hex Crystal', dataStream: 'Data Stream' },
+    forms: { heartbeat: 'Heartbeat', energyCore: 'Energy Core', pulseRing: 'Pulse Ring', hexCrystal: 'Hex Crystal', dataStream: 'Data Stream' },
     quickPanel: {
       startWork: '💼 Start Work', startLearning: '📚 Start Learning', openGui: '📊 Dashboard',
       pause: '⏸ Pause', resume: '▶ Resume', stop: '⏹ Stop',

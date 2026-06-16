@@ -6,7 +6,7 @@ export const zhCN: TranslationMap = {
   pulsecore: {
     status: { idle: '空闲', working: '● 工作中', learning: '● 学习中', deepFocus: '◉ 深度专注', paused: '◌ 已暂停' },
     statusDot: { idle: '空闲', working: '工作中', learning: '学习中', deepFocus: '深度专注', paused: '已暂停' },
-    forms: { energyCore: '能量核心', pulseRing: '脉冲光环', hexCrystal: '六棱晶核', dataStream: '数据流' },
+    forms: { heartbeat: '心跳', energyCore: '能量核心', pulseRing: '脉冲光环', hexCrystal: '六棱晶核', dataStream: '数据流' },
     quickPanel: {
       startWork: '💼 开始工作', startLearning: '📚 开始学习', openGui: '📊 打开管理面板',
       pause: '⏸ 暂停', resume: '▶ 继续', stop: '⏹ 结束',

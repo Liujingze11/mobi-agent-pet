@@ -9,8 +9,8 @@ import type { TimerState, TickPayload } from '../lib/types'
 import { I18nProvider } from '../lib/i18n'
 import type { Language } from '../lib/i18n'
 
-export type PetForm = 'energyCore' | 'pulseRing' | 'hexCrystal' | 'dataStream'
-const forms: PetForm[] = ['energyCore', 'pulseRing', 'hexCrystal', 'dataStream']
+export type PetForm = 'heartbeat' | 'energyCore' | 'pulseRing' | 'hexCrystal' | 'dataStream'
+const forms: PetForm[] = ['heartbeat', 'energyCore', 'pulseRing', 'hexCrystal', 'dataStream']
 const DRAG_THRESHOLD = 5
 
 function fmt(ms: number) {
@@ -34,7 +34,7 @@ export default function App() {
   const [showReview, setShowReview] = useState(false)
   const [sessionResult, setSessionResult] = useState<any>(null)
   const [achievements, setAchievements] = useState<any[]>([])
-  const [petForm, setPetForm] = useState<PetForm>('energyCore')
+  const [petForm, setPetForm] = useState<PetForm>('heartbeat')
 
   const isActive = timerState.status === 'working' || timerState.status === 'learning' || timerState.status === 'deep_focus'
   const isPaused = timerState.status === 'paused'

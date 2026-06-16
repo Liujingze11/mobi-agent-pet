@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { api } from '../../lib/ipc'
 import { useI18n } from '../../lib/i18n'
 
-export type PetForm = 'energyCore' | 'pulseRing' | 'hexCrystal' | 'dataStream'
+export type PetForm = 'heartbeat' | 'energyCore' | 'pulseRing' | 'hexCrystal' | 'dataStream'
 
 interface Props {
   form: PetForm
@@ -15,11 +15,19 @@ interface Props {
 //  配色
 // ============================================================
 const palette: Record<string, { main: string; glow: string; accent: string; dark: string }> = {
-  idle:        { main: '#818cf8', glow: 'rgba(99,102,241,0.4)',  accent: '#6366f1', dark: '#312e81' },
+  idle:        { main: '#f472b6', glow: 'rgba(236,72,153,0.35)',  accent: '#ec4899', dark: '#831843' },
   working:     { main: '#60a5fa', glow: 'rgba(59,130,246,0.5)',  accent: '#3b82f6', dark: '#1e3a5f' },
   learning:    { main: '#4ade80', glow: 'rgba(34,197,94,0.5)',   accent: '#22c55e', dark: '#14532d' },
   deep_focus:  { main: '#fbbf24', glow: 'rgba(245,158,11,0.55)', accent: '#f59e0b', dark: '#78350f' },
   paused:      { main: '#6b7280', glow: 'rgba(107,114,128,0.2)', accent: '#9ca3af', dark: '#1f2937' },
+}
+
+const heartPalette: Record<string, { main: string; glow: string; accent: string; dark: string }> = {
+  idle:        { main: '#f9a8d4', glow: 'rgba(244,114,182,0.45)',  accent: '#ec4899', dark: '#9d174d' },
+  working:     { main: '#f472b6', glow: 'rgba(236,72,153,0.6)',  accent: '#db2777', dark: '#831843' },
+  learning:    { main: '#f472b6', glow: 'rgba(236,72,153,0.6)',  accent: '#db2777', dark: '#831843' },
+  deep_focus:  { main: '#fb7185', glow: 'rgba(244,63,94,0.65)',  accent: '#e11d48', dark: '#881337' },
+  paused:      { main: '#9ca3af', glow: 'rgba(156,163,175,0.25)', accent: '#6b7280', dark: '#374151' },
 }
 
 function fmt(ms: number) {
@@ -198,10 +206,93 @@ function drawDataStream(ctx: CanvasRenderingContext2D, cx: number, cy: number, c
 }
 
 // ============================================================
+//  心跳爱心
+// ============================================================
+function drawHeart(ctx: CanvasRenderingContext2D, cx: number, cy: number, scale: number) {
+  const s = scale * 0.9
+  ctx.save(); ctx.translate(cx, cy); ctx.scale(s, s)
+  ctx.beginPath()
+  ctx.moveTo(0, 15)
+  ctx.bezierCurveTo(-30, -5, -50, -30, -12, -45)
+  ctx.bezierCurveTo(10, -55, 0, -35, 0, -20)
+  ctx.bezierCurveTo(0, -35, 12, -55, 32, -45)
+  ctx.bezierCurveTo(70, -30, 50, -5, 0, 15)
+  ctx.closePath()
+  ctx.restore()
+}
+
+function drawHeartbeat(ctx: CanvasRenderingContext2D, cx: number, cy: number, c: ColorSet, phase: number, status: string, _particles: Particle[]) {
+  // 心跳动画：lub-dub 节奏
+  const t = phase * 3.5
+  const cycle = t % (Math.PI * 2)
+  // 模拟心跳: 快速收缩-扩张-暂停
+  let beat = 1
+  if (cycle < 0.3) { beat = 1 + Math.sin(cycle / 0.3 * Math.PI) * 0.12 }        // lub
+  else if (cycle < 0.5) { beat = 1 - Math.sin((cycle - 0.3) / 0.2 * Math.PI) * 0.05 } // 回落
+  else if (cycle < 0.8) { beat = 1 + Math.sin((cycle - 0.5) / 0.3 * Math.PI) * 0.08 } // dub
+  else if (cycle < 1.0) { beat = 1 - Math.sin((cycle - 0.8) / 0.2 * Math.PI) * 0.04 }
+  // else: 暂停期 beat=1
+
+  if (status === 'idle') beat = 1 + Math.sin(phase * 0.8) * 0.03  // idle 微弱呼吸
+  if (status === 'paused') beat = 0.92  // 暂停时缩小
+
+  // 外层光晕
+  const glowR = 55 * beat
+  const grad = ctx.createRadialGradient(cx, cy, 5, cx, cy, glowR)
+  grad.addColorStop(0, c.glow); grad.addColorStop(1, 'transparent')
+  ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(cx, cy, glowR, 0, Math.PI * 2); ctx.fill()
+
+  // 脉冲波纹（活跃时）
+  if (status !== 'idle' && status !== 'paused') {
+    const ripple = ((phase * 2) % (Math.PI * 2)) / (Math.PI * 2)
+    for (let i = 0; i < 2; i++) {
+      const r = 35 + ((ripple + i * 0.5) % 1) * 30
+      const alpha = 0.4 * (1 - (r - 35) / 30)
+      ctx.strokeStyle = hexa(c.accent, alpha)
+      ctx.lineWidth = 2
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke()
+    }
+  }
+
+  // 粒子（活跃时）
+  if (status !== 'idle' && status !== 'paused') {
+    for (let i = 0; i < 8; i++) {
+      const ang = (i / 8) * Math.PI * 2 + phase * 0.3
+      const dist = 38 + Math.sin(i * 1.7 + phase * 0.5) * 10
+      const px = cx + Math.cos(ang) * dist, py = cy + Math.sin(ang) * dist
+      ctx.fillStyle = hexa(c.main, 0.4 + Math.abs(Math.sin(i + phase)) * 0.3)
+      ctx.beginPath(); ctx.arc(px, py, 1.8, 0, Math.PI * 2); ctx.fill()
+    }
+  }
+
+  // 爱心本体
+  ctx.fillStyle = c.main; ctx.strokeStyle = c.accent; ctx.lineWidth = 2
+  drawHeart(ctx, cx, cy - 2, beat)
+  ctx.fill()
+  ctx.stroke()
+
+  // 内层高光
+  ctx.fillStyle = hexa(c.accent, 0.5)
+  drawHeart(ctx, cx, cy - 2, beat * 0.78)
+  ctx.fill()
+
+  // 中心亮光
+  const hlx = cx - 2, hly = cy - 14
+  const hlg = ctx.createRadialGradient(hlx, hly, 1, hlx, hly, 12 * beat)
+  hlg.addColorStop(0, 'rgba(255,255,255,0.8)'); hlg.addColorStop(1, 'transparent')
+  ctx.fillStyle = hlg
+  ctx.beginPath(); ctx.arc(hlx, hly, 12 * beat, 0, Math.PI * 2); ctx.fill()
+
+  // 小白点高光
+  ctx.fillStyle = 'rgba(255,255,255,0.7)'
+  ctx.beginPath(); ctx.arc(hlx - 2, hly - 3, 3 * beat, 0, Math.PI * 2); ctx.fill()
+}
+
+// ============================================================
 //  组件
 // ============================================================
-const drawFns = { energyCore: drawEnergyCore, pulseRing: drawPulseRing, hexCrystal: drawHexCrystal, dataStream: drawDataStream }
-export const formNames: Record<string, string> = { energyCore: '能量核心', pulseRing: '脉冲光环', hexCrystal: '六棱晶核', dataStream: '数据流' }
+const drawFns: Record<string, any> = { heartbeat: drawHeartbeat, energyCore: drawEnergyCore, pulseRing: drawPulseRing, hexCrystal: drawHexCrystal, dataStream: drawDataStream }
+export const formNames: Record<string, string> = { heartbeat: '心跳', energyCore: '能量核心', pulseRing: '脉冲光环', hexCrystal: '六棱晶核', dataStream: '数据流' }
 
 export default function PulseCore({ form, status, effectiveMs, onMouseUp }: Props) {
   const { t } = useI18n()
@@ -230,8 +321,9 @@ export default function PulseCore({ form, status, effectiveMs, onMouseUp }: Prop
     const ctx = canvas.getContext('2d'); if (!ctx) return
 
     let animId: number, phase = 0
-    const col = palette[status] || palette.idle
-    const drawFn = drawFns[form] || drawEnergyCore
+    const isHeart = form === 'heartbeat'
+    const col = (isHeart ? heartPalette[status] : palette[status]) || (isHeart ? heartPalette.idle : palette.idle)
+    const drawFn = drawFns[form] || drawHeartbeat
 
     const draw = () => {
       const { width, height } = canvas; const cx = width / 2, cy = height / 2
