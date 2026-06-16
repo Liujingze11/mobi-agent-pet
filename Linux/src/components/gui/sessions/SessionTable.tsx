@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
 import { api } from '../../../lib/ipc'
 import { formatSeconds } from '../../../lib/ipc'
+import { useI18n } from '../../../lib/i18n'
 
 export default function SessionTable() {
+  const { t } = useI18n()
   const [workSessions, setWorkSessions] = useState<any[]>([])
   const [learningSessions, setLearningSessions] = useState<any[]>([])
   const [tab, setTab] = useState<'work' | 'learning'>('work')
@@ -16,16 +18,16 @@ export default function SessionTable() {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-xl font-semibold">📝 记录查看</h2>
+      <h2 className="text-xl font-semibold">{t('gui.sessions.title')}</h2>
 
       <div className="flex gap-2">
         <button onClick={() => setTab('work')}
           className={`px-4 py-1.5 rounded-lg text-sm font-medium ${tab === 'work' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
-          工作记录
+          {t('gui.sessions.workTab')}
         </button>
         <button onClick={() => setTab('learning')}
           className={`px-4 py-1.5 rounded-lg text-sm font-medium ${tab === 'learning' ? 'bg-green-600 text-white' : 'bg-slate-800 text-slate-400'}`}>
-          学习记录
+          {t('gui.sessions.learningTab')}
         </button>
       </div>
 
@@ -33,12 +35,12 @@ export default function SessionTable() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-700 text-slate-400 text-xs">
-              <th className="text-left px-4 py-3">日期</th>
-              <th className="text-left px-4 py-3">{tab === 'work' ? '项目' : '主题'}</th>
-              <th className="text-left px-4 py-3">开始</th>
-              <th className="text-left px-4 py-3">结束</th>
-              <th className="text-left px-4 py-3">时长</th>
-              <th className="text-left px-4 py-3">状态</th>
+              <th className="text-left px-4 py-3">{t('gui.sessions.date')}</th>
+              <th className="text-left px-4 py-3">{tab === 'work' ? t('gui.sessions.project') : t('gui.sessions.topic')}</th>
+              <th className="text-left px-4 py-3">{t('gui.sessions.start')}</th>
+              <th className="text-left px-4 py-3">{t('gui.sessions.end')}</th>
+              <th className="text-left px-4 py-3">{t('gui.sessions.duration')}</th>
+              <th className="text-left px-4 py-3">{t('gui.sessions.status')}</th>
             </tr>
           </thead>
           <tbody>
@@ -55,14 +57,14 @@ export default function SessionTable() {
                     s.status === 'paused' ? 'bg-yellow-500/20 text-yellow-400' :
                     'bg-blue-500/20 text-blue-400'
                   }`}>
-                    {s.status === 'completed' ? '已完成' : s.status === 'paused' ? '已暂停' : '进行中'}
+                    {s.status === 'completed' ? t('gui.sessions.statusCompleted') : s.status === 'paused' ? t('gui.sessions.statusPaused') : t('gui.sessions.statusActive')}
                   </span>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
-        {sessions.length === 0 && <p className="text-slate-500 text-sm text-center py-8">暂无记录</p>}
+        {sessions.length === 0 && <p className="text-slate-500 text-sm text-center py-8">{t('gui.sessions.noData')}</p>}
       </div>
     </div>
   )

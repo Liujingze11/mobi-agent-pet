@@ -3,6 +3,16 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { api } from '../../../lib/ipc'
 import { formatSeconds } from '../../../lib/ipc'
 
+function getGreeting(): string {
+  const h = new Date().getHours()
+  if (h < 6) return '🌙 夜深了'
+  if (h < 9) return '🌅 早上好'
+  if (h < 12) return '☀️ 上午好'
+  if (h < 14) return '👋 中午好'
+  if (h < 18) return '☀️ 下午好'
+  return '🌆 晚上好'
+}
+
 function StatCard({ title, value, subtitle, color }: { title: string; value: string; subtitle?: string; color: string }) {
   return (
     <div className="bg-slate-800 rounded-xl p-4 border border-slate-700">
@@ -19,29 +29,37 @@ export default function OverviewPage() {
 
   useEffect(() => {
     api.timer.getTodayStats().then(setStats)
-    const days: any[] = []
+
+    // 使用 Promise.all 避免竞态条件
+    const days: { dateStr: string; label: string }[] = []
     for (let i = 6; i >= 0; i--) {
       const d = new Date()
       d.setDate(d.getDate() - i)
       const dateStr = d.toISOString().slice(0, 10)
-      api.reports.getDaily(dateStr).then((r: any) => {
-        if (r) {
-          const data = JSON.parse(r.content_json)
-          days.push({
-            date: dateStr.slice(5),
-            work: Math.round(data.totalWorkMinutes / 60 * 10) / 10,
-            learning: Math.round(data.totalLearningMinutes / 60 * 10) / 10
-          })
-          if (days.length === 7) setDailyData(days.sort((a, b) => a.date.localeCompare(b.date)))
-        }
-      })
+      days.push({ dateStr, label: dateStr.slice(5) })
     }
+
+    Promise.all(days.map(d => api.reports.getDaily(d.dateStr))).then(results => {
+      const chartData = results
+        .map((r, i) => {
+          if (r) {
+            const data = JSON.parse(r.content_json)
+            return {
+              date: days[i].label,
+              work: Math.round(data.totalWorkMinutes / 60 * 10) / 10,
+              learning: Math.round(data.totalLearningMinutes / 60 * 10) / 10
+            }
+          }
+          return { date: days[i].label, work: 0, learning: 0 }
+        })
+      setDailyData(chartData)
+    })
   }, [])
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-semibold">👋 下午好</h2>
+        <h2 className="text-xl font-semibold">{getGreeting()}</h2>
         <p className="text-slate-400 text-sm mt-1">
           {new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}
         </p>

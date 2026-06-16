@@ -1,16 +1,16 @@
 import { useState, useEffect } from 'react'
 import { api } from '../../../lib/ipc'
+import { useI18n } from '../../../lib/i18n'
 
 export default function AchievementWall() {
+  const { t, language } = useI18n()
   const [achievements, setAchievements] = useState<any[]>([])
 
-  useEffect(() => {
-    api.achievements.listUnlocked().then(setAchievements)
-  }, [])
+  useEffect(() => { api.achievements.listUnlocked().then(setAchievements) }, [])
 
   return (
     <div className="space-y-4">
-      <h2 className="text-xl font-semibold">🏆 成就墙</h2>
+      <h2 className="text-xl font-semibold">{t('gui.achievements.title')}</h2>
       <div className="grid grid-cols-3 gap-3">
         {achievements.map((a: any) => {
           const unlocked = !!a.unlocked_at
@@ -23,7 +23,7 @@ export default function AchievementWall() {
                   <div className="text-xs text-slate-500 mt-1">{a.description}</div>
                   {unlocked && (
                     <div className="text-xs text-amber-400 mt-1">
-                      🎉 {new Date(a.unlocked_at).toLocaleDateString('zh-CN')}
+                      🎉 {new Date(a.unlocked_at).toLocaleDateString(language === 'zh-CN' ? 'zh-CN' : 'en-US')}
                     </div>
                   )}
                 </div>
@@ -32,6 +32,7 @@ export default function AchievementWall() {
           )
         })}
       </div>
+      {achievements.length === 0 && <p className="text-slate-500 text-sm text-center py-8">{t('gui.achievements.noData')}</p>}
     </div>
   )
 }

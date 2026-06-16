@@ -47,7 +47,14 @@ export class DeepSeekProvider extends BaseAIProvider {
     )
 
     const content = result.choices[0].message.content
-    const parsed = JSON.parse(content)
+    let parsed: any
+    try {
+      parsed = JSON.parse(content)
+    } catch {
+      // AI 返回了非 JSON 格式，尝试从文本中提取 JSON
+      const jsonMatch = content.match(/\{[\s\S]*\}/)
+      parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {}
+    }
 
     return {
       completedWork: parsed.completed_work || [],
@@ -87,7 +94,13 @@ export class DeepSeekProvider extends BaseAIProvider {
     )
 
     const content = result.choices[0].message.content
-    const parsed = JSON.parse(content)
+    let parsed: any
+    try {
+      parsed = JSON.parse(content)
+    } catch {
+      const jsonMatch = content.match(/\{[\s\S]*\}/)
+      parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {}
+    }
 
     return {
       title: parsed.title || '',

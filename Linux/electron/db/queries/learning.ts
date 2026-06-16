@@ -71,3 +71,18 @@ export function listLearningSessions(db: Database.Database, filters?: {
   sql += ` ORDER BY ls.start_time DESC`
   return db.prepare(sql).all(...params)
 }
+
+export function getTotalLearningSecondsByDateRange(db: Database.Database, dateFrom: string, dateTo: string, userId?: string) {
+  let sql = `SELECT COALESCE(SUM(effective_seconds), 0) as total FROM learning_sessions WHERE start_time >= ? AND start_time <= ? AND status = 'completed'`
+  const params: any[] = [dateFrom + 'T00:00:00.000Z', dateTo + 'T23:59:59.999Z']
+  if (userId) { sql += ` AND user_id = ?`; params.push(userId) }
+  return (db.prepare(sql).get(...params) as any).total
+}
+
+export function getDailyLearningStatsForRange(db: Database.Database, userId: string, dateFrom: string, dateTo: string) {
+  return db.prepare(`
+    SELECT date(ls.start_time) as date, COALESCE(SUM(ls.effective_seconds), 0) as learning_seconds
+    FROM learning_sessions ls WHERE ls.user_id = ? AND ls.start_time >= ? AND ls.start_time <= ? AND ls.status = 'completed'
+    GROUP BY date(ls.start_time) ORDER BY date ASC
+  `).all(userId, dateFrom + 'T00:00:00.000Z', dateTo + 'T23:59:59.999Z')
+}

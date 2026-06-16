@@ -1,5 +1,5 @@
 import { app, BrowserWindow } from 'electron'
-import { createPulseCoreWindow, createGuiWindow } from './windows'
+import { showPulseCore, createGuiWindow } from './windows'
 import { createTray } from './tray'
 import { initDatabase } from './db/connection'
 import { runMigrations } from './db/migrate'
@@ -8,19 +8,20 @@ import { initIpcHandlers } from './ipc-handlers'
 import { TimerEngine } from './timer/engine'
 import { AIProviderRegistry } from './ai/registry'
 import { ReportGenerator } from './report/generator'
+import { loadLanguage, isFirstLaunch } from './i18n'
 
 // 全局单例
 export let timerEngine: TimerEngine
 export let aiRegistry: AIProviderRegistry
 export let reportGenerator: ReportGenerator
 
-let pulseCoreWindow: BrowserWindow | null = null
-
 app.whenReady().then(async () => {
   // 初始化数据库
   const db = initDatabase()
   runMigrations(db)
   seedDefaults(db)
+  const firstLaunch = isFirstLaunch(db)
+  loadLanguage(db)
 
   // 初始化核心服务
   timerEngine = new TimerEngine(db)
@@ -30,16 +31,23 @@ app.whenReady().then(async () => {
   // 初始化 IPC
   initIpcHandlers()
 
-  // 创建窗口
-  pulseCoreWindow = createPulseCoreWindow()
-  createTray(pulseCoreWindow)
+  // 创建托盘（始终显示）
+  createTray()
+
+  if (firstLaunch) {
+    // 首次启动：显示 GUI 引导页（语言+模式选择），暂不显示 PulseCore
+    createGuiWindow()
+  } else {
+    // 后续启动：直接显示 PulseCore
+    showPulseCore()
+  }
 
   // 崩溃恢复
   await timerEngine.recoverFromSnapshot()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      pulseCoreWindow = createPulseCoreWindow()
+      showPulseCore()
     }
   })
 })

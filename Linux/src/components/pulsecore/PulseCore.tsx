@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { api } from '../../lib/ipc'
+import { useI18n } from '../../lib/i18n'
 
 export type PetForm = 'energyCore' | 'pulseRing' | 'hexCrystal' | 'dataStream'
 
@@ -203,6 +204,7 @@ const drawFns = { energyCore: drawEnergyCore, pulseRing: drawPulseRing, hexCryst
 export const formNames: Record<string, string> = { energyCore: '能量核心', pulseRing: '脉冲光环', hexCrystal: '六棱晶核', dataStream: '数据流' }
 
 export default function PulseCore({ form, status, effectiveMs, onMouseUp }: Props) {
+  const { t } = useI18n()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const particlesRef = useRef<Particle[]>([])
   const [scale, setScale] = useState(1)
@@ -248,7 +250,10 @@ export default function PulseCore({ form, status, effectiveMs, onMouseUp }: Prop
       if (status !== 'idle') {
         ctx.fillStyle = 'rgba(255,255,255,0.65)'
         ctx.font = `${Math.round(9 * scale)}px sans-serif`; ctx.textAlign = 'center'
-        const labels: Record<string, string> = { working: '● 工作中', learning: '● 学习中', deep_focus: '◉ 深度专注', paused: '◌ 已暂停' }
+        const labels: Record<string, string> = {
+          working: t('pulsecore.status.working'), learning: t('pulsecore.status.learning'),
+          deepFocus: t('pulsecore.status.deepFocus'), paused: t('pulsecore.status.paused')
+        }
         ctx.fillText(labels[status] || '', cx, cy + 58 * scale)
       }
       phase += 0.05; animId = requestAnimationFrame(draw)

@@ -8,6 +8,7 @@ export interface ProviderConfig {
 
 export interface SummarizeInput {
   type: 'work' | 'learning'
+  sessionId?: string
   projectName?: string
   taskName?: string
   topicName?: string

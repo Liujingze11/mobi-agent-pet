@@ -62,7 +62,11 @@ declare global {
       }
       tasks: {
         listByProject: (projectId: string) => Promise<any[]>
+        listMain: (projectId: string) => Promise<any[]>
+        listSubtasks: (parentId: string) => Promise<any[]>
         create: (d: any) => Promise<any>
+        createSubtask: (d: any) => Promise<any>
+        toggleSubtask: (id: string) => Promise<any>
         update: (id: string, d: any) => Promise<any>
         remove: (id: string) => Promise<any>
       }
@@ -84,13 +88,17 @@ declare global {
         getSettings: () => Promise<any>
         saveSettings: (s: any) => Promise<any>
       }
+      hasApiKey: () => Promise<boolean>
       reports: {
         getDaily: (d: string) => Promise<any>
         generateDaily: (d: string) => Promise<any>
+        refreshDaily: (d: string) => Promise<any>
         getWeekly: (y: number, w: number) => Promise<any>
         generateWeekly: (y: number, w: number) => Promise<any>
+        refreshWeekly: (y: number, w: number) => Promise<any>
         getMonthly: (y: number, m: number) => Promise<any>
         generateMonthly: (y: number, m: number) => Promise<any>
+        refreshMonthly: (y: number, m: number) => Promise<any>
         exportMarkdown: (id: string, type: string) => Promise<string>
       }
       achievements: {
@@ -105,12 +113,18 @@ declare global {
       }
       window: {
         openGui: () => Promise<void>
+        closeGui: () => Promise<void>
+        showPulseCore: () => Promise<void>
+        hidePulseCore: () => Promise<void>
+        togglePulseCore: () => Promise<boolean>
+        isPulseCoreVisible: () => Promise<boolean>
         drag: (dx: number, dy: number) => Promise<void>
         resize: (scale: number) => Promise<void>
       }
       app: {
         getMode: () => Promise<string>
         setMode: (m: string) => Promise<string>
+        onboardingComplete: () => Promise<void>
         quit: () => Promise<void>
       }
     }

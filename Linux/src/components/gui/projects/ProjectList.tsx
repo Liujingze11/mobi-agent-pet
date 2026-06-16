@@ -2,8 +2,10 @@ import { useState, useEffect } from 'react'
 import { FolderOpen, Sparkles, Loader2, Folder } from 'lucide-react'
 import { api } from '../../../lib/ipc'
 import { formatSeconds } from '../../../lib/ipc'
+import { useI18n } from '../../../lib/i18n'
 
 export default function ProjectList() {
+  const { t } = useI18n()
   const [projects, setProjects] = useState<any[]>([])
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ name: '', description: '', color: '#6366f1', sourceFolder: '' })
@@ -63,10 +65,10 @@ export default function ProjectList() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold">📁 项目管理</h2>
+        <h2 className="text-xl font-semibold">{t('gui.projects.title')}</h2>
         <button onClick={() => setShowForm(!showForm)}
           className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg px-4 py-2 text-sm font-medium">
-          + 新建项目
+          {t('gui.projects.newProject')}
         </button>
       </div>
 
@@ -74,17 +76,17 @@ export default function ProjectList() {
         <div className="bg-slate-800 rounded-xl p-5 border border-slate-700 space-y-3">
           {/* 文件夹选择 */}
           <div>
-            <label className="text-xs text-slate-400 mb-1.5 block">导入项目文件夹</label>
+            <label className="text-xs text-slate-400 mb-1.5 block">{t('gui.projects.importFolder')}</label>
             <div className="flex gap-2">
               <button onClick={handlePickFolder}
                 className="flex items-center gap-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg px-3 py-2 text-sm border border-slate-600">
-                <FolderOpen size={15} /> 选择文件夹
+                <FolderOpen size={15} /> {t('gui.projects.selectFolder')}
               </button>
               {form.sourceFolder && (
                 <button onClick={handleAIScan} disabled={scanning}
                   className="flex items-center gap-1.5 bg-amber-600/20 hover:bg-amber-600/40 text-amber-300 rounded-lg px-3 py-2 text-sm border border-amber-500/30 disabled:opacity-50">
                   {scanning ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
-                  {scanning ? 'AI 解析中...' : 'AI 自动填写'}
+                  {scanning ? t('gui.projects.aiScanning') : t('gui.projects.aiScan')}
                 </button>
               )}
             </div>

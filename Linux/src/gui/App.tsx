@@ -10,51 +10,19 @@ import WeeklyReport from '../components/gui/reports/WeeklyReport'
 import MonthlyReport from '../components/gui/reports/MonthlyReport'
 import AchievementWall from '../components/gui/achievements/AchievementWall'
 import SettingsPage from '../components/gui/settings/SettingsPage'
+import WorkbenchPage from '../components/gui/workbench/WorkbenchPage'
+import { I18nProvider, OnboardingGate } from '../lib/i18n'
+import type { Language } from '../lib/i18n'
 import { api } from '../lib/ipc'
 
-type Page = 'overview' | 'projects' | 'tasks' | 'knowledge' | 'sessions' | 'daily' | 'weekly' | 'monthly' | 'achievements' | 'settings'
+type Page = 'workbench' | 'overview' | 'projects' | 'tasks' | 'knowledge' | 'sessions' | 'daily' | 'weekly' | 'monthly' | 'achievements' | 'settings'
 
-export default function App() {
+function AppContent() {
   const [page, setPage] = useState<Page>('overview')
-  const [mode, setMode] = useState<string>('solo')
-  const [showModeSelect, setShowModeSelect] = useState(false)
-
-  useEffect(() => {
-    api.app.getMode().then(m => {
-      if (!m || m === '""') setShowModeSelect(true)
-      else setMode(m)
-    })
-  }, [])
-
-  const handleModeSelect = async (m: string) => {
-    await api.app.setMode(m)
-    setMode(m)
-    setShowModeSelect(false)
-  }
-
-  if (showModeSelect) {
-    return (
-      <div className="h-screen flex items-center justify-center bg-surface-dark">
-        <div className="text-center space-y-6">
-          <h1 className="text-2xl font-bold text-white">欢迎使用 DevPulse AI</h1>
-          <p className="text-slate-400">请选择您的使用模式</p>
-          <div className="flex gap-4">
-            <button onClick={() => handleModeSelect('solo')}
-              className="bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl px-8 py-4 text-lg font-medium">
-              🧑‍💻 独立开发者
-            </button>
-            <button onClick={() => handleModeSelect('team')}
-              className="bg-slate-700 hover:bg-slate-600 text-white rounded-xl px-8 py-4 text-lg font-medium">
-              👥 团队开发
-            </button>
-          </div>
-        </div>
-      </div>
-    )
-  }
 
   const renderPage = () => {
     switch (page) {
+      case 'workbench': return <WorkbenchPage />
       case 'overview': return <OverviewPage />
       case 'projects': return <ProjectList />
       case 'tasks': return <TaskList />
@@ -69,4 +37,38 @@ export default function App() {
   }
 
   return <Layout currentPage={page} onNavigate={setPage}>{renderPage()}</Layout>
+}
+
+export default function App() {
+  const [language, setLanguage] = useState<Language | null>(null)
+  const [ready, setReady] = useState(false)
+
+  useEffect(() => {
+    Promise.all([api.settings.get('language'), api.app.getMode()]).then(([lang, mode]) => {
+      if (lang === 'zh-CN' || lang === 'en-US') {
+        setLanguage(lang as Language)
+        if (mode && mode !== '""') setReady(true)
+      }
+      // 否则 language 保持 null，触发 OnboardingGate
+    })
+  }, [])
+
+  const handleOnboardingDone = async (lang: Language, mode: string) => {
+    await api.settings.set('language', lang)
+    await api.app.setMode(mode)
+    // 通知主进程：引导完成，可以显示 PulseCore 了
+    await api.app.onboardingComplete()
+    setLanguage(lang)
+    setReady(true)
+  }
+
+  if (!language || !ready) {
+    return <OnboardingGate onDone={handleOnboardingDone} />
+  }
+
+  return (
+    <I18nProvider language={language}>
+      <AppContent />
+    </I18nProvider>
+  )
 }

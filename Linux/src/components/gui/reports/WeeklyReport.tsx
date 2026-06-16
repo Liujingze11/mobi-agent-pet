@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { api } from '../../../lib/ipc'
 
 function getCurrentWeek() {
@@ -32,7 +32,7 @@ export default function WeeklyReport() {
     } finally { setLoading(false) }
   }
 
-  useState(() => { loadReport() })
+  useEffect(() => { loadReport() }, [year, week])
 
   return (
     <div className="space-y-4">

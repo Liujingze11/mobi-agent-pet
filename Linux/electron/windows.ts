@@ -1,5 +1,6 @@
 import { BrowserWindow, screen, app, Menu } from 'electron'
 import path from 'node:path'
+import { t } from './i18n'
 
 const isDev = !app.isPackaged
 
@@ -8,9 +9,35 @@ function getPreloadPath() {
 }
 
 let guiWindow: BrowserWindow | null = null
-export function getGuiWindow(): BrowserWindow | null { return guiWindow }
+let pulseCoreWindow: BrowserWindow | null = null
 
-export function createPulseCoreWindow(): BrowserWindow {
+export function getGuiWindow(): BrowserWindow | null { return guiWindow }
+export function getPulseCoreWindow(): BrowserWindow | null { return pulseCoreWindow }
+
+export function showPulseCore(): void {
+  if (pulseCoreWindow && !pulseCoreWindow.isDestroyed()) {
+    pulseCoreWindow.show()
+  } else {
+    pulseCoreWindow = createPulseCoreWindow()
+  }
+}
+
+export function hidePulseCore(): void {
+  if (pulseCoreWindow && !pulseCoreWindow.isDestroyed()) {
+    pulseCoreWindow.hide()
+  }
+}
+
+export function togglePulseCore(): boolean {
+  if (pulseCoreWindow && !pulseCoreWindow.isDestroyed() && pulseCoreWindow.isVisible()) {
+    pulseCoreWindow.hide(); return false
+  } else {
+    showPulseCore(); return true
+  }
+}
+
+function createPulseCoreWindow(): BrowserWindow {
+  if (pulseCoreWindow && !pulseCoreWindow.isDestroyed()) return pulseCoreWindow
   const { width: screenWidth } = screen.getPrimaryDisplay().workAreaSize
 
   const win = new BrowserWindow({
@@ -39,20 +66,21 @@ export function createPulseCoreWindow(): BrowserWindow {
 
   // 右键菜单
   const contextMenu = Menu.buildFromTemplate([
-    { label: '💼 开始工作', click: () => win.webContents.send('tray:start-work') },
-    { label: '📚 开始学习', click: () => win.webContents.send('tray:start-learning') },
+    { label: t('contextMenu.startWork'), click: () => win.webContents.send('tray:start-work') },
+    { label: t('contextMenu.startLearning'), click: () => win.webContents.send('tray:start-learning') },
     { type: 'separator' },
     {
-      label: '📊 打开管理面板',
+      label: t('contextMenu.openGui'),
       click: () => {
         if (guiWindow && !guiWindow.isDestroyed()) { guiWindow.show(); guiWindow.focus() }
         else guiWindow = createGuiWindow()
       }
     },
     { type: 'separator' },
-    { label: '❌ 退出 DevPulse AI', click: () => app.quit() }
+    { label: t('contextMenu.quit'), click: () => app.quit() }
   ])
   win.webContents.on('context-menu', () => contextMenu.popup({ window: win }))
+  win.on('closed', () => { pulseCoreWindow = null })
 
   if (isDev) {
     win.loadURL('http://localhost:5173/src/pulsecore/index.html')
@@ -60,6 +88,7 @@ export function createPulseCoreWindow(): BrowserWindow {
     win.loadFile(path.join(__dirname, '../dist/src/pulsecore/index.html'))
   }
 
+  pulseCoreWindow = win
   return win
 }
 
@@ -69,7 +98,7 @@ export function createGuiWindow(): BrowserWindow {
   }
   guiWindow = new BrowserWindow({
     width: 1200, height: 800, minWidth: 900, minHeight: 600,
-    title: 'DevPulse AI', backgroundColor: '#0f172a', show: false,
+    title: t('window.title'), backgroundColor: '#0f172a', show: false,
     webPreferences: {
       preload: getPreloadPath(), nodeIntegration: false,
       contextIsolation: true, sandbox: false

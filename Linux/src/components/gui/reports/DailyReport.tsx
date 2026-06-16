@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { api } from '../../../lib/ipc'
 
 export default function DailyReport() {
@@ -25,7 +25,7 @@ export default function DailyReport() {
     }
   }
 
-  useState(() => { loadReport() })
+  useEffect(() => { loadReport() }, [date])
 
   return (
     <div className="space-y-4">

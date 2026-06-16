@@ -58,8 +58,12 @@ export class AchievementChecker {
         return (row.total / 3600) >= condition.threshold
       }
       case 'project_completed': {
-        const row = this.db.prepare(`SELECT COUNT(*) as c FROM projects WHERE status = 'completed'`).get() as any
-        return row.c >= condition.threshold
+        // 检查是否有项目累计达到阈值时长（秒），默认 3600 秒 = 1小时
+        const thresholdSeconds = (condition.threshold_seconds || 3600)
+        const row = this.db.prepare(
+          `SELECT COUNT(*) as c FROM projects WHERE total_seconds >= ?`
+        ).get(thresholdSeconds) as any
+        return row.c >= (condition.threshold || 1)
       }
       case 'weekly_report_count': {
         const row = this.db.prepare(`SELECT COUNT(*) as c FROM weekly_reports WHERE user_id = ?`).get(userId) as any

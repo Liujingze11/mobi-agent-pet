@@ -61,15 +61,6 @@ export class TimerStateManager {
     return this.transition(prevStatus)
   }
 
-  setDeepFocus(): TimerState {
-    return this.transition('deep_focus')
-  }
-
-  exitDeepFocus(): TimerState {
-    const prevStatus: TimerStatus = this.state.sessionType === 'learning' ? 'learning' : 'working'
-    return this.transition(prevStatus)
-  }
-
   restore(state: TimerState): void {
     this.state = { ...state }
   }

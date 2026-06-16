@@ -58,7 +58,7 @@ export class AIProviderRegistry {
       const result = await this.getActive().summarize(input)
       this.db.prepare(
         `INSERT INTO ai_summaries (id, session_type, session_id, provider, model, prompt_tokens, completion_tokens, summary_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(generateId(), input.type, '', this.activeProviderName, this.getActive().models[0],
+      ).run(generateId(), input.type, input.sessionId || '', this.activeProviderName, this.getActive().models[0],
         result.tokensUsed.prompt, result.tokensUsed.completion, JSON.stringify(result))
       return result
     } catch (err: any) {

@@ -1,10 +1,30 @@
 import { Tray, Menu, nativeImage, BrowserWindow, app } from 'electron'
-import { createGuiWindow } from './windows'
+import { createGuiWindow, togglePulseCore, getPulseCoreWindow } from './windows'
+import { t } from './i18n'
 
 let tray: Tray | null = null
 
-export function createTray(pulseCoreWindow: BrowserWindow): Tray {
-  // 创建一个简单的彩色图标 (16x16 RGBA)
+function buildTrayMenu(): Menu {
+  const pulseVisible = getPulseCoreWindow()?.isVisible() ?? false
+  return Menu.buildFromTemplate([
+    { label: t('tray.startWork'), click: () => getPulseCoreWindow()?.webContents.send('tray:start-work') },
+    { label: t('tray.startLearning'), click: () => getPulseCoreWindow()?.webContents.send('tray:start-learning') },
+    { type: 'separator' },
+    {
+      label: pulseVisible ? t('tray.hidePulse') : t('tray.showPulse'),
+      click: () => {
+        togglePulseCore()
+        // 重建菜单以更新标签
+        if (tray) tray.setContextMenu(buildTrayMenu())
+      }
+    },
+    { label: t('tray.openGui'), click: () => createGuiWindow() },
+    { type: 'separator' },
+    { label: t('tray.quit'), click: () => app.quit() }
+  ])
+}
+
+export function createTray(): Tray {
   const size = 16
   const buffer = Buffer.alloc(size * size * 4)
   for (let y = 0; y < size; y++) {
@@ -13,42 +33,17 @@ export function createTray(pulseCoreWindow: BrowserWindow): Tray {
       const cx = x - 7.5, cy = y - 7.5
       const d = Math.sqrt(cx * cx + cy * cy)
       if (d < 7) {
-        buffer[i] = 99     // R - indigo
-        buffer[i + 1] = 102 // G
-        buffer[i + 2] = 241 // B
-        buffer[i + 3] = 255 // A
+        buffer[i] = 99; buffer[i + 1] = 102; buffer[i + 2] = 241; buffer[i + 3] = 255
       } else {
-        buffer[i + 3] = 0  // transparent
+        buffer[i + 3] = 0
       }
     }
   }
 
   const icon = nativeImage.createFromBuffer(buffer, { width: size, height: size })
   tray = new Tray(icon)
-
-  const contextMenu = Menu.buildFromTemplate([
-    {
-      label: '💼 开始工作',
-      click: () => pulseCoreWindow.webContents.send('tray:start-work')
-    },
-    {
-      label: '📚 开始学习',
-      click: () => pulseCoreWindow.webContents.send('tray:start-learning')
-    },
-    { type: 'separator' },
-    {
-      label: '📊 打开管理面板',
-      click: () => createGuiWindow()
-    },
-    { type: 'separator' },
-    {
-      label: '❌ 退出 DevPulse AI',
-      click: () => app.quit()
-    }
-  ])
-
-  tray.setToolTip('DevPulse AI — PulseCore 脉核')
-  tray.setContextMenu(contextMenu)
+  tray.setToolTip(t('tray.tooltip'))
+  tray.setContextMenu(buildTrayMenu())
 
   return tray
 }

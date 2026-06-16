@@ -36,7 +36,11 @@ const electronAPI = {
   // Tasks
   tasks: {
     listByProject: (projectId: string) => ipcRenderer.invoke('tasks:list-by-project', projectId),
+    listMain: (projectId: string) => ipcRenderer.invoke('tasks:list-main', projectId),
+    listSubtasks: (parentId: string) => ipcRenderer.invoke('tasks:list-subtasks', parentId),
     create: (data: any) => ipcRenderer.invoke('tasks:create', data),
+    createSubtask: (data: any) => ipcRenderer.invoke('tasks:create-subtask', data),
+    toggleSubtask: (id: string) => ipcRenderer.invoke('tasks:toggle-subtask', id),
     update: (id: string, data: any) => ipcRenderer.invoke('tasks:update', id, data),
     remove: (id: string) => ipcRenderer.invoke('tasks:remove', id)
   },
@@ -67,15 +71,19 @@ const electronAPI = {
     getSettings: () => ipcRenderer.invoke('ai:get-settings'),
     saveSettings: (settings: any) => ipcRenderer.invoke('ai:save-settings', settings)
   },
+  hasApiKey: () => ipcRenderer.invoke('app:has-api-key'),
 
   // Reports
   reports: {
     getDaily: (date: string) => ipcRenderer.invoke('reports:get-daily', date),
     generateDaily: (date: string) => ipcRenderer.invoke('reports:generate-daily', date),
+    refreshDaily: (date: string) => ipcRenderer.invoke('reports:refresh-daily', date),
     getWeekly: (year: number, week: number) => ipcRenderer.invoke('reports:get-weekly', year, week),
     generateWeekly: (year: number, week: number) => ipcRenderer.invoke('reports:generate-weekly', year, week),
+    refreshWeekly: (year: number, week: number) => ipcRenderer.invoke('reports:refresh-weekly', year, week),
     getMonthly: (year: number, month: number) => ipcRenderer.invoke('reports:get-monthly', year, month),
     generateMonthly: (year: number, month: number) => ipcRenderer.invoke('reports:generate-monthly', year, month),
+    refreshMonthly: (year: number, month: number) => ipcRenderer.invoke('reports:refresh-monthly', year, month),
     exportMarkdown: (reportId: string, type: string) => ipcRenderer.invoke('reports:export-markdown', reportId, type)
   },
 
@@ -106,8 +114,11 @@ const electronAPI = {
   // Window controls
   window: {
     openGui: () => ipcRenderer.invoke('window:open-gui'),
-    minimizePulseCore: () => ipcRenderer.invoke('window:minimize-pulsecore'),
     closeGui: () => ipcRenderer.invoke('window:close-gui'),
+    showPulseCore: () => ipcRenderer.invoke('window:show-pulsecore'),
+    hidePulseCore: () => ipcRenderer.invoke('window:hide-pulsecore'),
+    togglePulseCore: () => ipcRenderer.invoke('window:toggle-pulsecore'),
+    isPulseCoreVisible: () => ipcRenderer.invoke('window:is-pulsecore-visible'),
     drag: (dx: number, dy: number) => ipcRenderer.invoke('window:drag', dx, dy),
     resize: (scale: number) => ipcRenderer.invoke('window:resize', scale)
   },
@@ -116,6 +127,7 @@ const electronAPI = {
   app: {
     getMode: () => ipcRenderer.invoke('app:get-mode'),
     setMode: (mode: string) => ipcRenderer.invoke('app:set-mode', mode),
+    onboardingComplete: () => ipcRenderer.invoke('app:onboarding-complete'),
     quit: () => ipcRenderer.invoke('app:quit')
   }
 }

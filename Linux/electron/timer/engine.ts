@@ -99,6 +99,10 @@ export class TimerEngine {
   }
 
   pause(): TimerState {
+    const current = this.stateManager.getState()
+    if (!this.stateManager.validateTransition(current.status, 'paused')) {
+      throw new Error(`Cannot pause from status: ${current.status}`)
+    }
     const state = this.stateManager.setPause()
     this.broadcastStateChange()
     this.saveSnapshot()
@@ -107,6 +111,10 @@ export class TimerEngine {
   }
 
   resume(): TimerState {
+    const current = this.stateManager.getState()
+    if (!this.stateManager.validateTransition(current.status, current.sessionType === 'learning' ? 'learning' : 'working')) {
+      throw new Error(`Cannot resume from status: ${current.status}`)
+    }
     const state = this.stateManager.setResume()
     this.broadcastStateChange()
     this.saveSnapshot()

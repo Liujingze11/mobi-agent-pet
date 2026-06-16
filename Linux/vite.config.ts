@@ -5,17 +5,20 @@ import electronRenderer from 'vite-plugin-electron-renderer'
 import path from 'node:path'
 import fs from 'node:fs'
 
-// Plugin: copy schema.sql to dist-electron after electron build
+// Plugin: copy schema files to dist-electron after electron build
 function copySchemaPlugin() {
   return {
     name: 'copy-schema',
     writeBundle(_opts: any, bundle: any) {
       const outDir = _opts.dir || path.dirname(Object.values(bundle)[0]?.fileName || __dirname)
-      const src = path.resolve(__dirname, 'electron/db/schema.sql')
-      const dest = path.resolve(outDir, 'schema.sql')
-      if (fs.existsSync(src)) {
-        fs.copyFileSync(src, dest)
-        console.log('  ✓ schema.sql copied to', path.relative(__dirname, dest))
+      const schemaFiles = ['schema.sql', 'schema.v1.sql', 'schema.v2.sql']
+      for (const file of schemaFiles) {
+        const src = path.resolve(__dirname, 'electron/db', file)
+        const dest = path.resolve(outDir, file)
+        if (fs.existsSync(src)) {
+          fs.copyFileSync(src, dest)
+          console.log(`  ✓ ${file} copied to`, path.relative(__dirname, dest))
+        }
       }
     }
   }

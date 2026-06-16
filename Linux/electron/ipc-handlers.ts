@@ -11,7 +11,8 @@ import * as ReportQueries from './db/queries/reports'
 import * as AchievementQueries from './db/queries/achievements'
 import * as SettingsQueries from './db/queries/settings'
 import * as UserQueries from './db/queries/users'
-import { createGuiWindow, getGuiWindow } from './windows'
+import { createGuiWindow, getGuiWindow, showPulseCore, hidePulseCore, togglePulseCore, getPulseCoreWindow } from './windows'
+import { exportToMarkdown } from './report/export'
 
 export function initIpcHandlers(): void {
   const db = getDatabase()
@@ -81,7 +82,6 @@ export function initIpcHandlers(): void {
     // 调用 AI 生成项目描述
     let aiResult = { name: folderName, description: '', techStack: '', color: '#6366f1' }
     try {
-      const { aiRegistry } = await import('./main')
       const summary = await aiRegistry.summarize({
         type: 'work',
         projectName: folderName,
@@ -141,6 +141,14 @@ ${files['package.json']?.slice(0, 1500) || '无'}
     TaskQueries.updateTask(db, id, data))
   ipcMain.handle('tasks:remove', (_e, id: string) =>
     TaskQueries.removeTask(db, id))
+  ipcMain.handle('tasks:list-main', (_e, projectId: string) =>
+    TaskQueries.listMainTasks(db, projectId))
+  ipcMain.handle('tasks:list-subtasks', (_e, parentId: string) =>
+    TaskQueries.listSubtasks(db, parentId))
+  ipcMain.handle('tasks:create-subtask', (_e, data: any) =>
+    TaskQueries.createSubtask(db, data))
+  ipcMain.handle('tasks:toggle-subtask', (_e, id: string) =>
+    TaskQueries.toggleSubtask(db, id))
 
   // ---- Learning ----
   ipcMain.handle('learning:list-categories', () =>
@@ -173,6 +181,10 @@ ${files['package.json']?.slice(0, 1500) || '无'}
     aiRegistry.generateReport(input))
   ipcMain.handle('ai:validate-connection', async () =>
     aiRegistry.validateConnection())
+  ipcMain.handle('app:has-api-key', () => {
+    const key = SettingsQueries.getSetting(db, 'ai_api_key')
+    return !!key && key.length > 0
+  })
   ipcMain.handle('ai:get-settings', () => ({
     activeProvider: SettingsQueries.getSetting(db, 'ai_active_provider') || 'deepseek',
     apiKey: SettingsQueries.getSetting(db, 'ai_api_key') || '',
@@ -206,14 +218,19 @@ ${files['package.json']?.slice(0, 1500) || '无'}
   })
   ipcMain.handle('reports:generate-monthly', async (_e, year: number, month: number) =>
     reportGenerator.generateMonthly(year, month))
+  ipcMain.handle('reports:refresh-daily', async (_e, date: string) =>
+    reportGenerator.generateDaily(date))
+  ipcMain.handle('reports:refresh-weekly', async (_e, year: number, week: number) =>
+    reportGenerator.generateWeekly(year, week))
+  ipcMain.handle('reports:refresh-monthly', async (_e, year: number, month: number) =>
+    reportGenerator.generateMonthly(year, month))
   ipcMain.handle('reports:export-markdown', (_e, reportId: string, type: string) => {
     let report
-    if (type === 'daily') report = ReportQueries.getDailyReport(db, reportId, reportId)
+    if (type === 'daily') report = db.prepare('SELECT * FROM daily_reports WHERE id = ?').get(reportId)
     else if (type === 'weekly') report = db.prepare('SELECT * FROM weekly_reports WHERE id = ?').get(reportId)
     else report = db.prepare('SELECT * FROM monthly_reports WHERE id = ?').get(reportId)
     if (!report) return ''
     const data = JSON.parse((report as any).content_json)
-    const { exportToMarkdown } = require('./report/export')
     return exportToMarkdown(data, type)
   })
 
@@ -239,14 +256,16 @@ ${files['package.json']?.slice(0, 1500) || '无'}
 
   // ---- Window ----
   ipcMain.handle('window:open-gui', () => createGuiWindow())
-  ipcMain.handle('window:minimize-pulsecore', () => {
-    const wins = BrowserWindow.getAllWindows()
-    const pulseCoreWin = wins.find(w => w.isAlwaysOnTop())
-    if (pulseCoreWin) pulseCoreWin.minimize()
-  })
   ipcMain.handle('window:close-gui', () => {
     const guiWin = getGuiWindow()
     if (guiWin) guiWin.close()
+  })
+  ipcMain.handle('window:show-pulsecore', () => showPulseCore())
+  ipcMain.handle('window:hide-pulsecore', () => hidePulseCore())
+  ipcMain.handle('window:toggle-pulsecore', () => togglePulseCore())
+  ipcMain.handle('window:is-pulsecore-visible', () => {
+    const w = getPulseCoreWindow()
+    return w ? w.isVisible() : false
   })
   ipcMain.handle('window:drag', (_e, dx: number, dy: number) => {
     const win = BrowserWindow.fromWebContents(_e.sender)
@@ -271,6 +290,10 @@ ${files['package.json']?.slice(0, 1500) || '无'}
   ipcMain.handle('app:set-mode', (_e, mode: string) => {
     SettingsQueries.setSetting(db, 'app_mode', mode)
     return mode
+  })
+  ipcMain.handle('app:onboarding-complete', () => {
+    // 首次引导完成后显示 PulseCore
+    showPulseCore()
   })
   ipcMain.handle('app:quit', () => {
     const { app } = require('electron')
