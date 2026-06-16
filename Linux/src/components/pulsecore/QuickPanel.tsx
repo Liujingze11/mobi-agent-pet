@@ -6,11 +6,10 @@ interface Props {
   onStartWork: () => void
   onStartLearning: () => void
   onOpenGui: () => void
-  onChangeForm: (f: string) => void
   onClose: () => void
 }
 
-export default function QuickPanel({ onStartWork, onStartLearning, onOpenGui, onChangeForm, onClose }: Props) {
+export default function QuickPanel({ onStartWork, onStartLearning, onOpenGui, onClose }: Props) {
   const { t } = useI18n()
   const [hasKey, setHasKey] = useState(true)
   useEffect(() => { api.hasApiKey().then(setHasKey) }, [])
@@ -43,16 +42,6 @@ export default function QuickPanel({ onStartWork, onStartLearning, onOpenGui, on
           📊 {t('pulsecore.quickPanel.openGui')}
         </button>
 
-        <div className="border-t border-slate-700 pt-2.5 mt-1">
-          <div className="text-[10px] text-slate-500 mb-1.5">{t('pulsecore.quickPanel.formsLabel')}</div>
-          <div className="grid grid-cols-2 gap-1">
-            {Object.entries(t('pulsecore.forms') as unknown as Record<string, string>).map(([key, name]) => (
-              <button key={key} onClick={() => onChangeForm(key)}
-                className="text-[10px] rounded-lg py-1.5 px-1 bg-slate-700/50 text-slate-400 hover:bg-slate-700"
-              >{name as string}</button>
-            ))}
-          </div>
-        </div>
       </div>
     </div>
   )

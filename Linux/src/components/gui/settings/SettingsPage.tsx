@@ -2,13 +2,26 @@ import { useState, useEffect } from 'react'
 import { api } from '../../../lib/ipc'
 import { useI18n } from '../../../lib/i18n'
 import type { Language } from '../../../lib/i18n'
+import type { PetFormId } from '../../pulsecore/PulseCore'
+import PetSelector from './PetSelector'
 
 export default function SettingsPage() {
   const { t, language, setLanguage } = useI18n()
   const [aiSettings, setAiSettings] = useState({ provider: 'deepseek', apiKey: '', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' })
   const [testResult, setTestResult] = useState<string>('')
+  const [petForm, setPetForm] = useState<PetFormId>('heartbeat')
 
-  useEffect(() => { api.ai.getSettings().then(setAiSettings) }, [])
+  useEffect(() => {
+    api.ai.getSettings().then(setAiSettings)
+    api.settings.get('pet_form').then(v => {
+      if (v) { try { const f = JSON.parse(v); if (typeof f === 'string') setPetForm(f) } catch {} }
+    })
+  }, [])
+
+  const handlePetChange = async (id: PetFormId) => {
+    setPetForm(id)
+    await api.settings.set('pet_form', JSON.stringify(id))
+  }
 
   const handleSave = async () => {
     await api.ai.saveSettings(aiSettings)
@@ -80,6 +93,12 @@ export default function SettingsPage() {
             <option value="en-US">🇺🇸 English</option>
           </select>
         </div>
+      </section>
+
+      {/* 桌面宠物 */}
+      <section className="bg-slate-800 rounded-xl p-4 border border-slate-700 space-y-3">
+        <h3 className="font-medium text-sm">🔮 桌面宠物</h3>
+        <PetSelector current={petForm} onChange={handlePetChange} />
       </section>
 
       {/* 通用设置 */}

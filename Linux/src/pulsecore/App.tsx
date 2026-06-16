@@ -9,8 +9,8 @@ import type { TimerState, TickPayload } from '../lib/types'
 import { I18nProvider } from '../lib/i18n'
 import type { Language } from '../lib/i18n'
 
-export type PetForm = 'heartbeat' | 'energyCore' | 'pulseRing' | 'hexCrystal' | 'dataStream'
-const forms: PetForm[] = ['heartbeat', 'energyCore', 'pulseRing', 'hexCrystal', 'dataStream']
+import type { PetFormId } from '../components/pulsecore/PulseCore'
+import { petRegistry } from '../components/pulsecore/PulseCore'
 const DRAG_THRESHOLD = 5
 
 function fmt(ms: number) {
@@ -34,11 +34,10 @@ export default function App() {
   const [showReview, setShowReview] = useState(false)
   const [sessionResult, setSessionResult] = useState<any>(null)
   const [achievements, setAchievements] = useState<any[]>([])
-  const [petForm, setPetForm] = useState<PetForm>('heartbeat')
+  const [petForm, setPetForm] = useState<PetFormId>('heartbeat')
 
   const isActive = timerState.status === 'working' || timerState.status === 'learning' || timerState.status === 'deep_focus'
   const isPaused = timerState.status === 'paused'
-  const lastClickRef = useRef(0)
   const dragRef = useRef({ active: false, startX: 0, startY: 0, moved: false, sx: 0, sy: 0 })
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -64,21 +63,13 @@ export default function App() {
 
   const handleCoreMouseUp = useCallback((_e: React.MouseEvent) => {
     if (dragRef.current.moved) return
-    const now = Date.now()
-    if (now - lastClickRef.current < 350) {
-      const idx = forms.indexOf(petForm)
-      setPetForm(forms[(idx + 1) % forms.length])
-      lastClickRef.current = 0
-    } else {
-      lastClickRef.current = now
-      setPanelExpanded(v => !v)
-    }
-  }, [petForm])
+    setPanelExpanded(v => !v)
+  }, [])
 
   // 加载语言 & 形态
   useEffect(() => {
     api.settings.get('language').then(v => { if (v === 'zh-CN' || v === 'en-US') setLanguage(v as Language) })
-    api.settings.get('pet_form').then(v => { if (v) { try { const f = JSON.parse(v); if (forms.includes(f)) setPetForm(f) } catch {} } })
+    api.settings.get('pet_form').then(v => { if (v) { try { const f = JSON.parse(v); if (petRegistry.some(p => p.id === f)) setPetForm(f) } catch {} } })
   }, [])
 
   // Timer 订阅
@@ -97,10 +88,6 @@ export default function App() {
     setShowReview(false); setSessionResult(null)
     const a = await api.achievements.check(); if (a.length > 0) setAchievements(a)
   }
-  const handleFormChange = async (f: string) => {
-    setPetForm(f as PetForm); await api.settings.set('pet_form', JSON.stringify(f))
-  }
-
   // 工作/学习弹窗回调
   const handleDialogStart = () => { setShowDialog(null); setPanelExpanded(false) }
   const handleDialogCancel = () => { setShowDialog(null) }
@@ -116,7 +103,6 @@ export default function App() {
             onStartWork={() => { setShowDialog('work'); setPanelExpanded(false) }}
             onStartLearning={() => { setShowDialog('learning'); setPanelExpanded(false) }}
             onOpenGui={() => api.window.openGui()}
-            onChangeForm={handleFormChange}
             onClose={() => setPanelExpanded(false)}
           />
         )}
