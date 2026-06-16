@@ -112,11 +112,14 @@ export function createGuiWindow(): BrowserWindow {
     }
   })
   guiWindow.once('ready-to-show', () => guiWindow!.show())
+  let forceQuit = false
   guiWindow.on('close', (e) => {
-    // 不真正关闭，隐藏到托盘
+    if (forceQuit) return // app.quit() 时允许真正关闭
     e.preventDefault()
     guiWindow!.hide()
   })
+  // app.quit() 时允许窗口正常关闭
+  app.on('before-quit', () => { forceQuit = true })
   // 当 GUI 重新显示时，重新挂载 PulseCore 为子窗口
   guiWindow.on('show', () => {
     if (pulseCoreWindow && !pulseCoreWindow.isDestroyed()) {
