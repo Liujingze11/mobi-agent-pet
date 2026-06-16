@@ -10,12 +10,14 @@ export default function SettingsPage() {
   const [aiSettings, setAiSettings] = useState({ provider: 'deepseek', apiKey: '', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' })
   const [testResult, setTestResult] = useState<string>('')
   const [petForm, setPetForm] = useState<PetFormId>('heartbeat')
+  const [petVisible, setPetVisible] = useState(true)
 
   useEffect(() => {
     api.ai.getSettings().then(setAiSettings)
     api.settings.get('pet_form').then(v => {
       if (v) { try { const f = JSON.parse(v); if (typeof f === 'string') setPetForm(f) } catch {} }
     })
+    api.window.isPulseCoreVisible().then(setPetVisible)
   }, [])
 
   const handlePetChange = async (id: PetFormId) => {
@@ -98,7 +100,19 @@ export default function SettingsPage() {
 
       {/* 桌面宠物 */}
       <section className="bg-slate-800 rounded-xl p-4 border border-slate-700 space-y-3">
-        <h3 className="font-medium text-sm">🔮 桌面宠物</h3>
+        <div className="flex items-center justify-between">
+          <h3 className="font-medium text-sm">🔮 桌面宠物</h3>
+          <button
+            onClick={async () => {
+              const v = await api.window.togglePulseCore()
+              setPetVisible(v)
+            }}
+            className={`px-4 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              petVisible ? 'bg-green-600/20 text-green-400 border border-green-500/30' : 'bg-slate-600/20 text-slate-400 border border-slate-500/30'
+            }`}>
+            {petVisible ? '👁 显示中' : '🙈 已隐藏'}
+          </button>
+        </div>
         <PetSelector current={petForm} onChange={handlePetChange} />
       </section>
 

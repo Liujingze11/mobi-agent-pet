@@ -4,6 +4,9 @@ import { t } from './i18n'
 
 const isDev = !app.isPackaged
 
+function getIconPath() {
+  return path.join(app.getAppPath(), 'resources', 'icons', 'icon.png')
+}
 function getPreloadPath() {
   return path.join(__dirname, 'preload.js')
 }
@@ -102,6 +105,7 @@ export function createGuiWindow(): BrowserWindow {
   guiWindow = new BrowserWindow({
     width: 1200, height: 800, minWidth: 900, minHeight: 600,
     title: t('window.title'), backgroundColor: '#0f172a', show: false,
+    icon: getIconPath(),
     webPreferences: {
       preload: getPreloadPath(), nodeIntegration: false,
       contextIsolation: true, sandbox: false
