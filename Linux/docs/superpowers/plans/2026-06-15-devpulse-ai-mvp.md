@@ -68,7 +68,7 @@
 - [ ] **Step 2: Run npm install**
 
 ```bash
-cd "/home/ljz/DevPulse AI" && npm install
+cd /path/to/DevPulse_AI && npm install
 ```
 
 Expected: dependencies install without errors.
@@ -4207,7 +4207,7 @@ git commit -m "feat: add Achievement Checker engine with 12 default achievement 
 
 ```bash
 # Development
-cd "/home/ljz/DevPulse AI"
+cd /path/to/DevPulse_AI
 npm install
 npm run electron:dev
 
