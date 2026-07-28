@@ -1,7 +1,7 @@
 # AgentLog Pet Product Design
 
 - **Date:** 2026-07-28
-- **Status:** Design approved in conversation; pending written-spec review
+- **Status:** Approved
 - **Product name:** AgentLog Pet
 - **Tagline:** Your Private AI Agent Work Journal
 - **Package and repository name:** agentlog-pet
