@@ -1,10 +1,11 @@
 # AgentLog Pet Product Design
 
-**Date:** 2026-07-28  
-**Status:** Approved in conversation  
-**Product name:** AgentLog Pet  
-**Tagline:** Your Private AI Agent Work Journal  
-**Initial platform:** Linux
+- **Date:** 2026-07-28
+- **Status:** Design approved in conversation; pending written-spec review
+- **Product name:** AgentLog Pet
+- **Tagline:** Your Private AI Agent Work Journal
+- **Package and repository name:** agentlog-pet
+- **Initial platform:** Linux
 
 ## 1. Product Definition
 
@@ -315,10 +316,11 @@ SQLite remains the local source of truth. The schema evolves around:
 - `restore_runs`
 - `settings`
 
-Existing DevPulse projects and work sessions are migrated in place. Database
-migrations are versioned and create a backup before destructive schema changes.
-The previous data directory is detected and moved or imported into the new
-AgentLog Pet application identity without silently discarding records.
+Existing DevPulse projects and work sessions are migrated without resetting or
+replacing user history. Database migrations are versioned and create a backup
+before destructive schema changes. The previous data directory is detected and
+moved or imported into the new AgentLog Pet application identity without
+silently discarding records.
 
 Structured events and summaries are retained by default. Full transcript
 content is optional and controlled by retention settings. Source transcript
@@ -486,4 +488,3 @@ The product design is fulfilled when:
 - A project can be restored through reviewed scripts and agent continuation.
 - Core behavior continues when AI summarization is unavailable.
 - The pinned Clawd baseline reaches documented feature parity.
-
