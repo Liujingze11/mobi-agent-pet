@@ -2,8 +2,8 @@
 
 const path = require("path");
 
-const WINDOWS_APP_USER_MODEL_ID = "com.clawd.on-desk";
-const SETTINGS_WINDOW_TITLE = "Clawd Settings";
+const WINDOWS_APP_USER_MODEL_ID = "com.agentlog.pet";
+const SETTINGS_WINDOW_TITLE = "AgentLog Pet Settings";
 const SETTINGS_WINDOW_LAUNCH_ARG = "--open-settings-window";
 
 function quoteWindowsCommandArg(value) {

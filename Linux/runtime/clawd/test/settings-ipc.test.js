@@ -194,6 +194,7 @@ function createHarness(overrides = {}) {
     getAllAgents: overrides.getAllAgents || (() => []),
     getHookServerPort: overrides.getHookServerPort,
     getRecentHookEvents: overrides.getRecentHookEvents,
+    getProductInfo: overrides.getProductInfo,
     getQuotaSourceCount: overrides.getQuotaSourceCount,
     detectAgentInstallations: overrides.detectAgentInstallations,
     checkForUpdates: (manual) => calls.push(["checkForUpdates", manual]),
@@ -676,6 +677,12 @@ test("settings IPC serves agent/about/update/external and remove-theme dialog he
     const { ipcMain, calls } = createHarness({
       aboutHeroSvgPath: heroSvgPath,
       getLang: () => "en",
+      getProductInfo: () => ({
+        repoUrl: "https://github.com/Liujingze11/agentlog-pet",
+        authorName: "Liujingze11",
+        authorUrl: "https://github.com/Liujingze11",
+        copyright: "\u00a9 2026 Liujingze11",
+      }),
       dialog: {
         showOpenDialog: async () => ({ canceled: true }),
         showMessageBox: async (parent, options) => {
@@ -746,11 +753,11 @@ test("settings IPC serves agent/about/update/external and remove-theme dialog he
     ]);
     assert.deepStrictEqual(await ipcMain.invoke("settings:get-about-info"), {
       version: "1.2.3",
-      repoUrl: "https://github.com/rullerzhou-afk/clawd-on-desk",
-      license: "AGPL-3.0",
-      copyright: "\u00a9 2026 Ruller_Lulu",
-      authorName: "Ruller_Lulu / \u9e7f\u9e7f",
-      authorUrl: "https://github.com/rullerzhou-afk",
+      repoUrl: "https://github.com/Liujingze11/agentlog-pet",
+      license: "",
+      copyright: "\u00a9 2026 Liujingze11",
+      authorName: "Liujingze11",
+      authorUrl: "https://github.com/Liujingze11",
       heroSvgContent: "<svg id=\"hero\"></svg>",
       pendingUpdateVersion: "",
       autoUpdateCheck: true,

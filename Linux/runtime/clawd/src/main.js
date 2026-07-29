@@ -80,6 +80,7 @@ const {
   createSettingsSizePreviewSession,
 } = require("./settings-size-preview-session");
 const { registerSettingsIpc } = require("./settings-ipc");
+const { BRAND } = require("../../agentlog/brand.cjs");
 const createSettingsEffectRouter = require("./settings-effect-router");
 const {
   getPetTintIdForTheme,
@@ -3650,6 +3651,12 @@ registerSettingsIpc({
   },
   aboutHeroSvgPath: path.join(__dirname, "..", "assets", "svg", "clawd-about-hero.svg"),
   getLanWsServer: () => _lanWss,
+  getProductInfo: () => ({
+    repoUrl: BRAND.repositoryUrl,
+    authorName: BRAND.authorName,
+    authorUrl: "https://github.com/Liujingze11",
+    copyright: "\u00a9 2026 Liujingze11",
+  }),
 });
 
 registerSessionIpc({

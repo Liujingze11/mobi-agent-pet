@@ -1881,6 +1881,8 @@ const i18n = {
 };
 
 const SUPPORTED_LANGS = Object.freeze(["en", "zh", "zh-TW", "ko", "ja"]);
+const { rebrandTree } = require("../../agentlog/brand.cjs");
+const brandedI18n = rebrandTree(i18n);
 
 function createTranslator(getLang) {
   if (typeof getLang !== "function") {
@@ -1888,13 +1890,13 @@ function createTranslator(getLang) {
   }
   return function t(key) {
     const lang = getLang();
-    const dict = i18n[lang] || i18n.en;
+    const dict = brandedI18n[lang] || brandedI18n.en;
     return dict[key] || key;
   };
 }
 
 module.exports = {
-  i18n,
+  i18n: brandedI18n,
   SUPPORTED_LANGS,
   createTranslator,
 };

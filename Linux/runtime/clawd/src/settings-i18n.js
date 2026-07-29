@@ -4125,9 +4125,10 @@
     "jiaxuan1101", "kkirito16", "200780381", "Dxy2326", "lurui1997", "JesmonX", "chen86860",
   ];
 
+  const brandedStrings = root.AgentLogBrand.rebrandTree(STRINGS);
   root.ClawdSettingsI18n = {
-    STRINGS,
-    MAINTAINERS,
-    CONTRIBUTORS,
+    STRINGS: brandedStrings,
+    MAINTAINERS: ["Liujingze11"],
+    CONTRIBUTORS: [],
   };
 })(globalThis);
