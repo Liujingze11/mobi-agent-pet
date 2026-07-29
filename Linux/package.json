@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "description": "Your Private AI Agent Work Journal",
   "author": "Liujingze11",
+  "homepage": "https://github.com/Liujingze11/agentlog-pet",
   "main": "runtime/agentlog/main.cjs",
   "engines": {
     "node": ">=22.12.0"
@@ -90,7 +91,7 @@
       "maintainer": "Liujingze11",
       "icon": "runtime/clawd/assets/icons",
       "category": "Development",
-      "artifactName": "AgentLog-Pet-${version}-${arch}.${ext}",
+      "artifactName": "AgentLog-Pet-${version}-x64.${ext}",
       "target": [
         { "target": "AppImage", "arch": ["x64"] },
         { "target": "deb", "arch": ["x64"] }
