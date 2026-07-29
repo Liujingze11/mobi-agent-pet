@@ -1,20 +1,33 @@
 {
-  "name": "devpulse-ai",
+  "name": "agentlog-pet",
+  "productName": "AgentLog Pet",
   "version": "0.1.0",
-  "description": "DevPulse AI — 智能研发记录桌面助手，PulseCore 脉核",
-  "main": "dist-electron/main.js",
+  "description": "Your Private AI Agent Work Journal",
+  "author": "Liujingze11",
+  "main": "runtime/agentlog/main.cjs",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview",
-    "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
-    "electron:build": "vite build && electron-builder",
-    "electron:build:linux": "vite build && electron-builder --linux",
-    "electron:build:mac": "vite build && electron-builder --mac",
-    "electron:build:win": "vite build && electron-builder --win"
+    "start": "node runtime/clawd/scripts/ensure-sidecar-binaries.js && electron .",
+    "dev": "CLAWD_SKIP_SIDECAR_FETCH=1 electron .",
+    "fetch:sidecars": "node runtime/clawd/scripts/fetch-sidecar-binaries.js",
+    "verify:sidecars": "node runtime/clawd/scripts/verify-sidecar-binaries.js",
+    "test": "node --test test/agentlog/*.test.cjs",
+    "test:upstream": "node runtime/clawd/test/run-tests.js",
+    "test:phase1": "npm test && npm run test:upstream",
+    "prebuild:linux": "node runtime/clawd/scripts/verify-sidecar-binaries.js build:linux",
+    "build:linux": "electron-builder --linux",
+    "smoke:linux": "node scripts/smoke-linux.cjs",
+    "postinstall": "node runtime/clawd/scripts/verify-electron-install.js --context postinstall"
   },
   "dependencies": {
-    "better-sqlite3": "^11.7.0"
+    "@larksuiteoapi/node-sdk": "^1.71.1",
+    "electron-updater": "^6.8.3",
+    "htmlparser2": "^12.0.0",
+    "jsonc-parser": "^3.3.1",
+    "koffi": "^2.15.2",
+    "ws": "^8.21.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
@@ -23,8 +36,8 @@
     "@vitejs/plugin-react": "^4.3.0",
     "autoprefixer": "^10.4.20",
     "concurrently": "^9.1.0",
-    "electron": "^33.4.11",
-    "electron-builder": "^25.0.0",
+    "electron": "^41.10.2",
+    "electron-builder": "^26.8.1",
     "lucide-react": "^0.460.0",
     "postcss": "^8.4.49",
     "react": "^19.0.0",
@@ -36,5 +49,71 @@
     "vite-plugin-electron": "^0.28.0",
     "vite-plugin-electron-renderer": "^0.14.0",
     "wait-on": "^8.0.0"
+  },
+  "build": {
+    "appId": "com.agentlog.pet",
+    "productName": "AgentLog Pet",
+    "directories": {
+      "output": "Linux",
+      "buildResources": "runtime/clawd/build"
+    },
+    "protocols": [
+      {
+        "name": "AgentLog Pet Import Protocol",
+        "schemes": ["clawd"]
+      }
+    ],
+    "files": [
+      "package.json",
+      "runtime/agentlog/**/*",
+      "runtime/clawd/package.json",
+      "runtime/clawd/NOTICE.md",
+      "runtime/clawd/AGENTLOG_UPSTREAM.json",
+      "runtime/clawd/src/**/*",
+      "runtime/clawd/assets/**/*",
+      "runtime/clawd/hooks/**/*",
+      "runtime/clawd/extensions/**/*",
+      "runtime/clawd/agents/**/*",
+      "runtime/clawd/themes/**/*",
+      "runtime/clawd/pwa/**/*"
+    ],
+    "asarUnpack": [
+      "runtime/clawd/assets/svg/**/*",
+      "runtime/clawd/assets/accessories/**/*",
+      "runtime/clawd/hooks/**/*",
+      "runtime/clawd/extensions/**/*",
+      "runtime/clawd/agents/**/*",
+      "runtime/clawd/themes/**/*",
+      "node_modules/jsonc-parser/**/*"
+    ],
+    "linux": {
+      "maintainer": "Liujingze11",
+      "icon": "runtime/clawd/assets/icons",
+      "category": "Development",
+      "artifactName": "AgentLog-Pet-${version}-${arch}.${ext}",
+      "target": [
+        { "target": "AppImage", "arch": ["x64"] },
+        { "target": "deb", "arch": ["x64"] }
+      ],
+      "extraResources": [
+        {
+          "from": "runtime/clawd/bin/cc-connect-clawd/linux-${arch}",
+          "to": "sidecars/cc-connect-clawd/linux-${arch}"
+        }
+      ]
+    },
+    "extraResources": [
+      {
+        "from": "runtime/clawd/assets/icon.png",
+        "to": "icon.png"
+      }
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Liujingze11",
+        "repo": "agentlog-pet"
+      }
+    ]
   }
 }
