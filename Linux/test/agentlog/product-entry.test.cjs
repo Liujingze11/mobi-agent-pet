@@ -1,6 +1,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const childProcess = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
@@ -41,4 +42,16 @@ test("the product wrapper delegates lifecycle ownership to one pinned runtime", 
     (upstreamMain.match(/app\.requestSingleInstanceLock\(\)/g) || []).length,
     1
   );
+});
+
+test("postinstall verifies the root Electron installation", () => {
+  const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+  const result = childProcess.spawnSync(npmCommand, ["run", "postinstall"], {
+    cwd: root,
+    encoding: "utf8",
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /Verified Electron \d+\.\d+\.\d+ installation\./);
+  assert.doesNotMatch(result.stdout, /Skipped Electron install verification/);
 });

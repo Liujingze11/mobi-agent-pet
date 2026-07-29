@@ -19,7 +19,7 @@
     "prebuild:linux": "node runtime/clawd/scripts/verify-sidecar-binaries.js build:linux",
     "build:linux": "electron-builder --linux",
     "smoke:linux": "node scripts/smoke-linux.cjs",
-    "postinstall": "node runtime/clawd/scripts/verify-electron-install.js --context postinstall"
+    "postinstall": "node scripts/verify-electron-install.cjs --context postinstall"
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.71.1",
