@@ -20,8 +20,9 @@ class FakeBrowserWindow {
     this.webContents = {
       isDestroyed: () => false,
       onceCallbacks: new Map(),
+      sent: [],
       once: (event, cb) => this.webContents.onceCallbacks.set(event, cb),
-      send: () => {},
+      send: (...args) => this.webContents.sent.push(args),
     };
     FakeBrowserWindow.instances.push(this);
   }
@@ -257,6 +258,39 @@ test("did-finish-load reapplies the localized title after the HTML <title> loads
     ["setTitle", "Clawd 設定"],
     "localized title reapplied after did-finish-load",
   );
+});
+
+test("settings window selects a requested tab on first load and when reused", () => {
+  const { runtime } = createRuntime();
+
+  runtime.open({ tab: "agents" });
+  const win = FakeBrowserWindow.instances[0];
+  assert.deepStrictEqual(win.webContents.sent, []);
+
+  win.emitWebContents("did-finish-load");
+  assert.deepStrictEqual(
+    win.webContents.sent.at(-1),
+    ["settings:select-tab", "agents"],
+  );
+
+  win.calls = [];
+  runtime.open({ tab: "agents" });
+  assert.strictEqual(FakeBrowserWindow.instances.length, 1);
+  assert.deepStrictEqual(
+    win.webContents.sent.at(-1),
+    ["settings:select-tab", "agents"],
+  );
+  assert.strictEqual(win.calls.at(-1), "focus");
+});
+
+test("settings window ignores unknown requested tabs", () => {
+  const { runtime } = createRuntime();
+
+  runtime.open({ tab: "not-a-real-tab" });
+  const win = FakeBrowserWindow.instances[0];
+  win.emitWebContents("did-finish-load");
+
+  assert.deepStrictEqual(win.webContents.sent, []);
 });
 
 test("settings window injects the Discord default-App-ID flag into the sandboxed preload", () => {

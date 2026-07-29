@@ -322,6 +322,10 @@ module.exports = function initMenu(ctx) {
         label: t("settings"),
         click: () => ctx.openSettingsWindow(),
       },
+      {
+        label: t("openAgentIntegrations"),
+        click: () => ctx.openSettingsTab("agents"),
+      },
     ];
     // #329: surface the update item alongside the app actions. The label
     // switches to "Update available · vX" / "Update Ready" when applicable.
@@ -533,6 +537,10 @@ module.exports = function initMenu(ctx) {
       {
         label: t("settings"),
         click: () => ctx.openSettingsWindow(),
+      },
+      {
+        label: t("openAgentIntegrations"),
+        click: () => ctx.openSettingsTab("agents"),
       },
     ];
     // #329: surface the update item alongside the other app actions when one is

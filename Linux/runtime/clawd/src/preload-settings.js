@@ -45,6 +45,7 @@ const remoteSshProgressListeners = new Set();
 const remoteApprovalStatusListeners = new Set();
 const textScaleContextListeners = new Set();
 const agentActivityListeners = new Set();
+const selectTabListeners = new Set();
 ipcRenderer.on("settings-changed", (_event, payload) => {
   for (const cb of listeners) {
     try { cb(payload); } catch (err) { console.warn("settings onChanged listener threw:", err); }
@@ -86,6 +87,13 @@ ipcRenderer.on("settings:text-scale-context-changed", () => {
 ipcRenderer.on("settings:agent-activity", (_event, payload) => {
   for (const cb of agentActivityListeners) {
     try { cb(payload); } catch (err) { console.warn("agent activity listener threw:", err); }
+  }
+});
+ipcRenderer.on("settings:select-tab", (_event, tab) => {
+  for (const listener of selectTabListeners) {
+    try { listener(tab); } catch (error) {
+      console.warn("settings tab listener threw:", error);
+    }
   }
 });
 
@@ -145,6 +153,11 @@ contextBridge.exposeInMainWorld("settingsAPI", {
   resetMobileAccess: () => ipcRenderer.invoke("settings:reset-mobile-access"),
   onChanged: (cb) => {
     if (typeof cb === "function") listeners.add(cb);
+  },
+  onSelectTab: (listener) => {
+    if (typeof listener !== "function") return () => {};
+    selectTabListeners.add(listener);
+    return () => selectTabListeners.delete(listener);
   },
   onAgentActivity: (cb) => {
     if (typeof cb !== "function") return () => {};

@@ -17,6 +17,17 @@ const MIN_HEIGHT = 480;
 const READY_TO_SHOW_FALLBACK_MS = 2000;
 const SETTINGS_FRONT_LIFT_MS = 200;
 const FALLBACK_WORK_AREA = { x: 0, y: 0, width: 1280, height: 800 };
+const SETTINGS_TABS = new Set([
+  "general",
+  "agents",
+  "theme",
+  "animOverrides",
+  "shortcuts",
+  "telegram-approval",
+  "discord-presence",
+  "remote-ssh",
+  "about",
+]);
 
 function requiredDependency(value, name) {
   if (!value) throw new Error(`createSettingsWindowRuntime requires ${name}`);
@@ -73,6 +84,7 @@ function createSettingsWindowRuntime(options = {}) {
   let readyToShowFallbackTimer = null;
   let liftTimer = null;
   let showPendingSettingsWindow = null;
+  let pendingTab = null;
 
   function getWindow() {
     return settingsWindow;
@@ -80,6 +92,23 @@ function createSettingsWindowRuntime(options = {}) {
 
   function isLiveWindow(win) {
     return !!win && (typeof win.isDestroyed !== "function" || !win.isDestroyed());
+  }
+
+  function rememberRequestedTab(tab) {
+    if (!SETTINGS_TABS.has(tab)) return false;
+    pendingTab = tab;
+    return true;
+  }
+
+  function sendRequestedTab(win) {
+    if (!pendingTab) return false;
+    const webContents = win && win.webContents;
+    if (webContents && typeof webContents.send === "function") {
+      webContents.send("settings:select-tab", pendingTab);
+      pendingTab = null;
+      return true;
+    }
+    return false;
   }
 
   function scheduleTimer(callback, delayMs) {
@@ -240,16 +269,18 @@ function createSettingsWindowRuntime(options = {}) {
     return true;
   }
 
-  function openWhenReady() {
+  function openWhenReady(openOptions = {}) {
     if (app.isReady()) {
-      open();
+      open(openOptions);
       return;
     }
-    app.once("ready", open);
+    app.once("ready", () => open(openOptions));
   }
 
-  function open() {
+  function open(openOptions = {}) {
+    rememberRequestedTab(openOptions.tab);
     if (settingsWindow && !settingsWindow.isDestroyed()) {
+      sendRequestedTab(settingsWindow);
       if (typeof showPendingSettingsWindow === "function") {
         showPendingSettingsWindow({ restoreMinimized: true });
       } else {
@@ -305,6 +336,7 @@ function createSettingsWindowRuntime(options = {}) {
       createdWindow.webContents.once("did-finish-load", () => {
         applyZoomToWindow(createdWindow, getTextScale());
         applyTitleToWindow();
+        sendRequestedTab(createdWindow);
       });
     }
     // textScale is per-display: re-resolve after the user drags the window
@@ -336,6 +368,7 @@ function createSettingsWindowRuntime(options = {}) {
       const isCurrentWindow = settingsWindow === createdWindow;
       if (isCurrentWindow) {
         showPendingSettingsWindow = null;
+        pendingTab = null;
         clearReadyToShowFallbackTimer();
         clearLiftTimer();
       }

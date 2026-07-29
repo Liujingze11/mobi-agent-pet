@@ -96,6 +96,12 @@ globalThis.ClawdSettingsTabAbout.init(core);
 if (globalThis.ClawdSettingsTabRemoteSsh) globalThis.ClawdSettingsTabRemoteSsh.init(core);
 if (globalThis.ClawdSettingsTabMobile) globalThis.ClawdSettingsTabMobile.init(core);
 
+if (window.settingsAPI && typeof window.settingsAPI.onSelectTab === "function") {
+  window.settingsAPI.onSelectTab((tab) => {
+    if (core.tabs[tab]) core.ops.selectTab(tab);
+  });
+}
+
 if (window.settingsAPI && typeof window.settingsAPI.onChanged === "function") {
   window.settingsAPI.onChanged((payload) => core.ops.applyChanges(payload));
 }

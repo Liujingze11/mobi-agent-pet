@@ -42,6 +42,7 @@ function buildBaseCtx(overrides = {}) {
     getDisableMiniMode: () => false,
     getActiveThemeCapabilities: () => ({ miniMode: true }),
     openDashboard: () => {},
+    openSettingsTab: () => {},
     openSettingsWindow: () => {},
     togglePetVisibility: () => {},
     bringPetToPrimaryDisplay: () => {},
@@ -339,6 +340,57 @@ describe("menu recovery action", () => {
     const recover = ctx.tray.contextMenu.template.find((item) => item.label === "Bring Pet to Primary Display");
     assert.ok(recover, "tray menu should expose the recovery action");
     assert.strictEqual(recover.enabled, false);
+  });
+});
+
+describe("Agent integrations menu entry", () => {
+  it("opens the Agents manager from both context and tray menus", () => {
+    const fakeElectron = {
+      app: { quit: () => {}, setActivationPolicy: () => {}, dock: { show: () => {}, hide: () => {} } },
+      BrowserWindow: function BrowserWindow() {},
+      Menu: {
+        buildFromTemplate(template) {
+          return { template };
+        },
+      },
+      Tray: function Tray() {
+        this.setToolTip = () => {};
+        this.setContextMenu = (menu) => { this.contextMenu = menu; };
+        this.destroy = () => {};
+      },
+      nativeImage: {
+        createFromPath() {
+          return {
+            resize() { return this; },
+            setTemplateImage() {},
+          };
+        },
+      },
+      dialog: { showMessageBox: async () => ({ response: 1 }) },
+      screen: {
+        getAllDisplays: () => [{ id: 1, bounds: { x: 0, y: 0, width: 1920, height: 1080 }, workArea: { x: 0, y: 0, width: 1920, height: 1040 } }],
+        getCursorScreenPoint: () => ({ x: 0, y: 0 }),
+        getDisplayNearestPoint: () => ({ id: 1 }),
+      },
+    };
+    const initMenu = loadMenuWithElectron(fakeElectron);
+    const openedTabs = [];
+    const ctx = buildBaseCtx({
+      openSettingsTab: (tab) => openedTabs.push(tab),
+    });
+    const menu = initMenu(ctx);
+
+    menu.buildContextMenu();
+    const contextItem = ctx.contextMenu.template.find((item) => item.label === "Agent Integrations");
+    assert.ok(contextItem, "context menu should expose Agent Integrations");
+    contextItem.click();
+
+    menu.createTray();
+    const trayItem = ctx.tray.contextMenu.template.find((item) => item.label === "Agent Integrations");
+    assert.ok(trayItem, "tray menu should expose Agent Integrations");
+    trayItem.click();
+
+    assert.deepStrictEqual(openedTabs, ["agents", "agents"]);
   });
 });
 

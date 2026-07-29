@@ -2008,8 +2008,7 @@ const _tutorial = require("./tutorial")({
   uninstallAgent: (agentId) => _settingsController.applyCommand("uninstallAgentIntegration", { agentId }),
   registerShortcut: (payload) => _settingsController.applyCommand("registerShortcut", payload),
   resetShortcut: (payload) => _settingsController.applyCommand("resetShortcut", payload),
-  // v1: deep-link to a specific tab is deferred — open Settings to its default tab.
-  openSettingsTab: () => settingsWindowRuntime.open(),
+  openSettingsTab: () => settingsWindowRuntime.open({ tab: "agents" }),
   markTutorialSeen: () => {
     _settingsController.applyUpdate("tutorialSeen", true);
   },
@@ -3334,6 +3333,7 @@ const _menuCtx = {
   getActiveThemeId: () => themeRuntime.getActiveThemeId("clawd"),
   getActiveThemeCapabilities: () => themeRuntime.getActiveThemeCapabilities(),
   ensureUserThemesDir: () => themeLoader.ensureUserThemesDir(),
+  openSettingsTab: (tab) => settingsWindowRuntime.open({ tab }),
   openSettingsWindow: () => settingsWindowRuntime.open(),
   showTutorial: () => _tutorial.open(),
 };

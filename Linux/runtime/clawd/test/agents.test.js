@@ -125,6 +125,19 @@ describe("Agent config modules — data integrity", () => {
     assert.strictEqual(ids.length, unique.size, `Duplicate IDs: ${ids.filter((id, i) => ids.indexOf(id) !== i)}`);
   });
 
+  it("keeps Codex and Claude as first-class integrations", () => {
+    const codex = registry.getAgent("codex");
+    const claude = registry.getAgent("claude-code");
+
+    assert.strictEqual(codex.id, "codex");
+    assert.strictEqual(codex.eventSource, "hook+log-poll");
+    assert.strictEqual(codex.capabilities.permissionApproval, true);
+    assert.strictEqual(claude.id, "claude-code");
+    assert.strictEqual(claude.eventSource, "hook");
+    assert.strictEqual(claude.capabilities.permissionApproval, true);
+    assert.strictEqual(claude.capabilities.subagent, true);
+  });
+
   it("codex has interactiveBubble=true so settings UI renders its bubble sub-toggle", () => {
     const codex = agents.find((a) => a.id === "codex");
     assert.ok(codex);
