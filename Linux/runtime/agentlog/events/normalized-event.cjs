@@ -52,7 +52,8 @@ function normalizeAgentEvent(input, context = {}) {
   const agentId = text(opts.agentId, 128) || "unknown";
   const type = text(input.event, 256) || "StateChanged";
   const state = text(input.state, 128) || "idle";
-  const occurredAt = epoch(opts.timestamp) || receivedAt;
+  const parsedTimestamp = epoch(opts.timestamp);
+  const occurredAt = parsedTimestamp === null ? receivedAt : parsedTimestamp;
   const generatedSequence = Number.isSafeInteger(context.sequence) ? context.sequence : 0;
   const idSeed = sourceEventId
     ? [agentId, sessionId, sourceEventId]

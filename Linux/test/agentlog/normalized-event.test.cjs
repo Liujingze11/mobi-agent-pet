@@ -63,3 +63,14 @@ test("bounds assistant output while preserving the original event", () => {
   assert.equal(input.opts.assistantLastOutput.length, 20_000);
   assert.equal(event.category, "completed");
 });
+
+test("preserves an epoch timestamp of zero", () => {
+  const event = normalizeAgentEvent({
+    sessionId: "s1",
+    state: "working",
+    event: "SessionStart",
+    opts: { agentId: "codex", timestamp: 0 },
+  }, { now: () => 100 });
+
+  assert.equal(event.occurredAt, 0);
+});
