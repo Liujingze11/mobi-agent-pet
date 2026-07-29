@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const vm = require("node:vm");
 const { BRAND, rebrandText, rebrandTree } = require("../../runtime/agentlog/brand.cjs");
 
 const root = path.resolve(__dirname, "../..");
@@ -16,6 +17,39 @@ test("brand helper replaces product copy without changing lowercase protocol mar
   const tree = rebrandTree({ title: "Clawd Settings", fn: () => "Wake Clawd" });
   assert.equal(tree.title, "AgentLog Pet Settings");
   assert.equal(tree.fn(), "Wake AgentLog Pet");
+});
+
+test("renderer brand helper rebrands cyclic language trees without changing compatibility strings", () => {
+  const context = vm.createContext({});
+  const source = fs.readFileSync(
+    path.join(root, "runtime", "agentlog", "brand-renderer.js"),
+    "utf8"
+  );
+  vm.runInContext(source, context, { filename: "brand-renderer.js" });
+
+  const languageTree = {
+    en: {
+      title: "Clawd Settings",
+      values: ["Restart Clawd", "clawd://import", ".clawd", "CLAWD_THEME"],
+    },
+    zh: { title: "欢迎使用 Clawd on Desk" },
+  };
+  languageTree.self = languageTree;
+  languageTree.en.parent = languageTree;
+
+  const branded = context.AgentLogBrand.rebrandTree(languageTree);
+  assert.equal(context.AgentLogBrand.productName, "AgentLog Pet");
+  assert.equal(branded.en.title, "AgentLog Pet Settings");
+  assert.equal(branded.en.values[0], "Restart AgentLog Pet");
+  assert.equal(branded.zh.title, "欢迎使用 AgentLog Pet");
+  assert.equal(Array.isArray(branded.en.values), true);
+  assert.deepEqual(Array.from(branded.en.values.slice(1)), [
+    "clawd://import",
+    ".clawd",
+    "CLAWD_THEME",
+  ]);
+  assert.equal(branded.self, branded);
+  assert.equal(branded.en.parent, branded);
 });
 
 test("primary visible shells contain the AgentLog product name", () => {

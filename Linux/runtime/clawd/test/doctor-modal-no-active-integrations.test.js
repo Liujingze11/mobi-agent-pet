@@ -18,12 +18,16 @@ const vm = require("node:vm");
 const { SUPPORTED_LANGS } = require("../src/i18n");
 
 const ROOT = path.join(__dirname, "..");
+const BRAND_RENDERER = path.join(ROOT, "..", "agentlog", "brand-renderer.js");
 const SETTINGS_I18N = path.join(ROOT, "src", "settings-i18n.js");
 const SETTINGS_DOCTOR_MODAL = path.join(ROOT, "src", "settings-doctor-modal.js");
 
 function loadSettingsStrings() {
   const context = {};
   context.globalThis = context;
+  vm.runInNewContext(fs.readFileSync(BRAND_RENDERER, "utf8"), context, {
+    filename: "brand-renderer.js",
+  });
   vm.runInNewContext(fs.readFileSync(SETTINGS_I18N, "utf8"), context);
   return context.ClawdSettingsI18n.STRINGS;
 }

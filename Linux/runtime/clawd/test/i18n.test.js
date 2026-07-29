@@ -9,6 +9,7 @@ const vm = require("node:vm");
 const { i18n, SUPPORTED_LANGS } = require("../src/i18n");
 
 const ROOT = path.join(__dirname, "..");
+const BRAND_RENDERER = path.join(ROOT, "..", "agentlog", "brand-renderer.js");
 
 function placeholders(value) {
   return Array.from(String(value).matchAll(/\{[^}]+\}/g), (m) => m[0]).sort();
@@ -37,9 +38,11 @@ function assertLocaleObjectParity(locales, label) {
 }
 
 function loadSettingsI18nStrings() {
+  const brandSource = fs.readFileSync(BRAND_RENDERER, "utf8");
   const source = fs.readFileSync(path.join(ROOT, "src", "settings-i18n.js"), "utf8");
   const context = {};
   context.globalThis = context;
+  vm.runInNewContext(brandSource, context, { filename: "brand-renderer.js" });
   vm.runInNewContext(source, context);
   return context.ClawdSettingsI18n.STRINGS;
 }

@@ -13,6 +13,7 @@ const SETTINGS_TAB_GENERAL = path.join(SRC_DIR, "settings-tab-general.js");
 const SETTINGS_RENDERER = path.join(SRC_DIR, "settings-renderer.js");
 const SETTINGS_UI_CORE = path.join(SRC_DIR, "settings-ui-core.js");
 const SETTINGS_ANIM_OVERRIDES_MERGE = path.join(SRC_DIR, "settings-anim-overrides-merge.js");
+const BRAND_RENDERER = path.join(SRC_DIR, "..", "..", "agentlog", "brand-renderer.js");
 const SETTINGS_I18N = path.join(SRC_DIR, "settings-i18n.js");
 const SETTINGS_DOCTOR_MODAL = path.join(SRC_DIR, "settings-doctor-modal.js");
 const SETTINGS_ANIMATION_PREVIEW = path.join(SRC_DIR, "settings-animation-preview.html");
@@ -31,21 +32,6 @@ const TAB_MODULES = [
   path.join(SRC_DIR, "settings-tab-telegram-approval.js"),
   path.join(SRC_DIR, "settings-tab-about.js"),
 ];
-const VERIFIED_GITHUB_CONTRIBUTORS = [
-  "Bynlk",
-  "zxypro1",
-  "NeroAyase",
-  "divergentD",
-  "Ne9roni",
-  "jiaxuan1101",
-  "kkirito16",
-  "200780381",
-  "Dxy2326",
-  "lurui1997",
-  "JesmonX",
-  "chen86860",
-];
-
 function createDeferred() {
   const deferred = {};
   deferred.promise = new Promise((resolve, reject) => {
@@ -59,6 +45,9 @@ function loadSettingsI18nBundleForTest() {
   const context = { globalThis: null };
   context.globalThis = context;
   vm.createContext(context);
+  vm.runInContext(fs.readFileSync(BRAND_RENDERER, "utf8"), context, {
+    filename: "brand-renderer.js",
+  });
   vm.runInContext(fs.readFileSync(SETTINGS_I18N, "utf8"), context);
   return context.ClawdSettingsI18n;
 }
@@ -1477,6 +1466,7 @@ describe("settings renderer browser environment", () => {
     const scriptOrder = [
       "shortcut-actions.js",
       "settings-size-slider.js",
+      "../../agentlog/brand-renderer.js",
       "settings-i18n.js",
       "settings-anim-overrides-merge.js",
       "settings-ui-core.js",
@@ -1642,7 +1632,7 @@ describe("settings renderer browser environment", () => {
     assert.strictEqual(harness.content.querySelector(".remote-ssh-btn-danger").disabled, false);
   });
 
-  it("keeps About contributors visible and includes verified GitHub contributors", () => {
+  it("keeps AgentLog About credits scoped to the product maintainer", () => {
     const aboutSource = fs.readFileSync(path.join(SRC_DIR, "settings-tab-about.js"), "utf8");
     const coreSource = fs.readFileSync(SETTINGS_UI_CORE, "utf8");
     const css = fs.readFileSync(SETTINGS_CSS, "utf8");
@@ -1653,9 +1643,8 @@ describe("settings renderer browser environment", () => {
     assert.ok(!coreSource.includes("contributorsExpanded"));
     assert.ok(!css.includes(".about-contributors-list.collapsed"));
 
-    for (const login of VERIFIED_GITHUB_CONTRIBUTORS) {
-      assert.ok(i18nBundle.CONTRIBUTORS.includes(login), `About contributors should include ${login}`);
-    }
+    assert.deepStrictEqual(Array.from(i18nBundle.MAINTAINERS), ["Liujingze11"]);
+    assert.deepStrictEqual(Array.from(i18nBundle.CONTRIBUTORS), []);
   });
 
   it("keeps Telegram approval drafts local across toggles and rerenders", async () => {
@@ -4768,7 +4757,7 @@ describe("settings renderer browser environment", () => {
     assert.strictEqual(strings.en.themeActionGroupCodexPets, "Codex Pets");
     assert.strictEqual(strings.en.themeActionGroupUserThemes, "User themes");
     assert.strictEqual(strings.en.themeImportPetZip, "Import Codex Pet package (.zip)");
-    assert.strictEqual(strings.en.themeImportUserThemeZip, "Import Clawd theme package (.zip)");
+    assert.strictEqual(strings.en.themeImportUserThemeZip, "Import AgentLog Pet theme package (.zip)");
     assert.ok(strings.en.themeImportUserThemeZipHint.includes("theme.json"));
     assert.strictEqual(strings.en.themeOpenUserThemesFolder, "Open themes folder");
     assert.strictEqual(strings.en.themeRefreshThemes, "Refresh themes");
@@ -4782,7 +4771,7 @@ describe("settings renderer browser environment", () => {
     assert.strictEqual(strings.zh.themeImportPetZip, "导入 Codex Pet 包（.zip）");
     assert.strictEqual(strings.zh.themeCapabilityFineMotion, "精细动效");
     assert.strictEqual(strings.zh.themeActionGroupCodexPets, "Codex Pets");
-    assert.strictEqual(strings.zh.themeImportUserThemeZip, "导入 Clawd 主题包（.zip）");
+    assert.strictEqual(strings.zh.themeImportUserThemeZip, "导入 AgentLog Pet 主题包（.zip）");
     assert.ok(strings.zh.themeImportUserThemeZipHint.includes("theme.json"));
     assert.strictEqual(strings.zh.themeOpenUserThemesFolder, "打开主题文件夹");
   });

@@ -7,6 +7,7 @@ const vm = require("node:vm");
 const test = require("node:test");
 
 const ROOT = path.join(__dirname, "..");
+const BRAND_RENDERER = path.join(ROOT, "..", "agentlog", "brand-renderer.js");
 const TABLE_READMES = ["README.md", "README.ko-KR.md", "README.ja-JP.md"];
 const ALL_READMES = [
   "README.md",
@@ -50,9 +51,11 @@ const VERIFIED_GITHUB_CONTRIBUTORS = [
 ];
 
 function loadSettingsContributors() {
+  const brandSource = fs.readFileSync(BRAND_RENDERER, "utf8");
   const source = fs.readFileSync(path.join(ROOT, "src", "settings-i18n.js"), "utf8");
   const context = {};
   context.globalThis = context;
+  vm.runInNewContext(brandSource, context, { filename: "brand-renderer.js" });
   vm.runInNewContext(source, context, { filename: "settings-i18n.js" });
   return Array.from(context.ClawdSettingsI18n.CONTRIBUTORS);
 }
@@ -153,14 +156,6 @@ test("README contributor sections include verified GitHub contributors", () => {
   }
 });
 
-test("all README contributor lists exactly match Settings About", () => {
-  const expected = loadSettingsContributors();
-  assert.strictEqual(new Set(expected).size, expected.length, "Settings contributors should not contain duplicates");
-
-  for (const filename of ALL_READMES) {
-    const markdown = fs.readFileSync(path.join(ROOT, filename), "utf8");
-    const actual = extractContributorLogins(markdown, filename);
-    assert.strictEqual(new Set(actual).size, actual.length, `${filename} should not contain duplicate contributors`);
-    assert.deepStrictEqual(actual.slice().sort(), expected.slice().sort(), `${filename} contributors should match Settings About`);
-  }
+test("Settings About does not inherit pinned upstream contributor credits", () => {
+  assert.deepStrictEqual(loadSettingsContributors(), []);
 });
