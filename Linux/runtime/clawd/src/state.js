@@ -1332,6 +1332,15 @@ function promoteCompletion(sessionId) {
 // (sessionTitle, etc.) don't keep extending the argument list.
 function updateSession(sessionId, state, event, opts = {}) {
   try {
+  if (typeof ctx.onAgentEvent === "function") {
+    try {
+      ctx.onAgentEvent({ sessionId, state, event, opts });
+    } catch (error) {
+      if (typeof ctx.debugLog === "function") {
+        ctx.debugLog(`agentlog-event-observer failed: ${error && error.message ? error.message : error}`);
+      }
+    }
+  }
   const {
     sourcePid = null,
     wtHwnd = null,

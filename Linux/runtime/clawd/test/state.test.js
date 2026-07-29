@@ -4072,3 +4072,41 @@ describe("antigravity trailing PostToolUse filter", () => {
     assert.ok(after.lastToolBoundaryAt > after.lastStopAt, "new turn should refresh tool boundary after Stop");
   });
 });
+
+describe("AgentLog event observer", () => {
+  let api;
+
+  afterEach(() => { if (api) api.cleanup(); });
+
+  it("receives the original session update bag", () => {
+    const observed = [];
+    api = require("../src/state")(makeCtx({
+      onAgentEvent: (input) => observed.push(input),
+    }));
+
+    api.updateSession("codex-1", "working", "PreToolUse", {
+      agentId: "codex",
+      cwd: "/work/repo",
+      toolName: "exec_command",
+    });
+
+    assert.strictEqual(observed.length, 1);
+    assert.strictEqual(observed[0].sessionId, "codex-1");
+    assert.strictEqual(observed[0].opts.agentId, "codex");
+    assert.strictEqual(api.sessions.get("codex-1").state, "working");
+  });
+
+  it("continues normal session updates when the observer throws", () => {
+    api = require("../src/state")(makeCtx({
+      onAgentEvent: () => { throw new Error("observer failed"); },
+    }));
+
+    assert.doesNotThrow(() => {
+      api.updateSession("claude-1", "thinking", "UserPromptSubmit", {
+        agentId: "claude-code",
+        cwd: "/work/repo",
+      });
+    });
+    assert.strictEqual(api.sessions.get("claude-1").agentId, "claude-code");
+  });
+});

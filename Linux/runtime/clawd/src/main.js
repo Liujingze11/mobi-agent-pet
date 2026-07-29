@@ -81,6 +81,7 @@ const {
 } = require("./settings-size-preview-session");
 const { registerSettingsIpc } = require("./settings-ipc");
 const { BRAND } = require("../../agentlog/brand.cjs");
+const agentLogRuntime = require("../../agentlog/runtime-bridge.cjs");
 const createSettingsEffectRouter = require("./settings-effect-router");
 const {
   getPetTintIdForTheme,
@@ -1658,6 +1659,7 @@ const _stateCtx = {
   // boundary) keeps the gate consistent for hook / log-poll / plugin paths.
   isAgentNotificationHookEnabled: (agentId) =>
     _isAgentNotificationHookEnabled({ agents: _settingsController.get("agents") }, agentId),
+  onAgentEvent: (input) => agentLogRuntime.publishUpstreamEvent(input),
   resolveAgentDisplayName: _resolveAgentDisplayName,
   miniPeekIn: () => miniPeekIn(),
   miniPeekOut: () => miniPeekOut(),
