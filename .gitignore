@@ -33,3 +33,6 @@ npm-debug.log*
 
 # Electron-builder output
 Linux/release/
+
+# Isolated implementation worktrees
+.worktrees/
