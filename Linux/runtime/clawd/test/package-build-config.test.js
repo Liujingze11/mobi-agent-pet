@@ -1,0 +1,446 @@
+const assert = require("node:assert");
+const { describe, it } = require("node:test");
+const fs = require("node:fs");
+const path = require("node:path");
+const { minimatch } = require("minimatch");
+
+const pkg = require("../package.json");
+const ROOT = path.join(__dirname, "..");
+
+function matchedByAnyGlob(globs, target) {
+  return globs.some((g) => minimatch(target, g));
+}
+
+describe("package build config", () => {
+  describe("repository asset audit", () => {
+    it("exposes a Windows-compatible npm audit command", () => {
+      assert.strictEqual(
+        pkg.scripts["audit:assets"],
+        "node scripts/audit-repository-assets.js"
+      );
+    });
+
+    it("does not match retained source artwork with package globs", () => {
+      assert.strictEqual(
+        matchedByAnyGlob(pkg.build.files, "assets/source/dock-icon-fullbleed.png"),
+        false,
+        "assets/source/** must stay outside build.files"
+      );
+    });
+
+    it("runs in pull-request CI and uploads stable JSON manifests", () => {
+      const workflowPath = path.join(ROOT, ".github", "workflows", "repository-asset-audit.yml");
+      assert.ok(fs.existsSync(workflowPath), "repository asset audit workflow should exist");
+      const workflow = fs.readFileSync(workflowPath, "utf8");
+      assert.match(workflow, /pull_request:/);
+      assert.match(workflow, /npm run audit:assets/);
+      assert.match(workflow, /dist\/repository-asset-audit\/\*\.json/);
+      assert.match(
+        workflow,
+        /^permissions:\r?\n\s+contents: read$/m,
+        "repository asset audit should use a read-only GitHub token",
+      );
+    });
+  });
+
+  it("ships project window icons in packaged builds", () => {
+    assert.ok(
+      pkg.build.files.includes("assets/icons/**/*"),
+      "build.files should include assets/icons/**/*"
+    );
+  });
+
+  it("ships agent session icons in packaged builds", () => {
+    assert.ok(
+      pkg.build.files.includes("assets/icons/agents/**/*"),
+      "build.files should include assets/icons/agents/**/*"
+    );
+  });
+
+  it("ships third-party notices in packaged builds", () => {
+    assert.ok(
+      pkg.build.files.includes("NOTICE.md"),
+      "build.files should include NOTICE.md"
+    );
+  });
+
+  it("unpacks built-in theme assets so the folder can be opened from settings", () => {
+    assert.ok(
+      pkg.build.asarUnpack.includes("assets/svg/**/*"),
+      "asarUnpack should include assets/svg/**/*"
+    );
+    assert.ok(
+      pkg.build.files.includes("assets/accessories/**/*"),
+      "build.files should include assets/accessories/**/*"
+    );
+    assert.ok(
+      pkg.build.asarUnpack.includes("assets/accessories/**/*"),
+      "asarUnpack should include assets/accessories/**/*"
+    );
+    assert.ok(
+      pkg.build.asarUnpack.includes("themes/**/*"),
+      "asarUnpack should include themes/**/*"
+    );
+  });
+
+  it("ships and unpacks runtime files required by external hook scripts", () => {
+    assert.ok(
+      pkg.build.files.includes("hooks/**/*"),
+      "build.files should include hooks/**/*"
+    );
+    assert.ok(
+      pkg.build.files.includes("extensions/**/*"),
+      "build.files should include extensions/**/*"
+    );
+    assert.ok(
+      pkg.build.files.includes("agents/**/*"),
+      "build.files should include agents/**/*"
+    );
+    assert.ok(
+      pkg.build.asarUnpack.includes("agents/**/*"),
+      "asarUnpack should include agents/**/*"
+    );
+    assert.ok(
+      pkg.build.asarUnpack.includes("hooks/**/*"),
+      "asarUnpack should include hooks/**/*"
+    );
+    assert.ok(
+      pkg.build.asarUnpack.includes("extensions/**/*"),
+      "asarUnpack should include extensions/**/*"
+    );
+  });
+
+  it("unpacks jsonc-parser for NSIS cleanup scripts executed outside app.asar", () => {
+    assert.ok(
+      pkg.build.asarUnpack.includes("node_modules/jsonc-parser/**/*"),
+      "NSIS runs cleanup-integrations.js from app.asar.unpacked, so MiMo JSONC cleanup needs an unpacked dependency"
+    );
+  });
+
+  describe("Windows architecture targets", () => {
+    function getWindowsNsisTarget() {
+      const targets = pkg.build.win && pkg.build.win.target;
+      return Array.isArray(targets) ? targets.find((target) => target && target.target === "nsis") : null;
+    }
+
+    it("builds native Windows installers for x64 and arm64", () => {
+      const target = getWindowsNsisTarget();
+      assert.ok(target, "build.win.target should include an nsis target");
+      assert.deepStrictEqual(
+        target.arch.slice().sort(),
+        ["x64", "arm64"].slice().sort(),
+        "Windows NSIS builds should publish both x64 and ARM64 installers"
+      );
+    });
+
+    it("uses architecture-specific Windows installer names", () => {
+      const artifactName = pkg.build.win && pkg.build.win.artifactName;
+      assert.strictEqual(
+        typeof artifactName,
+        "string",
+        "build.win.artifactName should be a string"
+      );
+      assert.match(
+        artifactName,
+        /\$\{arch\}/,
+        "Windows artifactName must include ${arch} so x64 and ARM64 installers cannot collide"
+      );
+    });
+
+    it("exposes explicit Windows architecture build scripts", () => {
+      assert.strictEqual(pkg.scripts["build:win:x64"], "electron-builder --win nsis:x64");
+      assert.strictEqual(pkg.scripts["build:win:arm64"], "electron-builder --win nsis:arm64");
+      assert.strictEqual(pkg.scripts["build:win:all"], "electron-builder --win nsis:x64 nsis:arm64");
+    });
+
+    it("does not emit a redundant universal Windows installer", () => {
+      assert.strictEqual(
+        pkg.build.nsis && pkg.build.nsis.buildUniversalInstaller,
+        false,
+        "Windows releases should publish explicit x64/ARM64 installers, not an extra universal NSIS installer"
+      );
+    });
+  });
+
+  describe("macOS architecture targets", () => {
+    function getMacDmgTarget() {
+      const targets = pkg.build.mac && pkg.build.mac.target;
+      return Array.isArray(targets) ? targets.find((target) => target && target.target === "dmg") : null;
+    }
+
+    it("builds native macOS DMGs for x64 and arm64", () => {
+      const target = getMacDmgTarget();
+      assert.ok(target, "build.mac.target should include a dmg target");
+      assert.deepStrictEqual(
+        target.arch.slice().sort(),
+        ["x64", "arm64"].slice().sort(),
+        "macOS builds should publish both x64 and ARM64 DMGs"
+      );
+    });
+
+    it("uses architecture-specific macOS DMG names without spaces", () => {
+      const artifactName = pkg.build.mac && pkg.build.mac.artifactName;
+      assert.strictEqual(
+        typeof artifactName,
+        "string",
+        "build.mac.artifactName should be a string"
+      );
+      assert.match(
+        artifactName,
+        /\$\{arch\}/,
+        "macOS artifactName must include ${arch} so x64 and ARM64 DMGs cannot collide"
+      );
+      assert.doesNotMatch(
+        artifactName,
+        /\s/,
+        "macOS artifactName should not contain spaces so latest-mac.yml URLs match uploaded DMG assets"
+      );
+    });
+  });
+
+  describe("Linux artifact targets", () => {
+    it("uses Linux artifact names without spaces so latest-linux.yml URLs match uploaded assets", () => {
+      const artifactName = pkg.build.linux && pkg.build.linux.artifactName;
+      assert.strictEqual(
+        typeof artifactName,
+        "string",
+        "build.linux.artifactName should be a string"
+      );
+      assert.match(
+        artifactName,
+        /\$\{arch\}/,
+        "Linux artifactName should include ${arch} so architecture-specific assets stay explicit"
+      );
+      assert.doesNotMatch(
+        artifactName,
+        /\s/,
+        "Linux artifactName should not contain spaces so latest-linux.yml URLs match uploaded assets"
+      );
+    });
+  });
+
+  // getWindowsShellIconPath has a three-step fallback:
+  //   1. resourcesPath/icon.ico            ← extraResources copy
+  //   2. resourcesPath/app.asar.unpacked/assets/icon.ico
+  //   3. resourcesPath/app.asar/assets/icon.ico
+  // Fallback 1 only works if extraResources actually copies icon.ico, and
+  // fallback 3 only works if icon.ico is inside build.files. Guard both so a
+  // future refactor to either array can't silently drop the shell icon.
+  describe("Windows shell icon fallback chain", () => {
+    it("has the source icon.ico on disk", () => {
+      const src = path.join(ROOT, "assets", "icon.ico");
+      assert.ok(fs.existsSync(src), "assets/icon.ico must exist for build.win.icon + extraResources");
+    });
+
+    it("copies icon.ico into resourcesPath via extraResources", () => {
+      const extra = pkg.build.extraResources || [];
+      const copied = extra.some(
+        (e) => e && e.from === "assets/icon.ico" && e.to === "icon.ico"
+      );
+      assert.ok(copied, "build.extraResources must copy assets/icon.ico → icon.ico (shell fallback 1)");
+    });
+
+    it("wires win.icon to the same source file", () => {
+      assert.strictEqual(
+        pkg.build.win && pkg.build.win.icon,
+        "assets/icon.ico",
+        "build.win.icon should point at the same file the shell icon chain expects"
+      );
+    });
+
+    it("packs icon.ico into the asar so fallback 3 resolves", () => {
+      // getWindowsShellIconPath's third fallback reads
+      // resourcesPath/app.asar/assets/icon.ico — which only exists if the
+      // file survives the build.files glob filter. Earlier versions listed
+      // only assets/icons/**/* (subdir), which does NOT match assets/icon.ico
+      // at the root, so fallback 3 was dead. Guard against that regression.
+      assert.ok(
+        matchedByAnyGlob(pkg.build.files, "assets/icon.ico"),
+        "build.files must include a glob covering assets/icon.ico (fallback 3)"
+      );
+    });
+  });
+
+  describe("Telegram approval sidecar packaging", () => {
+    it("preflights sidecar binaries before source launches", () => {
+      assert.match(pkg.scripts.start, /node scripts\/ensure-sidecar-binaries\.js && node launch\.js/);
+    });
+
+    it("does not copy the whole cc-connect-clawd workspace into every artifact", () => {
+      const commonExtra = pkg.build.extraResources || [];
+      assert.strictEqual(
+        commonExtra.some((entry) => entry && entry.from === "bin/cc-connect-clawd"),
+        false,
+        "common build.extraResources must not copy the whole sidecar workspace"
+      );
+    });
+
+    it("copies exactly the current platform and architecture sidecar via ${arch}", () => {
+      const expected = {
+        win: {
+          from: "bin/cc-connect-clawd/windows-${arch}",
+          to: "sidecars/cc-connect-clawd/windows-${arch}",
+        },
+        mac: {
+          from: "bin/cc-connect-clawd/darwin-${arch}",
+          to: "sidecars/cc-connect-clawd/darwin-${arch}",
+        },
+        linux: {
+          from: "bin/cc-connect-clawd/linux-${arch}",
+          to: "sidecars/cc-connect-clawd/linux-${arch}",
+        },
+      };
+      for (const [platform, entry] of Object.entries(expected)) {
+        assert.deepStrictEqual(
+          pkg.build[platform] && pkg.build[platform].extraResources,
+          [entry],
+          `${platform}.extraResources must copy only its current \${arch} sidecar`
+        );
+      }
+    });
+
+    it("exposes build and package assertion commands for all five targets", () => {
+      assert.strictEqual(
+        pkg.scripts["assert:packaged-sidecar"],
+        "node scripts/assert-packaged-sidecar.js"
+      );
+      assert.strictEqual(pkg.scripts["build:mac:x64"], "electron-builder --mac dmg:x64");
+      assert.strictEqual(pkg.scripts["build:mac:arm64"], "electron-builder --mac dmg:arm64");
+      assert.strictEqual(pkg.scripts["build:linux:x64"], "electron-builder --linux AppImage:x64 deb:x64");
+    });
+
+    it("documents the expected sidecar binary names in the README", () => {
+      const readme = path.join(ROOT, "bin", "cc-connect-clawd", "README.md");
+      assert.ok(fs.existsSync(readme), "bin/cc-connect-clawd/README.md should document release binary names");
+      const text = fs.readFileSync(readme, "utf8");
+      assert.match(text, /windows-x64\/cc-connect-clawd\.exe/);
+      assert.match(text, /darwin-arm64\/cc-connect-clawd/);
+      assert.match(text, /linux-x64\/cc-connect-clawd/);
+    });
+
+    it("fetches and verifies pinned sidecars before release builds", () => {
+      const workflow = fs.readFileSync(path.join(ROOT, ".github", "workflows", "build.yml"), "utf8");
+      assertWorkflowOrder(
+        workflow,
+        "npm run fetch:sidecars -- --target windows-x64,windows-arm64",
+        "node scripts/verify-sidecar-binaries.js prebuild:win:all",
+        "npx electron-builder --win --publish never"
+      );
+      assertWorkflowOrder(
+        workflow,
+        "npm run fetch:sidecars -- --target darwin-x64,darwin-arm64",
+        "node scripts/verify-sidecar-binaries.js prebuild:mac",
+        "npx electron-builder --mac --publish never"
+      );
+      assertWorkflowOrder(
+        workflow,
+        "npm run fetch:sidecars -- --target linux-x64",
+        "node scripts/verify-sidecar-binaries.js prebuild:linux",
+        "npx electron-builder --linux --publish never"
+      );
+    });
+
+    it("asserts all five unpacked package targets after release builds", () => {
+      const workflow = fs.readFileSync(path.join(ROOT, ".github", "workflows", "build.yml"), "utf8");
+      for (const target of [
+        "windows-x64",
+        "windows-arm64",
+        "darwin-x64",
+        "darwin-arm64",
+        "linux-x64",
+      ]) {
+        assert.match(
+          workflow,
+          new RegExp(`npm run assert:packaged-sidecar -- --target ${target}`),
+          `release workflow should assert ${target}`
+        );
+      }
+    });
+
+    it("keeps full tag tests while allowing a manual packaging-only evidence run", () => {
+      const workflow = fs.readFileSync(path.join(ROOT, ".github", "workflows", "build.yml"), "utf8");
+      assert.match(workflow, /artifact_validation_only:/);
+      assert.strictEqual(
+        (workflow.match(/github\.event_name != 'workflow_dispatch' \|\| !inputs\.artifact_validation_only/g) || []).length,
+        1,
+        "the Windows release job must keep npm test for tag pushes and normal manual runs"
+      );
+      assert.strictEqual(
+        (workflow.match(/github\.event_name == 'workflow_dispatch' && inputs\.artifact_validation_only/g) || []).length,
+        1,
+        "only the Windows job should substitute the package-validation tests in evidence mode"
+      );
+      assert.strictEqual(
+        (workflow.match(/node --test test\/assert-packaged-sidecar\.test\.js test\/package-build-config\.test\.js test\/telegram-approval-sidecar\.test\.js test\/verify-sidecar-binaries\.test\.js/g) || []).length,
+        1
+      );
+      assert.strictEqual(
+        (workflow.match(/      - run: npm test/g) || []).length,
+        3,
+        "Windows, macOS, and Linux release jobs must all retain their npm test step"
+      );
+    });
+
+    it("builds and uploads all five target artifacts in pull-request CI", () => {
+      const workflowPath = path.join(ROOT, ".github", "workflows", "sidecar-package-audit.yml");
+      assert.ok(fs.existsSync(workflowPath), "sidecar package audit workflow should exist");
+      const workflow = fs.readFileSync(workflowPath, "utf8");
+      assert.match(workflow, /pull_request:/);
+      for (const target of [
+        "windows-x64",
+        "windows-arm64",
+        "darwin-x64",
+        "darwin-arm64",
+        "linux-x64",
+      ]) {
+        assert.match(workflow, new RegExp(`target: ${target}`));
+        assert.match(
+          workflow,
+          new RegExp(`sidecar-package-\\$\\{\\{ matrix\\.target \\}\\}`),
+          "five-target CI should upload target-specific artifacts and manifests"
+        );
+      }
+      assert.match(workflow, /Clawd-on-Desk-\*-x86_64\.AppImage/);
+      assert.match(workflow, /Clawd-on-Desk-\*-amd64\.deb/);
+    });
+
+    it("publishes GitHub releases only for version tags", () => {
+      const workflow = fs.readFileSync(path.join(ROOT, ".github", "workflows", "build.yml"), "utf8");
+      const releaseIndex = findWorkflowJobIndex(workflow, "release");
+      assert.ok(releaseIndex >= 0, "workflow should define a release job");
+      const releaseGateIndex = workflow.indexOf("if: startsWith(github.ref, 'refs/tags/v')", releaseIndex);
+      const bodyPathIndex = workflow.indexOf("body_path: docs/releases/release-${{ github.ref_name }}.md", releaseIndex);
+      assert.ok(releaseGateIndex >= 0, "release job should be gated to v* tags");
+      assert.ok(bodyPathIndex >= 0, "release job should still use tag-specific release notes");
+      assert.ok(releaseGateIndex < bodyPathIndex, "release job gate should run before release publication");
+    });
+
+    it("creates tag releases as drafts for final asset inspection", () => {
+      const workflow = fs.readFileSync(path.join(ROOT, ".github", "workflows", "build.yml"), "utf8");
+      const releaseIndex = findWorkflowJobIndex(workflow, "release");
+      assert.ok(releaseIndex >= 0, "workflow should define a release job");
+      const actionIndex = workflow.indexOf("softprops/action-gh-release@v2", releaseIndex);
+      const draftIndex = workflow.indexOf("draft: true", actionIndex);
+      const prereleaseIndex = workflow.indexOf("prerelease: ${{ contains(github.ref_name, '-') }}", actionIndex);
+      assert.ok(actionIndex >= 0, "release job should use the GitHub release action");
+      assert.ok(draftIndex > actionIndex, "tag releases should be created as drafts first");
+      assert.ok(prereleaseIndex > actionIndex, "hyphenated tags should be marked prerelease");
+    });
+  });
+});
+
+function findWorkflowJobIndex(workflow, jobName) {
+  const match = String(workflow || "").match(new RegExp(`(?:^|\\r?\\n)  ${jobName}:\\r?\\n`));
+  return match ? match.index : -1;
+}
+
+function assertWorkflowOrder(workflow, fetchCommand, verifyCommand, buildCommand) {
+  const fetchIndex = workflow.indexOf(fetchCommand);
+  const verifyIndex = workflow.indexOf(verifyCommand);
+  const buildIndex = workflow.indexOf(buildCommand);
+  assert.ok(fetchIndex >= 0, `workflow should run: ${fetchCommand}`);
+  assert.ok(verifyIndex >= 0, `workflow should run: ${verifyCommand}`);
+  assert.ok(buildIndex >= 0, `workflow should run: ${buildCommand}`);
+  assert.ok(fetchIndex < verifyIndex, `${fetchCommand} should run before ${verifyCommand}`);
+  assert.ok(verifyIndex < buildIndex, `${verifyCommand} should run before ${buildCommand}`);
+}
