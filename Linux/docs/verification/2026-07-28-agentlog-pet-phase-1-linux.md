@@ -61,7 +61,7 @@ Native AppImage single-instance smoke through FUSE:
 ```text
 $ LD_LIBRARY_PATH=/tmp/agentlog-libfuse2/lib/x86_64-linux-gnu \
     npm run smoke:linux -- Linux/AgentLog-Pet-0.1.0-x64.AppImage
-{"status":"ok","productName":"AgentLog Pet","windowCount":4,"pid":130489}
+{"status":"ok","productName":"AgentLog Pet","windowCount":4,"pid":156426}
 ```
 
 The smoke runner removes `ELECTRON_RUN_AS_NODE` because the verification
@@ -70,8 +70,8 @@ harness exports it. A normal desktop session does not set that variable.
 ## Packages
 
 ```text
-168420884  Linux/AgentLog-Pet-0.1.0-x64.AppImage
-137211192  Linux/AgentLog-Pet-0.1.0-x64.deb
+168420881  Linux/AgentLog-Pet-0.1.0-x64.AppImage
+137210596  Linux/AgentLog-Pet-0.1.0-x64.deb
 ```
 
 Debian metadata:
@@ -88,8 +88,8 @@ Description: Your Private AI Agent Work Journal
 SHA-256:
 
 ```text
-90a02a8cc6b88ce82623b915b6e89fd9b275332122fd292592de340d2272f478  Linux/AgentLog-Pet-0.1.0-x64.AppImage
-4c48d3fa90c25427bd89123a2993660ab36070b3bfffd74b990421fe6e082fc0  Linux/AgentLog-Pet-0.1.0-x64.deb
+c5e70ba2032dc8f6349103f9be41ae08744ecf247d6dfecb2a6761f3a527a85b  Linux/AgentLog-Pet-0.1.0-x64.AppImage
+2239a36aabef7376528fb920f8eccfe768848769061f970236376655e1d4428a  Linux/AgentLog-Pet-0.1.0-x64.deb
 ```
 
 ## Interaction Record
