@@ -1,6 +1,7 @@
 {
   "name": "agentlog-pet",
   "productName": "AgentLog Pet",
+  "desktopName": "agentlog-pet.desktop",
   "version": "0.1.0",
   "description": "Your Private AI Agent Work Journal",
   "author": "Liujingze11",
@@ -91,6 +92,7 @@
       "maintainer": "Liujingze11",
       "icon": "runtime/clawd/assets/icons",
       "category": "Development",
+      "syncDesktopName": true,
       "artifactName": "AgentLog-Pet-${version}-x64.${ext}",
       "target": [
         { "target": "AppImage", "arch": ["x64"] },

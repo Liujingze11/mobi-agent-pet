@@ -1,6 +1,6 @@
 # AgentLog Pet Phase 1 Linux Verification
 
-Verified on 2026-07-29.
+Verified on 2026-08-04.
 
 ## Environment
 
@@ -12,9 +12,9 @@ Verified on 2026-07-29.
 - Electron: 41.10.3
 - electron-builder: 26.15.3
 
-The host had `/dev/fuse` but did not have `libfuse.so.2` installed. The Ubuntu
-Jammy `libfuse2` package was downloaded and extracted under `/tmp`; it was
-provided only through `LD_LIBRARY_PATH`. No system package was installed.
+The host had `/dev/fuse` but did not have `libfuse.so.2` installed. The final
+AppImage was therefore exercised with AppImage extraction mode. No system
+package was installed.
 
 ## Automated Results
 
@@ -22,7 +22,7 @@ Development single-instance smoke:
 
 ```text
 $ npm run smoke:linux
-{"status":"ok","productName":"AgentLog Pet","windowCount":4,"pid":119665}
+{"status":"ok","productName":"AgentLog Pet","windowCount":4,"pid":2210509}
 ```
 
 Phase 1 regression suite:
@@ -56,22 +56,24 @@ $ npm run build:linux
 exit 0
 ```
 
-Native AppImage single-instance smoke through FUSE:
+Final AppImage single-instance smoke in extraction mode:
 
 ```text
-$ LD_LIBRARY_PATH=/tmp/agentlog-libfuse2/lib/x86_64-linux-gnu \
+$ APPIMAGE_EXTRACT_AND_RUN=1 \
     npm run smoke:linux -- Linux/AgentLog-Pet-0.1.0-x64.AppImage
-{"status":"ok","productName":"AgentLog Pet","windowCount":4,"pid":156426}
+{"status":"ok","productName":"AgentLog Pet","windowCount":4,"pid":2210826}
 ```
 
 The smoke runner removes `ELECTRON_RUN_AS_NODE` because the verification
-harness exports it. A normal desktop session does not set that variable.
+harness exports it. A normal desktop session does not set that variable. A
+direct FUSE launch of this final artifact was not possible on the verification
+host because `libfuse.so.2` was unavailable.
 
 ## Packages
 
 ```text
-168420881  Linux/AgentLog-Pet-0.1.0-x64.AppImage
-137210596  Linux/AgentLog-Pet-0.1.0-x64.deb
+168420712  Linux/AgentLog-Pet-0.1.0-x64.AppImage
+137211264  Linux/AgentLog-Pet-0.1.0-x64.deb
 ```
 
 Debian metadata:
@@ -88,17 +90,23 @@ Description: Your Private AI Agent Work Journal
 SHA-256:
 
 ```text
-c5e70ba2032dc8f6349103f9be41ae08744ecf247d6dfecb2a6761f3a527a85b  Linux/AgentLog-Pet-0.1.0-x64.AppImage
-2239a36aabef7376528fb920f8eccfe768848769061f970236376655e1d4428a  Linux/AgentLog-Pet-0.1.0-x64.deb
+46fd30b67fc407286870feaaba22ca64784fad65131ca1f767fdb30b1df4c177  Linux/AgentLog-Pet-0.1.0-x64.AppImage
+e1fcb42cc702979363924ae9a962e395fc9e3c2f4847a97a4f8cff3707a05d97  Linux/AgentLog-Pet-0.1.0-x64.deb
 ```
+
+The Debian package installs `agentlog-pet.desktop` with `Name=AgentLog Pet`
+and `StartupWMClass=agentlog-pet`.
 
 ## Interaction Record
 
-- PASS, observed: Native AppImage launch created an `AgentLog Pet` 167x167 pet
-  window and a branded welcome window. No DevPulse window was created.
-- PASS, observed: A second native AppImage launch with the same isolated HOME
-  exited with code 0. The existing AgentLog X11 window IDs and count did not
-  change.
+- PASS, observed on 2026-07-29: A native AppImage acceptance build created an
+  `AgentLog Pet` 167x167 pet window and a branded welcome window. No DevPulse
+  window was created.
+- PASS, observed on 2026-07-29: A second native AppImage launch with the same
+  isolated HOME exited with code 0. The existing AgentLog X11 window IDs and
+  count did not change.
+- PASS, automated on 2026-08-04: The final AppImage passed the same
+  single-instance contract in extraction mode.
 - PASS, automated: The package exposes one application entry and one upstream
   single-instance lock.
 - PASS, automated: Agent Integrations selects the Settings Agents tab, and the

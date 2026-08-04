@@ -12,3 +12,5 @@ release/
 *.AppImage
 *.deb
 linux-unpacked/
+builder-effective-config.yaml
+latest-linux.yml

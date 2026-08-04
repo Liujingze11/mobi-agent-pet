@@ -15,6 +15,7 @@ const upstreamMain = fs.readFileSync(path.join(root, "runtime/clawd/src/main.js"
 test("root package exposes one AgentLog Pet Electron application", () => {
   assert.equal(pkg.name, "agentlog-pet");
   assert.equal(pkg.productName, "AgentLog Pet");
+  assert.equal(pkg.desktopName, "agentlog-pet.desktop");
   assert.equal(pkg.main, "runtime/agentlog/main.cjs");
   assert.equal(pkg.engines.node, ">=22.12.0");
   assert.equal(pkg.homepage, "https://github.com/Liujingze11/agentlog-pet");
@@ -28,6 +29,7 @@ test("root package exposes one AgentLog Pet Electron application", () => {
     { target: "AppImage", arch: ["x64"] },
     { target: "deb", arch: ["x64"] },
   ]);
+  assert.equal(pkg.build.linux.syncDesktopName, true);
   assert.equal(
     pkg.build.publish[0].repo,
     "agentlog-pet"
