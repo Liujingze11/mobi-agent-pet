@@ -86,3 +86,12 @@ CREATE TABLE human_sessions (
   updated_at INTEGER NOT NULL
 );
 CREATE UNIQUE INDEX human_sessions_one_active ON human_sessions((1)) WHERE status IN ('running','paused');
+CREATE TABLE human_pause_intervals (
+  id TEXT PRIMARY KEY,
+  human_session_id TEXT NOT NULL REFERENCES human_sessions(id) ON DELETE CASCADE,
+  started_at INTEGER NOT NULL,
+  ended_at INTEGER,
+  CHECK (ended_at IS NULL OR ended_at > started_at)
+);
+CREATE UNIQUE INDEX human_pause_intervals_one_open ON human_pause_intervals(human_session_id) WHERE ended_at IS NULL;
+CREATE INDEX human_pause_intervals_session_time ON human_pause_intervals(human_session_id, started_at);

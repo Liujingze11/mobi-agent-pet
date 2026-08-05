@@ -75,6 +75,18 @@ function seedEvent(db, { id, projectId, sessionId, occurredAt }) {
   ).run(id, `source-${sessionId}`, `source-${sessionId}`, projectId, sessionId, occurredAt, occurredAt);
 }
 
+function seedHumanSession(db, { id, projectId, status = "running", startedAt, endedAt = null, pausedAt = null, accumulatedPauseMs = 0 }) {
+  db.prepare(
+    "INSERT INTO human_sessions(id, project_id, status, started_at, ended_at, paused_at, accumulated_pause_ms, notes, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, '', ?, ?)"
+  ).run(id, projectId, status, startedAt, endedAt, pausedAt, accumulatedPauseMs, startedAt, NOW);
+}
+
+function seedHumanPause(db, { id, sessionId, startedAt, endedAt = null }) {
+  db.prepare(
+    "INSERT INTO human_pause_intervals(id, human_session_id, started_at, ended_at) VALUES(?, ?, ?, ?)"
+  ).run(id, sessionId, startedAt, endedAt);
+}
+
 function seedFixture(db) {
   const day = startOfLocalDay(NOW);
   seedProject(db, {
@@ -167,4 +179,52 @@ test("project detail and timeline exclude archived projects by default", (t) => 
   assert.deepEqual(queries.getProjectTimeline("archived"), []);
   assert.equal(queries.getProjectDetail("archived", { includeArchived: true }).id, "archived");
   assert.equal(day < NOW, true);
+});
+
+test("a pause wholly before today does not reduce today's human time", (t) => {
+  const { db, queries } = createHarness(t);
+  const day = startOfLocalDay(NOW);
+  seedProject(db, {
+    id: "human-before", name: "Human before", confirmation: "confirmed", createdSource: "manual", updatedAt: day,
+  });
+  seedHumanSession(db, {
+    id: "human-before-session", projectId: "human-before", startedAt: day - 7_200_000, accumulatedPauseMs: 3_600_000,
+  });
+  seedHumanPause(db, {
+    id: "pause-before", sessionId: "human-before-session", startedAt: day - 5_400_000, endedAt: day - 1_800_000,
+  });
+
+  assert.equal(queries.getOverview().today.humanMs, NOW - day);
+});
+
+test("a pause crossing today's boundary deducts only its clipped overlap", (t) => {
+  const { db, queries } = createHarness(t);
+  const day = startOfLocalDay(NOW);
+  seedProject(db, {
+    id: "human-crossing", name: "Human crossing", confirmation: "confirmed", createdSource: "manual", updatedAt: day,
+  });
+  seedHumanSession(db, {
+    id: "human-crossing-session", projectId: "human-crossing", startedAt: day - 3_600_000, accumulatedPauseMs: 3_600_000,
+  });
+  seedHumanPause(db, {
+    id: "pause-crossing", sessionId: "human-crossing-session", startedAt: day - 1_800_000, endedAt: day + 1_800_000,
+  });
+
+  assert.equal(queries.getOverview().today.humanMs, NOW - day - 1_800_000);
+});
+
+test("an open pause is clipped at injected now", (t) => {
+  const { db, queries } = createHarness(t);
+  const day = startOfLocalDay(NOW);
+  seedProject(db, {
+    id: "human-open", name: "Human open", confirmation: "confirmed", createdSource: "manual", updatedAt: day,
+  });
+  seedHumanSession(db, {
+    id: "human-open-session", projectId: "human-open", startedAt: day, accumulatedPauseMs: 0,
+  });
+  seedHumanPause(db, {
+    id: "pause-open", sessionId: "human-open-session", startedAt: NOW - 1_200_000,
+  });
+
+  assert.equal(queries.getOverview().today.humanMs, NOW - day - 1_200_000);
 });

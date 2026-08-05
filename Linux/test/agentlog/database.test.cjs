@@ -30,6 +30,7 @@ test("opens a fresh AgentLog database with Phase 2 schema and pragmas", () => {
     "agent_sessions",
     "agent_active_intervals",
     "human_sessions",
+    "human_pause_intervals",
   ]) {
     assert.ok(tables.includes(name), name);
   }
@@ -61,7 +62,7 @@ test("reopens an already migrated database without duplicate schema work", () =>
     secondDb
       .prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table'")
       .get().count,
-    7
+    8
   );
 
   closeAgentLogDatabase(secondDb);

@@ -47,6 +47,9 @@ function createOverviewQueries(db, { now = Date.now } = {}) {
   const selectHumanSessionsForProject = db.prepare(
     "SELECT h.*, p.name AS project_name FROM human_sessions h JOIN projects p ON p.id = h.project_id WHERE h.project_id = ?"
   );
+  const selectHumanPauseIntervals = db.prepare(
+    "SELECT started_at, ended_at FROM human_pause_intervals WHERE human_session_id = ? ORDER BY started_at ASC, id ASC"
+  );
   const selectRecentActivity = db.prepare(
     "SELECT e.*, p.name AS project_name FROM agent_events e LEFT JOIN projects p ON p.id = e.project_id WHERE e.project_id IS NULL OR p.lifecycle = 'active' ORDER BY e.occurred_at DESC, e.id DESC LIMIT ?"
   );
@@ -113,8 +116,11 @@ function createOverviewQueries(db, { now = Date.now } = {}) {
     const start = range ? Math.max(range.start, row.started_at) : row.started_at;
     const end = range ? Math.min(range.end, nominalEnd) : nominalEnd;
     const elapsedMs = Math.max(0, end - start);
-    const pausedMs = Math.max(0, Number.isFinite(row.accumulated_pause_ms) ? row.accumulated_pause_ms : 0);
-    return Math.max(0, elapsedMs - Math.min(elapsedMs, pausedMs));
+    const pausedMs = unionIntervalDuration(
+      mapIntervals(selectHumanPauseIntervals.all(row.id)),
+      { start, end }
+    );
+    return Math.max(0, elapsedMs - pausedMs);
   }
 
   function mapAgentSession(row, at) {
