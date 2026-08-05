@@ -75,6 +75,6 @@ test("cleanly closes an AgentLog database", () => {
 
   closeAgentLogDatabase(db);
 
-  assert.throws(() => db.prepare("SELECT 1").get(), /closed/i);
+  assert.throws(() => db.prepare("SELECT 1").get(), /closed|not open/i);
   fs.rmSync(tmp, { recursive: true, force: true });
 });

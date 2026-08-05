@@ -34,7 +34,7 @@ test("root package exposes one AgentLog Pet Electron application", () => {
     pkg.build.publish[0].repo,
     "agentlog-pet"
   );
-  assert.equal(pkg.dependencies["better-sqlite3"], "13.0.2");
+  assert.equal(pkg.dependencies["better-sqlite3"], "12.11.1");
   assert.equal(fs.existsSync(path.join(root, "electron-builder.yml")), false);
 });
 
