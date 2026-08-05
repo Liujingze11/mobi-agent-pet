@@ -6,7 +6,7 @@
 
 **Architecture:** The pinned Clawd runtime remains the only Electron lifecycle owner. Product-owned CommonJS modules under `runtime/agentlog` own SQLite, project resolution, event projection, timing, IPC, and the manager window; a separately built React renderer under `src/manager` consumes only the validated preload API.
 
-**Tech Stack:** Node.js 22.12+, Electron 41.10.3, CommonJS, `better-sqlite3` 13.0.2, React 19, TypeScript 5.7, Vite 6, Lucide React, Node test runner, electron-builder 26.15.3.
+**Tech Stack:** Node.js 22.12+, Electron 41.10.3, CommonJS, `better-sqlite3` 12.11.1, React 19, TypeScript 5.7, Vite 6, Lucide React, Node test runner, electron-builder 26.15.3.
 
 ## Global Constraints
 
@@ -122,9 +122,9 @@ Expected: FAIL because `storage/database.cjs` does not exist.
 
 - [ ] **Step 3: Install the pinned production dependency**
 
-Run: `npm install --save-exact better-sqlite3@13.0.2`
+Run: `npm install --save-exact better-sqlite3@12.11.1`
 
-Expected: `better-sqlite3` appears under `dependencies`, not `devDependencies`, and the lockfile records 13.0.2.
+Expected: `better-sqlite3` appears under `dependencies`, not `devDependencies`, and the lockfile records 12.11.1. Version 13.0.2 is not used because it requires N-API 10 while the supported Node.js 22.12.0 runtime provides N-API 9.
 
 - [ ] **Step 4: Add the exact versioned schema**
 
@@ -1140,7 +1140,7 @@ git commit -m "feat: manage projects and session history"
 - [ ] **Step 1: Add failing package contract tests**
 
 ```js
-assert.equal(pkg.dependencies["better-sqlite3"], "13.0.2");
+assert.equal(pkg.dependencies["better-sqlite3"], "12.11.1");
 assert.ok(pkg.build.files.includes("dist/manager/**/*"));
 assert.ok(pkg.build.asarUnpack.includes("node_modules/better-sqlite3/**/*"));
 assert.match(pkg.scripts["prebuild:linux"], /build:manager/);
