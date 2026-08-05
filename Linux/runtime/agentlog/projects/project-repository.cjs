@@ -282,7 +282,9 @@ function createProjectRepository(db, { now = Date.now, createId } = {}) {
   });
 
   function findDeepestPath(input) {
-    const candidate = typeof input === "string" ? path.resolve(input) : input.canonicalPath;
+    const candidate = typeof input === "string"
+      ? normalizeProjectPath(input).canonicalPath
+      : input.canonicalPath;
     let match = null;
     for (const item of selectActivePaths.all()) {
       const relative = path.relative(item.canonicalPath, candidate);

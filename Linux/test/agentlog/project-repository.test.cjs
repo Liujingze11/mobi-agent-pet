@@ -177,6 +177,16 @@ test("finds the deepest active path only at complete path-segment boundaries", (
   assert.notEqual(prefixProject.id, rootProject.id);
 });
 
+test("finds a project created and looked up through a real symlink", (t) => {
+  const { repo, tmp } = createHarness(t);
+  const realDirectory = makeDirectory(tmp, "symlink-target");
+  const symlinkPath = path.join(tmp, "symlink-project");
+  fs.symlinkSync(realDirectory, symlinkPath, "dir");
+  const project = repo.createManual({ name: "Symlink", path: symlinkPath });
+
+  assert.equal(repo.findDeepestPath(symlinkPath).id, project.id);
+});
+
 test("matches an unambiguous Git remote and attaches an idempotent worktree", (t) => {
   const { repo, tmp } = createHarness(t);
   const project = repo.createManual({
