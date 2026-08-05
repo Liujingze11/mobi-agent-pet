@@ -178,9 +178,14 @@ test("an error closes activity and marks the session errored", (t) => {
   assert.equal(row(db, "agent_sessions", result.sessionId).ended_at, 200);
 });
 
-test("a duplicate event is a no-op for rows, intervals, and change notifications", (t) => {
+test("a sequential duplicate is a primary-key no-op for rows, intervals, and change notifications", (t) => {
   const { db, projectResolver, sessionTracker } = createHarness(t);
   const changes = [];
+  const prepare = db.prepare.bind(db);
+  db.prepare = (sql) => {
+    assert.notEqual(sql, "SELECT id FROM agent_events WHERE id = ?", "duplicates must use the primary-key constraint");
+    return prepare(sql);
+  };
   const ingestor = createDurableIngestor({
     db, projectResolver, sessionTracker, onChange: (result) => changes.push(result),
   });
@@ -273,6 +278,9 @@ test("interrupted reconciliation closes active rows and a newer event reactivate
   const resumed = normalizeAgentEvent(fixture({
     state: "working", event: "PreToolUse", opts: { sourceEventId: "resumed", timestamp: 600 },
   }));
+  const delayed = normalizeAgentEvent(fixture({
+    state: "working", event: "PreToolUse", opts: { sourceEventId: "delayed", timestamp: 300 },
+  }));
 
   const result = ingestor.ingest(initial);
   sessionTracker.reconcileInterrupted(500);
@@ -281,6 +289,15 @@ test("interrupted reconciliation closes active rows and a newer event reactivate
   assert.equal(session.disposition, "interrupted");
   assert.equal(session.ended_at, 500);
   assert.equal(db.prepare("SELECT close_reason FROM agent_active_intervals WHERE agent_session_id = ?").get(result.sessionId).close_reason, "interrupted");
+
+  const delayedResult = ingestor.ingest(delayed);
+  assert.equal(delayedResult.inserted, true);
+  assert.ok(row(db, "agent_events", delayed.id));
+  session = row(db, "agent_sessions", result.sessionId);
+  assert.equal(session.disposition, "interrupted");
+  assert.equal(session.ended_at, 500);
+  assert.equal(session.last_event_at, 500);
+  assert.equal(openIntervals(db, result.sessionId).length, 0);
 
   const reactivated = ingestor.ingest(resumed);
   session = row(db, "agent_sessions", result.sessionId);

@@ -14,7 +14,6 @@ function createDurableIngestor({ db, projectResolver, sessionTracker, onChange }
     throw new TypeError("onChange must be a function");
   }
 
-  const findEvent = db.prepare("SELECT id FROM agent_events WHERE id = ?");
   const insertEvent = db.prepare(
     "INSERT INTO agent_events(id, schema_version, agent_id, source_event_id, source_sequence, session_id, raw_session_id, parent_session_id, occurred_at, received_at, cwd, type, category, state, tool_name, transcript_path, permission_json, payload_json) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
   );
@@ -23,8 +22,6 @@ function createDurableIngestor({ db, projectResolver, sessionTracker, onChange }
   );
 
   const ingestTransaction = db.transaction((event) => {
-    if (findEvent.get(event.id)) return { inserted: false, eventId: event.id };
-
     insertEvent.run(
       event.id,
       event.schemaVersion,
@@ -52,8 +49,20 @@ function createDurableIngestor({ db, projectResolver, sessionTracker, onChange }
     return { inserted: true, eventId: event.id, projectId: projectId || null, sessionId: session.id };
   });
 
+  function isEventIdPrimaryKeyConflict(error) {
+    return error
+      && error.code === "SQLITE_CONSTRAINT_PRIMARYKEY"
+      && error.message === "UNIQUE constraint failed: agent_events.id";
+  }
+
   function ingest(event) {
-    const result = ingestTransaction(event);
+    let result;
+    try {
+      result = ingestTransaction(event);
+    } catch (error) {
+      if (!isEventIdPrimaryKeyConflict(error)) throw error;
+      result = { inserted: false, eventId: event.id };
+    }
     if (result.inserted && onChange) onChange(result);
     return result;
   }

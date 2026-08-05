@@ -47,7 +47,7 @@ function createAgentSessionTracker(db, { now = Date.now, createId = randomUUID }
     "UPDATE agent_active_intervals SET ended_at = ?, close_reason = 'interrupted' WHERE ended_at IS NULL"
   );
   const interruptSessions = db.prepare(
-    "UPDATE agent_sessions SET ended_at = ?, disposition = 'interrupted', updated_at = ? WHERE ended_at IS NULL AND disposition = 'active'"
+    "UPDATE agent_sessions SET ended_at = ?, last_event_at = MAX(last_event_at, ?), disposition = 'interrupted', updated_at = ? WHERE ended_at IS NULL AND disposition = 'active'"
   );
 
   function timestamp() {
@@ -124,7 +124,7 @@ function createAgentSessionTracker(db, { now = Date.now, createId = randomUUID }
   const reconcileInterrupted = db.transaction((at) => {
     const timestampAt = Math.trunc(at);
     closeAllIntervals.run(timestampAt);
-    interruptSessions.run(timestampAt, timestampAt);
+    interruptSessions.run(timestampAt, timestampAt, timestampAt);
   });
 
   return { applyEvent, reconcileInterrupted };
