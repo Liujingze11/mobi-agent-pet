@@ -9,8 +9,21 @@ const stream = createAgentEventStream({
   },
 });
 
+let hostActions = Object.freeze({});
+
 function publishUpstreamEvent(input) {
   return stream.publish(input);
+}
+
+function registerHostActions(next) {
+  hostActions = Object.freeze({ ...hostActions, ...next });
+}
+
+function invokeHostAction(name, ...args) {
+  if (typeof hostActions[name] !== "function") {
+    throw new Error(`AgentLog host action unavailable: ${name}`);
+  }
+  return hostActions[name](...args);
 }
 
 module.exports = Object.freeze({
@@ -19,4 +32,6 @@ module.exports = Object.freeze({
   getRecentAgentEvents: () => stream.getSnapshot(),
   getAgentEventStats: () => stream.getStats(),
   clearRecentAgentEvents: () => stream.clear(),
+  registerHostActions,
+  invokeHostAction,
 });

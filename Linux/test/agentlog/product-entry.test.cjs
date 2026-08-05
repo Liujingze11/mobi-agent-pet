@@ -45,6 +45,7 @@ test("legacy DevPulse main remains source-only and is not packaged as an entry",
 
 test("the product wrapper delegates lifecycle ownership to one pinned runtime", () => {
   assert.ok(productMain.indexOf("app.setName") < productMain.indexOf("../clawd/src/main.js"));
+  assert.ok(productMain.indexOf("agentLogApp.install()") < productMain.indexOf("../clawd/src/main.js"));
   assert.doesNotMatch(productMain, /\bnew Tray\b|\bnew BrowserWindow\b/);
   assert.equal(
     (upstreamMain.match(/app\.requestSingleInstanceLock\(\)/g) || []).length,
@@ -56,6 +57,7 @@ test("smoke mode reports the ready AgentLog Pet window without owning its lifecy
   const writes = [];
   let readyCallback;
   let timerUnrefCalled = false;
+  let agentLogInstallCalls = 0;
   const fakeApp = {
     setName(name) {
       this.name = name;
@@ -97,6 +99,9 @@ test("smoke mode reports the ready AgentLog Pet window without owning its lifecy
       if (request === "./brand.cjs") {
         return { BRAND: { productName: "AgentLog Pet" } };
       }
+      if (request === "./app-runtime.cjs") {
+        return { install() { agentLogInstallCalls += 1; } };
+      }
       if (request === "../clawd/src/main.js") return {};
       throw new Error(`Unexpected require: ${request}`);
     },
@@ -111,6 +116,7 @@ test("smoke mode reports the ready AgentLog Pet window without owning its lifecy
   });
 
   vm.runInContext(productMain, context, { filename: "runtime/agentlog/main.cjs" });
+  assert.equal(agentLogInstallCalls, 1);
   assert.equal(typeof readyCallback, "function");
   readyCallback();
 

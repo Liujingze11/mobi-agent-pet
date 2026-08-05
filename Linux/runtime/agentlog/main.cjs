@@ -5,6 +5,9 @@ const { BRAND } = require("./brand.cjs");
 
 app.setName(BRAND.productName);
 
+const agentLogApp = require("./app-runtime.cjs");
+agentLogApp.install();
+
 require("../clawd/src/main.js");
 
 if (process.env.AGENTLOG_SMOKE_MODE === "1") {
