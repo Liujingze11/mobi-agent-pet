@@ -217,6 +217,17 @@ CREATE TABLE human_sessions (
   updated_at INTEGER NOT NULL
 );
 CREATE UNIQUE INDEX human_sessions_one_active ON human_sessions((1)) WHERE status IN ('running','paused');
+CREATE TABLE human_pause_intervals (
+  id TEXT PRIMARY KEY,
+  human_session_id TEXT NOT NULL REFERENCES human_sessions(id) ON DELETE CASCADE,
+  started_at INTEGER NOT NULL,
+  ended_at INTEGER,
+  CHECK (ended_at IS NULL OR ended_at > started_at)
+);
+CREATE UNIQUE INDEX human_pause_intervals_one_open
+  ON human_pause_intervals(human_session_id) WHERE ended_at IS NULL;
+CREATE INDEX human_pause_intervals_session_time
+  ON human_pause_intervals(human_session_id, started_at, ended_at);
 ```
 
 - [ ] **Step 5: Implement migration and connection helpers**
@@ -626,16 +637,18 @@ Expected: FAIL because `human-timer.cjs` is missing.
 ```js
 function pause() {
   const active = requireState("running");
-  updatePause.run(now(), now(), active.id);
+  pauseTransaction(active.id, now());
   return publish(getState());
 }
 function resume() {
   const active = requireState("paused");
   const pauseMs = Math.max(0, now() - active.pausedAt);
-  updateResume.run(pauseMs, now(), active.id);
+  resumeTransaction(active.id, pauseMs, now());
   return publish(getState());
 }
 ```
+
+`pauseTransaction` inserts an open `human_pause_intervals` row while marking the session paused. `resumeTransaction` closes that row while updating `accumulated_pause_ms`; stopping a paused timer closes the interval and updates the aggregate in the same transaction. This preserves exact range attribution for Task 5 read models.
 
 Starting while active returns a structured `TIMER_ALREADY_ACTIVE` error containing the current state. Stopping computes effective time from persisted timestamps and clears the partial-unique active slot by setting status to `completed`.
 
@@ -643,7 +656,7 @@ Starting while active returns a structured `TIMER_ALREADY_ACTIVE` error containi
 
 Run: `node --test test/agentlog/human-timer.test.cjs`
 
-Expected: PASS for start, pause, resume, stop, notes, reopening, pending project use, archived/missing project rejection, monotonic elapsed time, and duplicate-start rejection.
+Expected: PASS for start, pause, resume, stop, notes, reopening, pending project use, archived/missing project rejection, monotonic elapsed time, duplicate-start rejection, and transactional pause-interval persistence across service recreation.
 
 - [ ] **Step 5: Commit**
 
