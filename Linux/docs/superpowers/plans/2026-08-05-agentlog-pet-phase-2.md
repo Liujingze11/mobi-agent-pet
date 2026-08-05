@@ -48,6 +48,7 @@
 ### Manager Renderer
 
 - `vite.manager.config.ts`: renderer-only Vite build.
+- `vitest.manager.config.ts`: manager component test environment.
 - `tsconfig.manager.json`: isolated manager renderer typecheck.
 - `src/manager/index.html`: manager renderer entry.
 - `src/manager/main.tsx`: React mount.
@@ -76,7 +77,10 @@
 - `test/agentlog/manager-ipc.test.cjs`
 - `test/agentlog/manager-window.test.cjs`
 - `test/agentlog/manager-model.test.cjs`
-- `test/agentlog/manager-source.test.cjs`
+- `src/manager/__tests__/AppShell.test.tsx`
+- `src/manager/__tests__/OverviewPage.test.tsx`
+- `src/manager/__tests__/ProjectsPage.test.tsx`
+- `src/manager/__tests__/SessionsPage.test.tsx`
 - `scripts/smoke-manager.cjs`
 - `docs/verification/2026-08-05-agentlog-pet-phase-2-linux.md`
 
@@ -900,6 +904,7 @@ git commit -m "feat: open AgentLog manager from the pet"
 
 **Files:**
 - Create: `vite.manager.config.ts`
+- Create: `vitest.manager.config.ts`
 - Create: `tsconfig.manager.json`
 - Create: `src/manager/index.html`
 - Create: `src/manager/main.tsx`
@@ -911,14 +916,14 @@ git commit -m "feat: open AgentLog manager from the pet"
 - Create: `src/manager/components/AppShell.tsx`
 - Create: `src/manager/pages/SettingsPage.tsx`
 - Create: `test/agentlog/manager-model.test.cjs`
-- Create: `test/agentlog/manager-source.test.cjs`
+- Create: `src/manager/__tests__/AppShell.test.tsx`
 - Modify: `package.json`
 
 **Interfaces:**
 - Consumes: `window.agentLog` preload contract from Task 8.
 - Produces: a static `dist/manager/index.html` renderer, typed `agentLogApi`, route IDs `overview`, `projects`, `sessions`, `agents`, `pet`, and `settings`, and pure `formatDuration`, `formatPath`, and `deriveNavigationBadge` helpers.
 
-- [ ] **Step 1: Write failing renderer model and source-contract tests**
+- [ ] **Step 1: Write failing renderer model and real component tests**
 
 ```js
 test("formatDuration keeps long project time compact and stable", () => {
@@ -926,18 +931,20 @@ test("formatDuration keeps long project time compact and stable", () => {
   assert.equal(formatDuration(3_900_000), "1h 5m");
 });
 
-test("manager source has the six approved destinations and no Phase 3 placeholders", () => {
-  const source = read("src/manager/components/AppShell.tsx");
-  for (const label of ["Overview", "Projects", "Sessions", "Agents", "Pet & Themes", "Settings"]) assert.match(source, new RegExp(label));
-  assert.doesNotMatch(source, /Reports|Restore|Coming Soon/);
+test("renders the six approved destinations without Phase 3 placeholders", () => {
+  render(<AppShell currentRoute="overview" onNavigate={() => {}}><div>Operational view</div></AppShell>);
+  for (const label of ["Overview", "Projects", "Sessions", "Agents", "Pet & Themes", "Settings"]) {
+    expect(screen.getByRole("button", { name: label })).toBeVisible();
+  }
+  expect(screen.queryByText(/Reports|Restore|Coming Soon/i)).not.toBeInTheDocument();
 });
 ```
 
 - [ ] **Step 2: Run tests and verify RED**
 
-Run: `node --test test/agentlog/manager-model.test.cjs test/agentlog/manager-source.test.cjs`
+Run: `node --test test/agentlog/manager-model.test.cjs && npm run test:manager`
 
-Expected: FAIL because the manager renderer does not exist.
+Expected: the Node model test fails because the model does not exist, and the component test fails because `AppShell` does not exist.
 
 - [ ] **Step 3: Add renderer-only Vite build and scripts**
 
@@ -953,12 +960,13 @@ export default defineConfig({
 });
 ```
 
-Add an isolated `tsconfig.manager.json` with `allowJs: true`, `checkJs: true`, DOM/ES2022 libraries, `moduleResolution: "bundler"`, and includes limited to `src/manager` and `vite.manager.config.ts`. Add these exact scripts:
+Install exact test dependencies with `npm install --save-dev --save-exact vitest@3.2.4 jsdom@26.1.0 @testing-library/react@16.3.0 @testing-library/user-event@14.6.1 @testing-library/jest-dom@6.6.3`. Add an isolated `tsconfig.manager.json` with `allowJs: true`, `checkJs: true`, DOM/ES2022 libraries, `moduleResolution: "bundler"`, and includes limited to `src/manager`, `vite.manager.config.ts`, and `vitest.manager.config.ts`. Configure Vitest with the `jsdom` environment and a setup file that imports `@testing-library/jest-dom/vitest`. Add these exact scripts:
 
 ```json
 "build:manager": "vite build --config vite.manager.config.ts",
 "typecheck:manager": "tsc -p tsconfig.manager.json --noEmit",
-"test:phase2": "npm test && npm run typecheck:manager && npm run build:manager && npm run test:upstream"
+"test:manager": "vitest run --config vitest.manager.config.ts",
+"test:phase2": "npm test && npm run test:manager && npm run typecheck:manager && npm run build:manager && npm run test:upstream"
 ```
 
 Make `start`, `dev`, and `prebuild:linux` run `build:manager` before Electron or electron-builder starts.
@@ -982,14 +990,14 @@ Agents and Pet & Themes call `agentLogApi.settings.open(tab)` to open the existi
 
 - [ ] **Step 5: Verify model, typecheck, and production build**
 
-Run: `node --test test/agentlog/manager-model.test.cjs test/agentlog/manager-source.test.cjs && npm run typecheck:manager && npm run build:manager`
+Run: `node --test test/agentlog/manager-model.test.cjs && npm run test:manager && npm run typecheck:manager && npm run build:manager`
 
 Expected: PASS and `dist/manager/index.html` references relative hashed assets.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add package.json tsconfig.manager.json vite.manager.config.ts src/manager test/agentlog/manager-model.test.cjs test/agentlog/manager-source.test.cjs
+git add package.json package-lock.json tsconfig.manager.json vite.manager.config.ts vitest.manager.config.ts src/manager test/agentlog/manager-model.test.cjs
 git commit -m "feat: add AgentLog manager shell"
 ```
 
@@ -1002,7 +1010,7 @@ git commit -m "feat: add AgentLog manager shell"
 - Modify: `src/manager/model.mjs`
 - Modify: `src/manager/styles.css`
 - Modify: `test/agentlog/manager-model.test.cjs`
-- Modify: `test/agentlog/manager-source.test.cjs`
+- Create: `src/manager/__tests__/OverviewPage.test.tsx`
 
 **Interfaces:**
 - Consumes: Overview snapshot and human-timer preload methods.
@@ -1018,11 +1026,11 @@ test("deriveTimerActions exposes only valid controls", () => {
 });
 ```
 
-Extend the source contract to require the labels `Agent session time`, `Agent active time`, `Human time`, `Pending projects`, and `Recent activity`.
+Render `OverviewPage` with a literal snapshot fixture and require the visible labels `Agent session time`, `Agent active time`, `Human time`, `Pending projects`, and `Recent activity`. Render `HumanTimerBar` in running and paused states, click its icon buttons with `userEvent`, and assert the consumer-visible state callback or error message rather than asserting that a mock exists.
 
 - [ ] **Step 2: Run tests and verify RED**
 
-Run: `node --test test/agentlog/manager-model.test.cjs test/agentlog/manager-source.test.cjs`
+Run: `node --test test/agentlog/manager-model.test.cjs && npm run test:manager`
 
 Expected: FAIL because timer derivation and Overview components are absent.
 
@@ -1041,12 +1049,12 @@ Use one metrics band, one live-session table, and one chronological activity lis
 
 - [ ] **Step 5: Verify focused tests, typecheck, and build**
 
-Run: `node --test test/agentlog/manager-model.test.cjs test/agentlog/manager-source.test.cjs && npm run typecheck:manager && npm run build:manager`
+Run: `node --test test/agentlog/manager-model.test.cjs && npm run test:manager && npm run typecheck:manager && npm run build:manager`
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/manager test/agentlog/manager-model.test.cjs test/agentlog/manager-source.test.cjs
+git add src/manager test/agentlog/manager-model.test.cjs
 git commit -m "feat: show live work and human timing"
 ```
 
@@ -1059,7 +1067,8 @@ git commit -m "feat: show live work and human timing"
 - Modify: `src/manager/model.mjs`
 - Modify: `src/manager/styles.css`
 - Modify: `test/agentlog/manager-model.test.cjs`
-- Modify: `test/agentlog/manager-source.test.cjs`
+- Create: `src/manager/__tests__/ProjectsPage.test.tsx`
+- Create: `src/manager/__tests__/SessionsPage.test.tsx`
 
 **Interfaces:**
 - Consumes: all project and session preload methods.
@@ -1083,7 +1092,7 @@ test("session filters preserve agent and human sources separately", () => {
 
 - [ ] **Step 2: Run tests and verify RED**
 
-Run: `node --test test/agentlog/manager-model.test.cjs test/agentlog/manager-source.test.cjs`
+Run: `node --test test/agentlog/manager-model.test.cjs && npm run test:manager`
 
 Expected: FAIL because sorting/filtering and the two workspaces are absent.
 
@@ -1093,20 +1102,24 @@ Use a 320px responsive project list and a flexible detail pane. The add command 
 
 Project detail tabs are exactly `Overview`, `Activity`, `Sessions`, and `Settings`. Show path health, Git metadata, the three separate time totals, aliases, and worktrees without exposing raw SQL fields.
 
+Render `ProjectsPage` with literal pending and confirmed fixtures. Exercise folder-add cancellation, pending confirmation, project selection, and archive confirmation through visible controls, then assert the resulting rendered project state and callback result.
+
 - [ ] **Step 4: Implement the Sessions table**
 
 Use segmented controls for Agent/Human/All, project and status menus, date inputs, sortable start time, and a side detail panel. Agent rows show source, title, disposition, duration, cwd, and parent session. Human rows show effective and paused time plus notes.
 
+Render `SessionsPage` with literal agent and human fixtures. Select each segment and a project filter with `userEvent`, then assert only the matching real rows remain visible.
+
 - [ ] **Step 5: Verify focused tests and responsive build**
 
-Run: `node --test test/agentlog/manager-model.test.cjs test/agentlog/manager-source.test.cjs && npm run typecheck:manager && npm run build:manager`
+Run: `node --test test/agentlog/manager-model.test.cjs && npm run test:manager && npm run typecheck:manager && npm run build:manager`
 
 Expected: PASS with no text labels overflowing at 900x620 and 1440x900 based on the CSS grid constraints.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/manager test/agentlog/manager-model.test.cjs test/agentlog/manager-source.test.cjs
+git add src/manager test/agentlog/manager-model.test.cjs
 git commit -m "feat: manage projects and session history"
 ```
 
