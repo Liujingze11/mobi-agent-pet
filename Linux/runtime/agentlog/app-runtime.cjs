@@ -1,6 +1,7 @@
 "use strict";
 
 const { randomUUID } = require("node:crypto");
+const fs = require("node:fs");
 const path = require("node:path");
 const bridge = require("./runtime-bridge.cjs");
 const {
@@ -13,6 +14,8 @@ const { createProjectResolver } = require("./projects/project-resolver.cjs");
 const { createOverviewQueries } = require("./queries/overview.cjs");
 const { createAgentSessionTracker } = require("./sessions/agent-session-tracker.cjs");
 const { createHumanTimer } = require("./time/human-timer.cjs");
+const { registerManagerIpc } = require("./manager/ipc.cjs");
+const { createManagerWindowController } = require("./manager/window.cjs");
 
 const DATABASE_NAME = "agentlog.db";
 let installed = false;
@@ -22,6 +25,8 @@ let database = null;
 let services = null;
 let unsubscribe = null;
 let shutdownPromise = null;
+let managerIpcRegistration = null;
+let managerWindowController = null;
 let pending = [];
 let health = {
   storage: "starting",
@@ -51,7 +56,7 @@ function failReadiness(app) {
   app.removeListener("before-quit", shutdown);
 }
 
-function start(app) {
+function start(app, electron) {
   if (ready || shuttingDown) return;
 
   let openedDatabase = null;
@@ -87,6 +92,19 @@ function start(app) {
       ingestor.ingest(pending[0]);
       pending.shift();
     }
+    if (!managerIpcRegistration) {
+      managerIpcRegistration = registerManagerIpc({
+        ipcMain: electron.ipcMain,
+        fs,
+        dialog: electron.dialog,
+        BrowserWindow: electron.BrowserWindow,
+        projectRepository,
+        overviewQueries,
+        humanTimer,
+        runtime: api,
+        hostBridge: bridge,
+      });
+    }
     database = openedDatabase;
     services = nextServices;
     ready = true;
@@ -109,6 +127,12 @@ function install(electron = require("electron")) {
   if (installed) return api;
   installed = true;
   const { app } = electron;
+  managerWindowController = createManagerWindowController({
+    app,
+    BrowserWindow: electron.BrowserWindow,
+    preloadPath: path.join(__dirname, "manager", "preload.cjs"),
+    rendererPath: path.resolve(__dirname, "../../dist/manager/index.html"),
+  });
   unsubscribe = bridge.subscribeToAgentEvents((event) => {
     if (ready) services.ingestor.ingest(event);
     else pending.push(event);
@@ -116,7 +140,7 @@ function install(electron = require("electron")) {
   app.once("before-quit", shutdown);
   try {
     app.whenReady().then(
-      () => start(app),
+      () => start(app, electron),
       () => failReadiness(app)
     );
   } catch (error) {
@@ -133,6 +157,14 @@ function shutdown() {
     unsubscribe = null;
   }
   pending = [];
+  if (managerIpcRegistration) {
+    managerIpcRegistration.dispose();
+    managerIpcRegistration = null;
+  }
+  if (managerWindowController) {
+    managerWindowController.destroy();
+    managerWindowController = null;
+  }
   if (database) {
     closeAgentLogDatabase(database);
     database = null;
@@ -149,10 +181,15 @@ function showManager(...args) {
   return bridge.invokeHostAction("openAgentLogManager", ...args);
 }
 
+function openManager() {
+  return ready && managerWindowController ? managerWindowController.show() : null;
+}
+
 const api = Object.freeze({
   install,
   getServices,
   getHealth,
+  openManager,
   showManager,
   registerHostActions,
   shutdown,

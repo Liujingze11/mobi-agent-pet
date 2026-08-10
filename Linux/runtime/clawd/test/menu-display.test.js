@@ -42,6 +42,7 @@ function buildBaseCtx(overrides = {}) {
     getDisableMiniMode: () => false,
     getActiveThemeCapabilities: () => ({ miniMode: true }),
     openDashboard: () => {},
+    openAgentLogManager: () => {},
     openSettingsTab: () => {},
     openSettingsWindow: () => {},
     togglePetVisibility: () => {},
@@ -344,6 +345,60 @@ describe("menu recovery action", () => {
 });
 
 describe("Agent integrations menu entry", () => {
+  it("opens AgentLog from both menus above the settings actions", () => {
+    const fakeElectron = {
+      app: { quit: () => {}, setActivationPolicy: () => {}, dock: { show: () => {}, hide: () => {} } },
+      BrowserWindow: function BrowserWindow() {},
+      Menu: {
+        buildFromTemplate(template) {
+          return { template };
+        },
+      },
+      Tray: function Tray() {
+        this.setToolTip = () => {};
+        this.setContextMenu = (menu) => { this.contextMenu = menu; };
+        this.destroy = () => {};
+      },
+      nativeImage: {
+        createFromPath() {
+          return { resize() { return this; }, setTemplateImage() {} };
+        },
+      },
+      screen: {
+        getAllDisplays: () => [{ id: 1, bounds: { x: 0, y: 0, width: 1920, height: 1080 }, workArea: { x: 0, y: 0, width: 1920, height: 1040 } }],
+        getCursorScreenPoint: () => ({ x: 0, y: 0 }),
+        getDisplayNearestPoint: () => ({ id: 1 }),
+      },
+    };
+    const initMenu = loadMenuWithElectron(fakeElectron);
+    let managerCalls = 0;
+    const openedTabs = [];
+    const ctx = buildBaseCtx({
+      openAgentLogManager: () => { managerCalls += 1; },
+      openSettingsTab: (tab) => openedTabs.push(tab),
+    });
+    const menu = initMenu(ctx);
+
+    menu.buildContextMenu();
+    menu.createTray();
+
+    for (const template of [ctx.contextMenu.template, ctx.tray.contextMenu.template]) {
+      const managerIndex = template.findIndex((item) => item.label === "Open AgentLog");
+      const dashboardIndex = template.findIndex((item) => item.label === "Open Dashboard");
+      const settingsIndex = template.findIndex((item) => item.label === "Settings…");
+      const agentsIndex = template.findIndex((item) => item.label === "Agent Integrations");
+      assert.ok(managerIndex >= 0, "menu should include Open AgentLog");
+      assert.ok(managerIndex < dashboardIndex, "Open AgentLog should precede Open Dashboard");
+      assert.ok(managerIndex < settingsIndex, "Open AgentLog should precede Settings");
+      assert.ok(managerIndex < agentsIndex, "Open AgentLog should precede Agent Integrations");
+      template[managerIndex].click();
+      template[agentsIndex].click();
+    }
+
+    assert.equal(managerCalls, 2);
+    assert.deepEqual(openedTabs, ["agents", "agents"]);
+  });
+
   it("opens the Agents manager from both context and tray menus", () => {
     const fakeElectron = {
       app: { quit: () => {}, setActivationPolicy: () => {}, dock: { show: () => {}, hide: () => {} } },

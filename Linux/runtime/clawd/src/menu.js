@@ -275,6 +275,12 @@ module.exports = function initMenu(ctx) {
     // context menu).
     const workGroup = [
       {
+        label: t("openAgentLog"),
+        click: () => {
+          if (typeof ctx.openAgentLogManager === "function") ctx.openAgentLogManager();
+        },
+      },
+      {
         label: t("openDashboard"),
         click: () => {
           if (typeof ctx.openDashboard === "function") ctx.openDashboard();
@@ -491,6 +497,12 @@ module.exports = function initMenu(ctx) {
     ];
 
     const workGroup = [
+      {
+        label: t("openAgentLog"),
+        click: () => {
+          if (typeof ctx.openAgentLogManager === "function") ctx.openAgentLogManager();
+        },
+      },
       {
         label: t("openDashboard"),
         click: () => {

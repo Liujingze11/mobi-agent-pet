@@ -13,8 +13,50 @@ const bridgePath = path.join(root, "runtime/agentlog/runtime-bridge.cjs");
 const databasePath = path.join(root, "runtime/agentlog/storage/database.cjs");
 const durableIngestorPath = path.join(root, "runtime/agentlog/events/durable-ingestor.cjs");
 
+class RuntimeBrowserWindow extends EventEmitter {
+  static instances = [];
+
+  static reset() {
+    RuntimeBrowserWindow.instances = [];
+  }
+
+  static getAllWindows() {
+    return RuntimeBrowserWindow.instances;
+  }
+
+  static fromWebContents() {
+    return null;
+  }
+
+  constructor(options) {
+    super();
+    this.options = options;
+    this.destroyed = false;
+    this.destroyCalls = 0;
+    RuntimeBrowserWindow.instances.push(this);
+  }
+
+  loadFile() {}
+  show() {}
+  hide() {}
+  focus() {}
+
+  isDestroyed() {
+    return this.destroyed;
+  }
+
+  destroy() {
+    if (this.destroyed) return;
+    this.destroyCalls += 1;
+    this.destroyed = true;
+    this.emit("closed");
+  }
+}
+
 function createElectron(userData) {
+  RuntimeBrowserWindow.reset();
   const app = new EventEmitter();
+  const handlers = new Map();
   let resolveReady;
   app.getPath = (name) => {
     assert.equal(name, "userData");
@@ -27,11 +69,27 @@ function createElectron(userData) {
     resolveReady();
     await new Promise((resolve) => setImmediate(resolve));
   };
-  return { app, BrowserWindow: {}, ipcMain: {}, dialog: {} };
+  return {
+    app,
+    BrowserWindow: RuntimeBrowserWindow,
+    ipcMain: {
+      handlers,
+      handle(channel, listener) {
+        if (handlers.has(channel)) throw new Error(`duplicate handler: ${channel}`);
+        handlers.set(channel, listener);
+      },
+      removeHandler(channel) {
+        handlers.delete(channel);
+      },
+    },
+    dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) },
+  };
 }
 
 function createRepeatableElectron(userData) {
+  RuntimeBrowserWindow.reset();
   const app = new EventEmitter();
+  const handlers = new Map();
   let readyCallback;
   app.getPath = (name) => {
     assert.equal(name, "userData");
@@ -46,7 +104,21 @@ function createRepeatableElectron(userData) {
     readyCallback();
     await new Promise((resolve) => setImmediate(resolve));
   };
-  return { app, BrowserWindow: {}, ipcMain: {}, dialog: {} };
+  return {
+    app,
+    BrowserWindow: RuntimeBrowserWindow,
+    ipcMain: {
+      handlers,
+      handle(channel, listener) {
+        if (handlers.has(channel)) throw new Error(`duplicate handler: ${channel}`);
+        handlers.set(channel, listener);
+      },
+      removeHandler(channel) {
+        handlers.delete(channel);
+      },
+    },
+    dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) },
+  };
 }
 
 function loadRuntime() {
@@ -207,6 +279,7 @@ test("rejected readiness becomes a safe storage error and cleans up lifecycle ho
   assert.doesNotMatch(JSON.stringify(runtime.getHealth()), new RegExp(userData.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.equal(bridge.getAgentEventStats().subscribers, 0);
   assert.equal(electron.app.listenerCount("before-quit"), 0);
+  assert.equal(runtime.openManager(), null);
 });
 
 test("synchronous whenReady failure subscribes first then becomes a cleaned-up storage error", async (t) => {
@@ -276,4 +349,24 @@ test("host actions register through the runtime and showManager delegates to the
 
   assert.equal(runtime.showManager("projects"), "shown");
   assert.deepEqual(calls, [["projects"]]);
+});
+
+test("manager IPC registers once and its window is destroyed during AgentLog shutdown", async (t) => {
+  const { electron, runtime } = createHarness(t);
+
+  runtime.install(electron);
+  runtime.install(electron);
+  await electron.app.emitReady();
+  const manager = runtime.openManager();
+
+  assert.ok(electron.ipcMain.handlers.has("agentlog:overview:get"));
+  assert.ok(electron.ipcMain.handlers.has("agentlog:host:open-settings"));
+  assert.equal(electron.ipcMain.handlers.size, 22);
+  assert.equal(RuntimeBrowserWindow.instances.length, 1);
+
+  await runtime.shutdown();
+
+  assert.equal(electron.ipcMain.handlers.size, 0);
+  assert.equal(manager.destroyCalls, 1);
+  assert.equal(runtime.openManager(), null);
 });

@@ -81,6 +81,7 @@ const {
 } = require("./settings-size-preview-session");
 const { registerSettingsIpc } = require("./settings-ipc");
 const { BRAND } = require("../../agentlog/brand.cjs");
+const agentLogApp = require("../../agentlog/app-runtime.cjs");
 const agentLogRuntime = require("../../agentlog/runtime-bridge.cjs");
 const createSettingsEffectRouter = require("./settings-effect-router");
 const {
@@ -3341,6 +3342,11 @@ const _menu = require("./menu")(_menuCtx);
 const { t, buildContextMenu, buildTrayMenu, rebuildAllMenus, createTray,
         destroyTray, showPetContextMenu, ensureContextMenuOwner,
         requestAppQuit, applyDockVisibility } = _menu;
+
+agentLogApp.registerHostActions({
+  openAgentLogManager: () => agentLogApp.openManager(),
+  openSettingsTab: (tab) => settingsWindowRuntime.open({ tab }),
+});
 
 // ── Settings effect router ──
 const SETTINGS_MIRROR_SETTERS = {
