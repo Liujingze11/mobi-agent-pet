@@ -8,12 +8,22 @@ function openAgentLogDatabase({
   DatabaseCtor = require("better-sqlite3"),
 }) {
   fs.mkdirSync(path.dirname(databasePath), { recursive: true });
-  const db = new DatabaseCtor(databasePath);
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
-  db.pragma("busy_timeout = 5000");
-  runMigrations(db);
-  return db;
+  let db;
+  try {
+    db = new DatabaseCtor(databasePath);
+    db.pragma("journal_mode = WAL");
+    db.pragma("foreign_keys = ON");
+    db.pragma("busy_timeout = 5000");
+    runMigrations(db);
+    return db;
+  } catch (error) {
+    if (db) {
+      try {
+        closeAgentLogDatabase(db);
+      } catch {}
+    }
+    throw error;
+  }
 }
 
 function runMigrations(db) {

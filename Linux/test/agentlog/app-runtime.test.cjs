@@ -11,6 +11,7 @@ const root = path.resolve(__dirname, "../..");
 const runtimePath = path.join(root, "runtime/agentlog/app-runtime.cjs");
 const bridgePath = path.join(root, "runtime/agentlog/runtime-bridge.cjs");
 const databasePath = path.join(root, "runtime/agentlog/storage/database.cjs");
+const durableIngestorPath = path.join(root, "runtime/agentlog/events/durable-ingestor.cjs");
 
 function createElectron(userData) {
   const app = new EventEmitter();
@@ -24,6 +25,25 @@ function createElectron(userData) {
   });
   app.emitReady = async () => {
     resolveReady();
+    await new Promise((resolve) => setImmediate(resolve));
+  };
+  return { app, BrowserWindow: {}, ipcMain: {}, dialog: {} };
+}
+
+function createRepeatableElectron(userData) {
+  const app = new EventEmitter();
+  let readyCallback;
+  app.getPath = (name) => {
+    assert.equal(name, "userData");
+    return userData;
+  };
+  app.whenReady = () => ({
+    then(onReady) {
+      readyCallback = onReady;
+    },
+  });
+  app.emitReady = async () => {
+    readyCallback();
     await new Promise((resolve) => setImmediate(resolve));
   };
   return { app, BrowserWindow: {}, ipcMain: {}, dialog: {} };
@@ -100,6 +120,51 @@ test("startup reconciliation runs before flushing a queued working event", async
   assert.deepEqual(interval, { ended_at: null });
 });
 
+test("a failed queued ingest retains that event and later events in FIFO order", async (t) => {
+  const durableIngestor = require(durableIngestorPath);
+  const createDurableIngestor = durableIngestor.createDurableIngestor;
+  let failOnce = true;
+  durableIngestor.createDurableIngestor = (options) => {
+    const ingestor = createDurableIngestor(options);
+    return {
+      ingest(event) {
+        if (failOnce && event.sourceEventId === "two") {
+          failOnce = false;
+          throw new Error("injected queued ingest failure");
+        }
+        return ingestor.ingest(event);
+      },
+    };
+  };
+
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), "agentlog-app-runtime-retry-"));
+  const electron = createRepeatableElectron(userData);
+  const { runtime, bridge } = loadRuntime();
+  t.after(async () => {
+    await runtime.shutdown();
+    durableIngestor.createDurableIngestor = createDurableIngestor;
+    fs.rmSync(userData, { recursive: true, force: true });
+  });
+
+  runtime.install(electron);
+  bridge.publishUpstreamEvent(fixture("one", { timestamp: 100 }));
+  bridge.publishUpstreamEvent(fixture("two", { timestamp: 200 }));
+  bridge.publishUpstreamEvent(fixture("three", { timestamp: 300 }));
+  await electron.app.emitReady();
+  assert.equal(runtime.getHealth().storage, "error");
+
+  bridge.publishUpstreamEvent(fixture("four", { timestamp: 400 }));
+  await electron.app.emitReady();
+
+  assert.deepEqual(
+    runtime.getServices().database
+      .prepare("SELECT source_event_id FROM agent_events ORDER BY source_sequence")
+      .all()
+      .map((row) => row.source_event_id),
+    ["one", "two", "three", "four"]
+  );
+});
+
 test("storage startup failure exposes a safe health result", async (t) => {
   const userData = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "agentlog-app-runtime-error-")), "not-a-directory");
   fs.writeFileSync(userData, "occupied");
@@ -119,6 +184,56 @@ test("storage startup failure exposes a safe health result", async (t) => {
   assert.equal(typeof health.errorMessage, "string");
   assert.ok(health.errorMessage.length > 0);
   assert.doesNotMatch(JSON.stringify(health), new RegExp(userData.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+});
+
+test("rejected readiness becomes a safe storage error and cleans up lifecycle hooks", async (t) => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), "agentlog-app-runtime-ready-reject-"));
+  const electron = createElectron(userData);
+  electron.app.whenReady = () => Promise.reject(new Error(`readiness failed at ${userData}`));
+  const { runtime, bridge } = loadRuntime();
+  t.after(async () => {
+    await runtime.shutdown();
+    fs.rmSync(userData, { recursive: true, force: true });
+  });
+
+  runtime.install(electron);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(runtime.getHealth(), {
+    storage: "error",
+    databaseName: "agentlog.db",
+    errorMessage: "Unable to open AgentLog storage",
+  });
+  assert.doesNotMatch(JSON.stringify(runtime.getHealth()), new RegExp(userData.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.equal(bridge.getAgentEventStats().subscribers, 0);
+  assert.equal(electron.app.listenerCount("before-quit"), 0);
+});
+
+test("synchronous whenReady failure subscribes first then becomes a cleaned-up storage error", async (t) => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), "agentlog-app-runtime-ready-throw-"));
+  const electron = createElectron(userData);
+  const { runtime, bridge } = loadRuntime();
+  let subscribersWhenReadinessWasRequested = null;
+  electron.app.whenReady = () => {
+    subscribersWhenReadinessWasRequested = bridge.getAgentEventStats().subscribers;
+    throw new Error(`readiness failed at ${userData}`);
+  };
+  t.after(async () => {
+    await runtime.shutdown();
+    fs.rmSync(userData, { recursive: true, force: true });
+  });
+
+  assert.doesNotThrow(() => runtime.install(electron));
+
+  assert.equal(subscribersWhenReadinessWasRequested, 1);
+  assert.deepEqual(runtime.getHealth(), {
+    storage: "error",
+    databaseName: "agentlog.db",
+    errorMessage: "Unable to open AgentLog storage",
+  });
+  assert.doesNotMatch(JSON.stringify(runtime.getHealth()), new RegExp(userData.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.equal(bridge.getAgentEventStats().subscribers, 0);
+  assert.equal(electron.app.listenerCount("before-quit"), 0);
 });
 
 test("install and shutdown are idempotent and close the database once", async (t) => {

@@ -37,6 +37,20 @@ function getServices() {
   return services;
 }
 
+function failReadiness(app) {
+  health = {
+    storage: "error",
+    databaseName: DATABASE_NAME,
+    errorMessage: "Unable to open AgentLog storage",
+  };
+  if (unsubscribe) {
+    unsubscribe();
+    unsubscribe = null;
+  }
+  pending = [];
+  app.removeListener("before-quit", shutdown);
+}
+
 function start(app) {
   if (ready || shuttingDown) return;
 
@@ -69,9 +83,10 @@ function start(app) {
       overviewQueries,
       humanTimer,
     };
-    const queued = pending;
-    pending = [];
-    for (const event of queued) ingestor.ingest(event);
+    while (pending.length > 0) {
+      ingestor.ingest(pending[0]);
+      pending.shift();
+    }
     database = openedDatabase;
     services = nextServices;
     ready = true;
@@ -98,8 +113,15 @@ function install(electron = require("electron")) {
     if (ready) services.ingestor.ingest(event);
     else pending.push(event);
   });
-  app.whenReady().then(() => start(app));
   app.once("before-quit", shutdown);
+  try {
+    app.whenReady().then(
+      () => start(app),
+      () => failReadiness(app)
+    );
+  } catch (error) {
+    failReadiness(app);
+  }
   return api;
 }
 

@@ -79,3 +79,67 @@ test("cleanly closes an AgentLog database", () => {
   assert.throws(() => db.prepare("SELECT 1").get(), /closed|not open/i);
   fs.rmSync(tmp, { recursive: true, force: true });
 });
+
+test("closes a constructed database handle once when pragma initialization fails", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "agentlog-database-pragma-error-"));
+  let handle;
+  class PragmaFailureDatabase {
+    constructor() {
+      this.open = true;
+      this.closeCalls = 0;
+      handle = this;
+    }
+
+    pragma() {
+      throw new Error("injected pragma failure");
+    }
+
+    close() {
+      this.closeCalls += 1;
+      this.open = false;
+    }
+  }
+
+  assert.throws(
+    () => openAgentLogDatabase({
+      databasePath: path.join(tmp, "agentlog.db"),
+      DatabaseCtor: PragmaFailureDatabase,
+    }),
+    /injected pragma failure/
+  );
+  assert.equal(handle.closeCalls, 1);
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test("closes a constructed database handle once when migration initialization fails", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "agentlog-database-migration-error-"));
+  let handle;
+  class MigrationFailureDatabase {
+    constructor() {
+      this.open = true;
+      this.closeCalls = 0;
+      handle = this;
+    }
+
+    pragma() {}
+
+    exec() {
+      throw new Error("injected migration failure");
+    }
+
+    close() {
+      this.closeCalls += 1;
+      this.open = false;
+    }
+  }
+
+  assert.throws(
+    () => openAgentLogDatabase({
+      databasePath: path.join(tmp, "agentlog.db"),
+      DatabaseCtor: MigrationFailureDatabase,
+    }),
+    /injected migration failure/
+  );
+  assert.equal(handle.closeCalls, 1);
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
