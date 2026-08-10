@@ -4,6 +4,24 @@ function freezeGroup(methods) {
   return Object.freeze(methods);
 }
 
+function localError(payload) {
+  const error = new Error(payload.message);
+  error.code = payload.code;
+  error.stack = undefined;
+  return error;
+}
+
+function unwrapEnvelope(envelope) {
+  if (envelope && envelope.ok === true && Object.prototype.hasOwnProperty.call(envelope, "value")) {
+    return envelope.value;
+  }
+  if (envelope && envelope.ok === false && envelope.error
+    && typeof envelope.error.code === "string" && typeof envelope.error.message === "string") {
+    throw localError(envelope.error);
+  }
+  throw localError({ code: "INTERNAL_ERROR", message: "AgentLog operation failed" });
+}
+
 function installPreload({ contextBridge, ipcRenderer } = {}) {
   if (!contextBridge || typeof contextBridge.exposeInMainWorld !== "function") {
     throw new TypeError("contextBridge is required");
@@ -12,9 +30,9 @@ function installPreload({ contextBridge, ipcRenderer } = {}) {
     throw new TypeError("ipcRenderer is required");
   }
 
-  const invoke = (channel, input) => input === undefined
-    ? ipcRenderer.invoke(channel)
-    : ipcRenderer.invoke(channel, input);
+  const invoke = async (channel, input) => unwrapEnvelope(input === undefined
+    ? await ipcRenderer.invoke(channel)
+    : await ipcRenderer.invoke(channel, input));
   const api = Object.freeze({
     overview: freezeGroup({
       get: () => invoke("agentlog:overview:get"),
@@ -67,4 +85,4 @@ function installPreload({ contextBridge, ipcRenderer } = {}) {
 
 if (process.type === "renderer") installPreload(require("electron"));
 
-module.exports = Object.freeze({ installPreload });
+module.exports = Object.freeze({ installPreload, unwrapEnvelope });

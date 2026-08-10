@@ -7,7 +7,12 @@ function validationError(message) {
 }
 
 function boundedText(value, { name, max, required = false }) {
-  const result = typeof value === "string" ? value.trim() : "";
+  if (value === undefined) {
+    if (required) throw validationError(`${name} is required`);
+    return "";
+  }
+  if (typeof value !== "string") throw validationError(`${name} must be a string`);
+  const result = value.trim();
   if (required && !result) throw validationError(`${name} is required`);
   if (result.length > max) throw validationError(`${name} is too long`);
   return result;

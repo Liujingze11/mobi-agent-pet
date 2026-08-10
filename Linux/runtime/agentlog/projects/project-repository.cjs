@@ -203,7 +203,11 @@ function createProjectRepository(db, { now = Date.now, createId } = {}) {
 
   const removePath = db.transaction((projectId, pathId) => {
     const projectPath = requirePath(projectId, pathId);
-    if (projectPath.kind === "primary") throw new TypeError("primary path cannot be removed");
+    if (projectPath.kind === "primary") {
+      const error = new TypeError("primary path cannot be removed");
+      error.code = "INVALID_OPERATION";
+      throw error;
+    }
     deletePath.run(pathId);
     return get(projectId);
   });

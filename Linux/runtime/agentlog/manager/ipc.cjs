@@ -35,13 +35,16 @@ function copyDefined(input) {
 }
 
 function domainError(error) {
-  if (error && error.code === "INVALID_ARGUMENT") return error;
-  const result = new Error(error instanceof RangeError && error.message
-    ? error.message
-    : "AgentLog operation failed");
-  result.code = error instanceof RangeError ? "NOT_FOUND"
-    : (error && typeof error.code === "string" ? error.code : "INTERNAL_ERROR");
-  return result;
+  if (error && error.code === "INVALID_ARGUMENT") {
+    return { code: "INVALID_ARGUMENT", message: error.message };
+  }
+  if (error && error.code === "INVALID_OPERATION") {
+    return { code: "INVALID_OPERATION", message: "primary path cannot be removed" };
+  }
+  if (error instanceof RangeError) {
+    return { code: "NOT_FOUND", message: error.message || "AgentLog record not found" };
+  }
+  return { code: "INTERNAL_ERROR", message: "AgentLog operation failed" };
 }
 
 function redactedHealth(runtime) {
@@ -77,7 +80,12 @@ function registerManagerIpc({
     for (const window of BrowserWindow.getAllWindows()) {
       if (!window || (typeof window.isDestroyed === "function" && window.isDestroyed())) continue;
       const contents = window.webContents;
-      if (contents && typeof contents.send === "function") contents.send("agentlog:data-changed", scope);
+      if (!contents || (typeof contents.isDestroyed === "function" && contents.isDestroyed())) continue;
+      try {
+        if (typeof contents.send === "function") contents.send("agentlog:data-changed", scope);
+      } catch {
+        // A window can disappear after enumeration; its committed mutation still succeeds.
+      }
     }
   }
 
@@ -90,14 +98,15 @@ function registerManagerIpc({
   function handle(channel, listener) {
     ipcMain.handle(channel, async (event, input) => {
       try {
-        return await listener(event, input);
+        return { ok: true, value: await listener(event, input) };
       } catch (error) {
-        throw domainError(error);
+        return { ok: false, error: domainError(error) };
       }
     });
     handlers.add(channel);
   }
 
+  try {
   handle("agentlog:overview:get", () => overviewQueries.getOverview());
   handle("agentlog:projects:list", (_event, value) => {
     const input = inputObject(value);
@@ -226,6 +235,11 @@ function registerManagerIpc({
       optionalText(input.tab, { name: "tab", max: 64, required: true })
     );
   });
+  } catch (error) {
+    for (const channel of handlers) ipcMain.removeHandler(channel);
+    handlers.clear();
+    throw error;
+  }
 
   const registration = Object.freeze({
     dispose() {
