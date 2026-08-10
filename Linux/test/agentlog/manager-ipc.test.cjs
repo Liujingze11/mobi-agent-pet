@@ -236,13 +236,70 @@ test("handler validation rejects malformed and overlong renderer input before se
   assert.deepEqual(api.calls, []);
 });
 
-test("unknown service records become serializable domain errors", async (t) => {
-  const api = createHarness(t);
-  api.projectRepository.archive = () => { throw new RangeError("project not found"); };
+test("untagged RangeErrors are redacted through the envelope and preload", async (t) => {
+  const harness = createHarness(t);
+  const renderer = createRendererApi(harness);
+  const privatePath = "/home/user/private/agentlog.db";
+  harness.projectRepository.archive = () => { throw new RangeError(`database failed at ${privatePath}`); };
 
+  assert.deepEqual(await harness.invokeEnvelope("agentlog:projects:archive", { id: "project-1" }), {
+    ok: false,
+    error: { code: "INTERNAL_ERROR", message: "AgentLog operation failed" },
+  });
   await assert.rejects(
-    async () => api.invoke("agentlog:projects:archive", { id: "missing" }),
+    () => renderer.projects.archive("project-1"),
+    (error) => error.code === "INTERNAL_ERROR"
+      && error.message === "AgentLog operation failed"
+      && !error.message.includes(privatePath)
+  );
+});
+
+test("missing projects return safe NOT_FOUND errors through the envelope and preload", async (t) => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "agentlog-manager-missing-project-"));
+  const database = openAgentLogDatabase({ databasePath: path.join(tmp, "agentlog.db") });
+  const projectRepository = createProjectRepository(database, { createId: () => "unused" });
+  t.after(() => {
+    closeAgentLogDatabase(database);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+  const harness = createHarness(t, { projectRepository });
+  const renderer = createRendererApi(harness);
+
+  assert.deepEqual(await harness.invokeEnvelope("agentlog:projects:archive", { id: "missing" }), {
+    ok: false,
+    error: { code: "NOT_FOUND", message: "project not found" },
+  });
+  await assert.rejects(
+    () => renderer.projects.archive("missing"),
     (error) => error.code === "NOT_FOUND" && error.message === "project not found"
+  );
+});
+
+test("missing project paths return safe NOT_FOUND errors through the envelope and preload", async (t) => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "agentlog-manager-missing-path-"));
+  const database = openAgentLogDatabase({ databasePath: path.join(tmp, "agentlog.db") });
+  let nextId = 0;
+  const projectRepository = createProjectRepository(database, {
+    createId: () => `project-${++nextId}`,
+  });
+  const projectDir = path.join(tmp, "project");
+  fs.mkdirSync(projectDir);
+  const project = projectRepository.createManual({ name: "Project", path: projectDir });
+  t.after(() => {
+    closeAgentLogDatabase(database);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+  const harness = createHarness(t, { projectRepository });
+  const renderer = createRendererApi(harness);
+  const input = { projectId: project.id, pathId: "missing" };
+
+  assert.deepEqual(await harness.invokeEnvelope("agentlog:projects:remove-path", input), {
+    ok: false,
+    error: { code: "NOT_FOUND", message: "project path not found" },
+  });
+  await assert.rejects(
+    () => renderer.projects.removePath(input),
+    (error) => error.code === "NOT_FOUND" && error.message === "project path not found"
   );
 });
 

@@ -29,21 +29,30 @@ const EVENT_CATEGORIES = [
   "tool_activity",
   "state_changed",
 ];
+const EXPECTED_DOMAIN_ERRORS = Object.freeze({
+  PRIMARY_PATH_CANNOT_BE_REMOVED: Object.freeze({
+    code: "INVALID_OPERATION",
+    message: "primary path cannot be removed",
+  }),
+  PROJECT_NOT_FOUND: Object.freeze({ code: "NOT_FOUND", message: "project not found" }),
+  PROJECT_PATH_NOT_FOUND: Object.freeze({ code: "NOT_FOUND", message: "project path not found" }),
+  PROJECT_PATH_CONFLICT: Object.freeze({
+    code: "PROJECT_PATH_CONFLICT",
+    message: "project path belongs to another project",
+  }),
+});
 
 function copyDefined(input) {
   return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined));
 }
 
 function domainError(error) {
-  if (error && error.code === "INVALID_ARGUMENT") {
+  if (error && error.agentLogValidation === true && error.code === "INVALID_ARGUMENT"
+    && typeof error.message === "string") {
     return { code: "INVALID_ARGUMENT", message: error.message };
   }
-  if (error && error.code === "INVALID_OPERATION") {
-    return { code: "INVALID_OPERATION", message: "primary path cannot be removed" };
-  }
-  if (error instanceof RangeError) {
-    return { code: "NOT_FOUND", message: error.message || "AgentLog record not found" };
-  }
+  const expected = error && EXPECTED_DOMAIN_ERRORS[error.agentLogDomain];
+  if (expected) return { ...expected };
   return { code: "INTERNAL_ERROR", message: "AgentLog operation failed" };
 }
 

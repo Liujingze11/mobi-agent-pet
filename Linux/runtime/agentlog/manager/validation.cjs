@@ -3,6 +3,7 @@
 function validationError(message) {
   const error = new Error(message);
   error.code = "INVALID_ARGUMENT";
+  error.agentLogValidation = true;
   return error;
 }
 

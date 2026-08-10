@@ -160,6 +160,18 @@ test("adds aliases, preserves exactly one primary path, and rebinds the primary"
   assert.equal(withoutAlias.paths.some((item) => item.id === removable.id), false);
 });
 
+test("primary path removal uses a stable tagged domain error", (t) => {
+  const { repo, tmp } = createHarness(t);
+  const project = repo.createManual({ name: "Primary", path: makeDirectory(tmp, "primary-removal") });
+
+  assert.throws(
+    () => repo.removePath(project.id, project.paths[0].id),
+    (error) => error.code === "INVALID_OPERATION"
+      && error.agentLogDomain === "PRIMARY_PATH_CANNOT_BE_REMOVED"
+      && error.message === "primary path cannot be removed"
+  );
+});
+
 test("finds the deepest active path only at complete path-segment boundaries", (t) => {
   const { repo, tmp } = createHarness(t);
   const root = makeDirectory(tmp, "workspace");
@@ -205,6 +217,19 @@ test("matches an unambiguous Git remote and attaches an idempotent worktree", (t
   assert.equal(repo.get(project.id).paths.filter((item) => item.kind === "worktree").length, 1);
 });
 
+test("worktree ownership conflicts use a stable tagged domain error", (t) => {
+  const { repo, tmp } = createHarness(t);
+  const first = repo.createManual({ name: "First", path: makeDirectory(tmp, "first") });
+  const second = repo.createManual({ name: "Second", path: makeDirectory(tmp, "second") });
+
+  assert.throws(
+    () => repo.attachWorktree(second.id, first.paths[0].path, {}),
+    (error) => error.code === "PROJECT_PATH_CONFLICT"
+      && error.agentLogDomain === "PROJECT_PATH_CONFLICT"
+      && error.message === "project path belongs to another project"
+  );
+});
+
 test("does not choose an ambiguous Git remote identity", (t) => {
   const { repo, tmp } = createHarness(t);
   const remoteIdentity = "github.com/example/shared";
@@ -233,6 +258,17 @@ test("refreshing path availability changes only availability", (t) => {
   assert.equal(refreshed.path, original.path);
   assert.equal(refreshed.canonicalPath, original.canonicalPath);
   assert.equal(refreshed.updatedAt, original.updatedAt);
+});
+
+test("refreshing an unknown path uses a stable tagged not-found error", (t) => {
+  const { repo } = createHarness(t);
+
+  assert.throws(
+    () => repo.refreshPathAvailability("missing"),
+    (error) => error.code === "NOT_FOUND"
+      && error.agentLogDomain === "PROJECT_PATH_NOT_FOUND"
+      && error.message === "project path not found"
+  );
 });
 
 test("archiving hides a project from default lists without deleting history or paths", (t) => {

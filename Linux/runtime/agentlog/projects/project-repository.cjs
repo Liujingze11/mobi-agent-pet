@@ -95,16 +95,23 @@ function createProjectRepository(db, { now = Date.now, createId } = {}) {
     return mapProject(selectProject.get(id));
   }
 
+  function expectedDomainError(domain, code, message) {
+    const error = new Error(message);
+    error.agentLogDomain = domain;
+    error.code = code;
+    return error;
+  }
+
   function requireProject(id) {
     const project = get(id);
-    if (!project) throw new RangeError("project not found");
+    if (!project) throw expectedDomainError("PROJECT_NOT_FOUND", "NOT_FOUND", "project not found");
     return project;
   }
 
   function requirePath(projectId, pathId) {
     const projectPath = selectPath.get(pathId);
     if (!projectPath || projectPath.project_id !== projectId) {
-      throw new RangeError("project path not found");
+      throw expectedDomainError("PROJECT_PATH_NOT_FOUND", "NOT_FOUND", "project path not found");
     }
     return projectPath;
   }
@@ -204,9 +211,11 @@ function createProjectRepository(db, { now = Date.now, createId } = {}) {
   const removePath = db.transaction((projectId, pathId) => {
     const projectPath = requirePath(projectId, pathId);
     if (projectPath.kind === "primary") {
-      const error = new TypeError("primary path cannot be removed");
-      error.code = "INVALID_OPERATION";
-      throw error;
+      throw expectedDomainError(
+        "PRIMARY_PATH_CANNOT_BE_REMOVED",
+        "INVALID_OPERATION",
+        "primary path cannot be removed"
+      );
     }
     deletePath.run(pathId);
     return get(projectId);
@@ -233,7 +242,11 @@ function createProjectRepository(db, { now = Date.now, createId } = {}) {
     const metadata = gitFor({ git });
     if (existing) {
       if (existing.project_id !== projectId) {
-        throw new RangeError("project path belongs to another project");
+        throw expectedDomainError(
+          "PROJECT_PATH_CONFLICT",
+          "PROJECT_PATH_CONFLICT",
+          "project path belongs to another project"
+        );
       }
       updateWorktreeMetadata.run(metadata.root, metadata.remoteIdentity, metadata.branch, existing.id);
       return mapPath(selectPath.get(existing.id));
@@ -258,7 +271,9 @@ function createProjectRepository(db, { now = Date.now, createId } = {}) {
 
   const refreshPathAvailability = db.transaction((pathId, fsApi = fs) => {
     const projectPath = selectPath.get(pathId);
-    if (!projectPath) throw new RangeError("project path not found");
+    if (!projectPath) {
+      throw expectedDomainError("PROJECT_PATH_NOT_FOUND", "NOT_FOUND", "project path not found");
+    }
     const identity = normalizeProjectPath(projectPath.path, fsApi);
     updateAvailability.run(Number(identity.isAvailable), pathId);
     return mapPath(selectPath.get(pathId));
