@@ -57,7 +57,7 @@ export function AppShell({
               <button
                 key={route}
                 type="button"
-                className="navigation-item"
+                className={`navigation-item${badge ? " navigation-item--has-badge" : ""}`}
                 aria-current={currentRoute === route ? "page" : undefined}
                 aria-label={label}
                 title={label}

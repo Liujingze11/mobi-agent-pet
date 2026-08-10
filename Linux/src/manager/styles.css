@@ -529,15 +529,20 @@ button:focus-visible {
     width: 48px;
     height: 40px;
     min-height: 40px;
-    grid-template-columns: 20px 21px;
-    column-gap: 3px;
+    grid-template-columns: 20px;
     justify-content: center;
-    padding: 0 1px;
+    padding: 0;
   }
 
   .navigation-item > svg {
     grid-column: 1;
     justify-self: center;
+  }
+
+  .navigation-item--has-badge {
+    grid-template-columns: 20px 21px;
+    column-gap: 3px;
+    padding: 0 1px;
   }
 
   .navigation-item__badge {

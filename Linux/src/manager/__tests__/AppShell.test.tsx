@@ -44,4 +44,17 @@ describe("AppShell", () => {
     expect(projects).toBeVisible();
     expect(projects).toHaveTextContent("99+");
   });
+
+  it("marks only the destination that renders a badge for the mobile two-column layout", () => {
+    render(
+      <AppShell currentRoute="overview" onNavigate={() => {}} pendingProjectCount={104}>
+        <div>Operational view</div>
+      </AppShell>,
+    );
+
+    expect(screen.getByRole("button", { name: "Projects" })).toHaveClass("navigation-item--has-badge");
+    for (const label of ["Overview", "Sessions", "Agents", "Pet & Themes", "Settings"]) {
+      expect(screen.getByRole("button", { name: label })).not.toHaveClass("navigation-item--has-badge");
+    }
+  });
 });
