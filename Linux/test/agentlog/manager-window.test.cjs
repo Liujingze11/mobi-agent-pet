@@ -9,9 +9,11 @@ const { createManagerWindowController } = require("../../runtime/agentlog/manage
 
 class FakeBrowserWindow extends EventEmitter {
   static instances = [];
+  static loadFileResults = [];
 
   static reset() {
     FakeBrowserWindow.instances = [];
+    FakeBrowserWindow.loadFileResults = [];
   }
 
   constructor(options) {
@@ -27,6 +29,7 @@ class FakeBrowserWindow extends EventEmitter {
 
   loadFile(filePath) {
     this.loadFileCalls.push(filePath);
+    return FakeBrowserWindow.loadFileResults.shift();
   }
 
   show() {
@@ -113,6 +116,20 @@ test("show reuses one manager window and close hides it", () => {
   assert.equal(FakeBrowserWindow.instances.length, 1);
 });
 
+test("a hidden manager window becomes reusable after readiness", () => {
+  const controller = createController();
+  const first = controller.show();
+
+  controller.hide();
+  first.emit("ready-to-show");
+  const reopened = controller.show();
+
+  assert.equal(reopened, first);
+  assert.equal(first.showCalls, 1);
+  assert.equal(first.focusCalls, 1);
+  assert.equal(FakeBrowserWindow.instances.length, 1);
+});
+
 test("destroy only tears down the living manager window once", () => {
   const controller = createController();
   const first = controller.show();
@@ -138,4 +155,43 @@ test("show replaces a manager window that Electron already destroyed", () => {
   assert.notEqual(replacement, first);
   assert.equal(FakeBrowserWindow.instances.length, 2);
   assert.equal(replacement.loadFileCalls[0], path.join("/app", "dist", "manager", "index.html"));
+});
+
+test("a load failure is handled and lets the next show replace the unusable window", async (t) => {
+  const controller = createController();
+  let rejectLoad;
+  const loadFailure = new Error("renderer load failed");
+  const pendingLoad = new Promise((_, reject) => { rejectLoad = reject; });
+  let unhandled = null;
+  const onUnhandledRejection = (reason) => { unhandled = reason; };
+  process.once("unhandledRejection", onUnhandledRejection);
+  t.after(() => process.removeListener("unhandledRejection", onUnhandledRejection));
+  FakeBrowserWindow.loadFileResults = [pendingLoad];
+
+  const first = controller.show();
+  rejectLoad(loadFailure);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(unhandled, null);
+  assert.equal(first.destroyed, true);
+  assert.equal(controller.getWindow(), null);
+  const replacement = controller.show();
+  assert.notEqual(replacement, first);
+  assert.equal(FakeBrowserWindow.instances.length, 2);
+});
+
+test("a stale load failure cannot destroy a newer manager window", async () => {
+  const controller = createController();
+  let rejectLoad;
+  const pendingLoad = new Promise((_, reject) => { rejectLoad = reject; });
+  FakeBrowserWindow.loadFileResults = [pendingLoad];
+  const first = controller.show();
+  first.destroy();
+  const replacement = controller.show();
+
+  rejectLoad(new Error("stale renderer load failed"));
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(controller.getWindow(), replacement);
+  assert.equal(replacement.destroyed, false);
 });

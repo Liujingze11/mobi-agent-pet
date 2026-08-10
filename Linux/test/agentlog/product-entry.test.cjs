@@ -53,6 +53,18 @@ test("the product wrapper delegates lifecycle ownership to one pinned runtime", 
   );
 });
 
+test("the pinned main passes the AgentLog manager action into the real menu context", () => {
+  const contextStart = upstreamMain.indexOf("const _menuCtx = {");
+  const contextEnd = upstreamMain.indexOf("};\nconst _menu = require(\"./menu\")", contextStart);
+  assert.ok(contextStart >= 0 && contextEnd > contextStart, "main should construct the menu context");
+  const menuContext = upstreamMain.slice(contextStart, contextEnd);
+
+  assert.match(
+    menuContext,
+    /openAgentLogManager:\s*\(\)\s*=>\s*agentLogApp\.showManager\(\)/
+  );
+});
+
 test("smoke mode reports the ready AgentLog Pet window without owning its lifecycle", () => {
   const writes = [];
   let readyCallback;

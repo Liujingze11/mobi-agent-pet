@@ -36,6 +36,20 @@ function createManagerWindowController({ app, BrowserWindow, preloadPath, render
     return window;
   }
 
+  function retireFailedWindow(window) {
+    if (destroyed || managerWindow !== window) return;
+    managerWindow = null;
+    readyToShow = false;
+    shouldShow = false;
+    if (!isDestroyed(window)) {
+      try {
+        window.destroy();
+      } catch {
+        // Electron may have already torn down the native window resources.
+      }
+    }
+  }
+
   function show() {
     if (destroyed) return null;
 
@@ -68,8 +82,9 @@ function createManagerWindowController({ app, BrowserWindow, preloadPath, render
     managerWindow = window;
 
     window.once("ready-to-show", () => {
-      if (destroyed || managerWindow !== window || !shouldShow || isDestroyed(window)) return;
+      if (destroyed || managerWindow !== window || isDestroyed(window)) return;
       readyToShow = true;
+      if (!shouldShow) return;
       window.show();
       focus();
     });
@@ -81,7 +96,14 @@ function createManagerWindowController({ app, BrowserWindow, preloadPath, render
     window.once("closed", () => {
       if (managerWindow === window) managerWindow = null;
     });
-    window.loadFile(rendererPath);
+    try {
+      const loadResult = window.loadFile(rendererPath);
+      if (loadResult && typeof loadResult.catch === "function") {
+        loadResult.catch(() => retireFailedWindow(window));
+      }
+    } catch {
+      retireFailedWindow(window);
+    }
     return window;
   }
 

@@ -2,5 +2,31 @@
   "upstreamRepository": "https://github.com/rullerzhou-afk/clawd-on-desk.git",
   "upstreamCommit": "45d388aa661824443cd96779ff0a5d277972bd10",
   "upstreamVersion": "0.13.0",
-  "importedAt": "2026-07-28"
+  "importedAt": "2026-07-28",
+  "agentLogPatchedFiles": [
+    "src/i18n.js",
+    "src/index.html",
+    "src/login-item.js",
+    "src/main.js",
+    "src/menu.js",
+    "src/preload-settings.js",
+    "src/settings-i18n.js",
+    "src/settings-ipc.js",
+    "src/settings-renderer.js",
+    "src/settings-tab-about.js",
+    "src/settings-window-icon.js",
+    "src/settings-window.js",
+    "src/settings.html",
+    "src/state.js",
+    "test/agents.test.js",
+    "test/doctor-modal-no-active-integrations.test.js",
+    "test/i18n.test.js",
+    "test/menu-display.test.js",
+    "test/readme-contributors.test.js",
+    "test/settings-ipc.test.js",
+    "test/settings-renderer-browser-env.test.js",
+    "test/settings-window.test.js",
+    "test/state.test.js",
+    "test/telegram-direct-send.test.js"
+  ]
 }
