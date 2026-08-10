@@ -7,6 +7,7 @@ import type {
   AgentLogApi,
   DiagnosticsHealth,
   OverviewSnapshot,
+  ProjectPath,
   ProjectSummary,
   SessionSummary,
 } from "../types";
@@ -18,6 +19,20 @@ const emptyOverview: OverviewSnapshot = {
   today: { agentSessionMs: 0, agentActiveMs: 0, humanMs: 0 },
   recentActivity: [],
 };
+
+const worktreePath = {
+  id: "path-worktree",
+  projectId: "project-worktree",
+  path: "/worktrees/agentlog-pet",
+  canonicalPath: "/worktrees/agentlog-pet",
+  kind: "worktree",
+  isAvailable: true,
+  gitRoot: "/worktrees/agentlog-pet",
+  gitRemoteIdentity: "github.com/openai/agentlog-pet",
+  gitBranch: "feature/manager-shell",
+  createdAt: 1,
+  updatedAt: 2,
+} satisfies ProjectPath;
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -54,7 +69,7 @@ function createApi(options: {
       update: vi.fn(async () => null),
       confirm: vi.fn(async () => null),
       archive: vi.fn(async () => null),
-      addPath: vi.fn(async () => null),
+      addPath: vi.fn(async (_input: Parameters<AgentLogApi["projects"]["addPath"]>[0]) => worktreePath),
       removePath: vi.fn(async () => null),
       rebind: vi.fn(async () => null),
       merge: vi.fn(async () => null),
@@ -91,6 +106,34 @@ function createApi(options: {
 }
 
 describe("App", () => {
+  it("renders project data that includes a worktree path", async () => {
+    const user = userEvent.setup();
+    const { api } = createApi({
+      projects: [{
+        id: "project-worktree",
+        name: "Worktree Project",
+        description: null,
+        lifecycle: "active",
+        confirmation: "confirmed",
+        createdSource: "agent",
+        createdAt: 1,
+        updatedAt: 2,
+        paths: [worktreePath],
+      }],
+    });
+    render(<App api={api} />);
+    await screen.findByText("No active work");
+
+    await user.click(screen.getByRole("button", { name: "Projects" }));
+
+    expect(await screen.findByText("Worktree Project")).toBeVisible();
+    await expect(api.projects.addPath({
+      projectId: "project-worktree",
+      path: "/worktrees/agentlog-pet",
+      kind: "alias",
+    })).resolves.toEqual(worktreePath);
+  });
+
   it("keeps manager routes internal and opens supported host settings destinations", async () => {
     const user = userEvent.setup();
     const { api } = createApi();
@@ -166,6 +209,19 @@ describe("App", () => {
     expect(api.settings.open).toHaveBeenCalledWith("general");
   });
 
+  it("announces an Open App Settings failure", async () => {
+    const user = userEvent.setup();
+    const { api } = createApi();
+    api.settings.open.mockRejectedValueOnce(new Error("settings unavailable"));
+    render(<App api={api} />);
+    await screen.findByText("No active work");
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+
+    await user.click(await screen.findByRole("button", { name: "Open App Settings" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Unable to open app settings.");
+  });
+
   it("refreshes relevant current data and unsubscribes on unmount", async () => {
     const user = userEvent.setup();
     const harness = createApi();
@@ -192,6 +248,95 @@ describe("App", () => {
     expect(harness.api.events.onChanged).toHaveBeenCalledTimes(1);
     view.unmount();
     expect(harness.listenerCount()).toBe(0);
+  });
+
+  it("ignores a deferred route response after unmount and leaves no listener", async () => {
+    const user = userEvent.setup();
+    const pendingProjects = deferred<ProjectSummary[]>();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const harness = createApi({ projects: pendingProjects.promise });
+    try {
+      const view = render(<App api={harness.api} />);
+      await screen.findByText("No active work");
+      await user.click(screen.getByRole("button", { name: "Projects" }));
+      expect(await screen.findByText("Loading Projects")).toBeVisible();
+      expect(harness.listenerCount()).toBe(1);
+
+      view.unmount();
+      expect(harness.listenerCount()).toBe(0);
+      await act(async () => {
+        pendingProjects.resolve([]);
+        await pendingProjects.promise;
+      });
+      harness.emit("projects");
+
+      expect(harness.api.projects.list).toHaveBeenCalledTimes(1);
+      expect(consoleError).not.toHaveBeenCalled();
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it("keeps the newest same-route refresh when requests resolve out of order", async () => {
+    const user = userEvent.setup();
+    const olderRefresh = deferred<ProjectSummary[]>();
+    const newerRefresh = deferred<ProjectSummary[]>();
+    const harness = createApi({
+      projects: [{
+        id: "project-initial",
+        name: "Initial Project",
+        description: null,
+        lifecycle: "active",
+        confirmation: "confirmed",
+        createdSource: "manual",
+        createdAt: 1,
+        updatedAt: 2,
+        paths: [],
+      }],
+    });
+    render(<App api={harness.api} />);
+    await screen.findByText("No active work");
+    await user.click(screen.getByRole("button", { name: "Projects" }));
+    expect(await screen.findByText("Initial Project")).toBeVisible();
+    harness.api.projects.list
+      .mockReturnValueOnce(olderRefresh.promise)
+      .mockReturnValueOnce(newerRefresh.promise);
+
+    act(() => harness.emit("projects"));
+    act(() => harness.emit("projects"));
+    await act(async () => {
+      newerRefresh.resolve([{
+        id: "project-newest",
+        name: "Newest Project",
+        description: null,
+        lifecycle: "active",
+        confirmation: "confirmed",
+        createdSource: "manual",
+        createdAt: 3,
+        updatedAt: 4,
+        paths: [],
+      }]);
+      await newerRefresh.promise;
+    });
+    expect(await screen.findByText("Newest Project")).toBeVisible();
+
+    await act(async () => {
+      olderRefresh.resolve([{
+        id: "project-older",
+        name: "Older Project",
+        description: null,
+        lifecycle: "active",
+        confirmation: "confirmed",
+        createdSource: "manual",
+        createdAt: 1,
+        updatedAt: 2,
+        paths: [],
+      }]);
+      await olderRefresh.promise;
+    });
+
+    expect(screen.getByText("Newest Project")).toBeVisible();
+    expect(screen.queryByText("Older Project")).not.toBeInTheDocument();
   });
 
   it("ignores stale route responses after navigation", async () => {

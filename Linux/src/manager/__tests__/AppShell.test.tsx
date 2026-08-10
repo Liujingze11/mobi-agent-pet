@@ -32,4 +32,16 @@ describe("AppShell", () => {
 
     expect(onNavigate).toHaveBeenCalledWith("sessions");
   });
+
+  it("keeps the longest project badge inside the Projects button name", () => {
+    render(
+      <AppShell currentRoute="overview" onNavigate={() => {}} pendingProjectCount={104}>
+        <div>Operational view</div>
+      </AppShell>,
+    );
+
+    const projects = screen.getByRole("button", { name: "Projects" });
+    expect(projects).toBeVisible();
+    expect(projects).toHaveTextContent("99+");
+  });
 });

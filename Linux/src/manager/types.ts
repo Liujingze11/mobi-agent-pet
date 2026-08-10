@@ -14,7 +14,7 @@ export type ProjectPath = {
   projectId: string;
   path: string;
   canonicalPath: string;
-  kind: "primary" | "alias";
+  kind: "primary" | "alias" | "worktree";
   isAvailable: boolean;
   gitRoot: string | null;
   gitRemoteIdentity: string | null;
@@ -122,7 +122,7 @@ export type AgentLogApi = {
     update(input: { id: string; name?: string; description?: string }): Promise<ProjectSummary | null>;
     confirm(input: { id: string; name?: string; description?: string }): Promise<ProjectSummary | null>;
     archive(id: string): Promise<ProjectSummary | null>;
-    addPath(input: { projectId: string; path: string; kind?: "alias" }): Promise<ProjectSummary | null>;
+    addPath(input: { projectId: string; path: string; kind?: "alias" }): Promise<ProjectPath>;
     removePath(input: { projectId: string; pathId: string }): Promise<ProjectSummary | null>;
     rebind(input: { projectId: string; pathId: string }): Promise<ProjectSummary | null>;
     merge(input: { sourceProjectId: string; targetProjectId: string }): Promise<ProjectSummary | null>;

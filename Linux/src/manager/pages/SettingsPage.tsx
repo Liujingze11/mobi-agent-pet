@@ -64,7 +64,7 @@ export function SettingsPage({ health, onOpenSettings }: SettingsPageProps) {
           <ExternalLink aria-hidden="true" size={15} />
           {commandState === "pending" ? "Opening App Settings" : "Open App Settings"}
         </button>
-        {commandState === "error" ? <span className="command-error">Unable to open app settings.</span> : null}
+        {commandState === "error" ? <span className="command-error" role="alert">Unable to open app settings.</span> : null}
       </div>
     </section>
   );
