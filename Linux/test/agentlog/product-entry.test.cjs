@@ -35,6 +35,11 @@ test("root package exposes one AgentLog Pet Electron application", () => {
     "agentlog-pet"
   );
   assert.equal(pkg.dependencies["better-sqlite3"], "12.11.1");
+  assert.ok(pkg.build.files.includes("dist/manager/**/*"));
+  assert.ok(pkg.build.asarUnpack.includes("node_modules/better-sqlite3/**/*"));
+  assert.equal(pkg.build.npmRebuild, false);
+  assert.match(pkg.scripts["prebuild:linux"], /build:manager/);
+  assert.equal(pkg.scripts["smoke:manager"], "node scripts/smoke-manager.cjs");
   assert.equal(fs.existsSync(path.join(root, "electron-builder.yml")), false);
 });
 
@@ -136,6 +141,74 @@ test("smoke mode reports the ready AgentLog Pet window without owning its lifecy
   assert.deepEqual(writes, [
     'AGENTLOG_SMOKE_READY {"productName":"AgentLog Pet","windowCount":1,"pid":4242}\n',
   ]);
+});
+
+test("manager smoke mode opens the real manager and reports only safe rendered metadata", async () => {
+  const writes = [];
+  let readyCallback;
+  let didFinishLoad;
+  let executeSource;
+  const manager = {
+    getTitle: () => "AgentLog Pet",
+    webContents: {
+      once(event, callback) {
+        assert.equal(event, "did-finish-load");
+        didFinishLoad = callback;
+      },
+      executeJavaScript(source) {
+        executeSource = source;
+        return Promise.resolve(true);
+      },
+    },
+  };
+  const fakeApp = {
+    setName(name) { this.name = name; },
+    getName() { return this.name; },
+    whenReady() {
+      return { then(callback) { readyCallback = callback; } };
+    },
+  };
+  const agentLogApp = {
+    getServices: () => ({ database: { name: "/private/user/data/agentlog.db" } }),
+    install() {},
+    openManager: () => manager,
+  };
+  const context = vm.createContext({
+    __dirname: path.join(root, "runtime", "agentlog"),
+    console,
+    process: {
+      pid: 4242,
+      env: { AGENTLOG_MANAGER_SMOKE_MODE: "1" },
+      stdout: { write: (value) => writes.push(value) },
+    },
+    require(request) {
+      if (request === "node:path") return path;
+      if (request === "electron") return { app: fakeApp };
+      if (request === "./brand.cjs") return { BRAND: { productName: "AgentLog Pet" } };
+      if (request === "./app-runtime.cjs") return agentLogApp;
+      if (request === "../clawd/src/main.js") return {};
+      throw new Error(`Unexpected require: ${request}`);
+    },
+  });
+
+  vm.runInContext(productMain, context, { filename: "runtime/agentlog/main.cjs" });
+  readyCallback();
+  didFinishLoad();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.match(executeSource, /data-testid=['"]manager-shell['"]/);
+  assert.deepEqual(writes, [
+    'AGENTLOG_MANAGER_SMOKE_READY {"status":"ok","pid":4242,"productName":"AgentLog Pet","managerTitle":"AgentLog Pet","databaseName":"agentlog.db","managerShell":true}\n',
+  ]);
+  assert.doesNotMatch(writes[0], /private|user|data\//);
+});
+
+test("manager smoke stops the real packaged Electron process", () => {
+  const smokeManager = fs.readFileSync(path.join(root, "scripts", "smoke-manager.cjs"), "utf8");
+
+  assert.match(smokeManager, /\{ stopChild, stopPid \}/);
+  assert.match(smokeManager, /ready\.pid/);
+  assert.match(smokeManager, /await stopPid\(managerPid\)/);
 });
 
 test("postinstall verifies the root Electron installation", () => {

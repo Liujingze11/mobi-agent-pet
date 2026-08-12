@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { stopChild, stopPid } = require("./smoke-process.cjs");
+const { ensureElectronBinding } = require("./prepare-electron-native.cjs");
 
 const root = path.resolve(__dirname, "..");
 const packagedBinary = process.argv[2] ? path.resolve(process.argv[2]) : null;
@@ -22,6 +23,7 @@ const env = {
   CLAWD_OZONE_PLATFORM: "x11",
   AGENTLOG_SMOKE_MODE: "1",
 };
+if (!packagedBinary) env.AGENTLOG_BETTER_SQLITE3_BINDING = ensureElectronBinding();
 delete env.ELECTRON_RUN_AS_NODE;
 
 function waitForReady(child, timeoutMs = 15_000) {

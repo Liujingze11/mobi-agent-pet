@@ -3,14 +3,26 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
+function loadDatabaseConstructor({ env = process.env, load = require } = {}) {
+  const DatabaseCtor = load("better-sqlite3");
+  const nativeBinding = env.AGENTLOG_BETTER_SQLITE3_BINDING;
+  if (!nativeBinding) return DatabaseCtor;
+  return class AgentLogDatabase extends DatabaseCtor {
+    constructor(filename, options = {}) {
+      super(filename, { ...options, nativeBinding });
+    }
+  };
+}
+
 function openAgentLogDatabase({
   databasePath,
-  DatabaseCtor = require("better-sqlite3"),
-}) {
+  DatabaseCtor,
+} = {}) {
+  const Constructor = DatabaseCtor || loadDatabaseConstructor();
   fs.mkdirSync(path.dirname(databasePath), { recursive: true });
   let db;
   try {
-    db = new DatabaseCtor(databasePath);
+    db = new Constructor(databasePath);
     db.pragma("journal_mode = WAL");
     db.pragma("foreign_keys = ON");
     db.pragma("busy_timeout = 5000");
@@ -52,6 +64,7 @@ function closeAgentLogDatabase(db) {
 
 module.exports = {
   closeAgentLogDatabase,
+  loadDatabaseConstructor,
   openAgentLogDatabase,
   runMigrations,
 };

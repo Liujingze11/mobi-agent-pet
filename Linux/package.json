@@ -11,8 +11,8 @@
     "node": ">=22.12.0"
   },
   "scripts": {
-    "start": "npm run build:manager && node runtime/clawd/scripts/ensure-sidecar-binaries.js && electron .",
-    "dev": "npm run build:manager && CLAWD_SKIP_SIDECAR_FETCH=1 electron .",
+    "start": "npm run build:manager && node runtime/clawd/scripts/ensure-sidecar-binaries.js && node scripts/launch-electron.cjs",
+    "dev": "npm run build:manager && CLAWD_SKIP_SIDECAR_FETCH=1 node scripts/launch-electron.cjs",
     "fetch:sidecars": "node runtime/clawd/scripts/fetch-sidecar-binaries.js",
     "verify:sidecars": "node runtime/clawd/scripts/verify-sidecar-binaries.js",
     "test": "node --test test/agentlog/*.test.cjs",
@@ -23,8 +23,9 @@
     "test:phase2": "npm test && npm run test:manager && npm run typecheck:manager && npm run build:manager && npm run test:upstream",
     "build:manager": "vite build --config vite.manager.config.ts",
     "prebuild:linux": "npm run build:manager && node runtime/clawd/scripts/verify-sidecar-binaries.js build:linux",
-    "build:linux": "electron-builder --linux",
+    "build:linux": "node scripts/build-linux.cjs",
     "smoke:linux": "node scripts/smoke-linux.cjs",
+    "smoke:manager": "node scripts/smoke-manager.cjs",
     "postinstall": "node scripts/verify-electron-install.cjs --context postinstall"
   },
   "dependencies": {
@@ -65,6 +66,7 @@
   "build": {
     "appId": "com.agentlog.pet",
     "productName": "AgentLog Pet",
+    "npmRebuild": false,
     "directories": {
       "output": "Linux",
       "buildResources": "runtime/clawd/build"
@@ -77,6 +79,7 @@
     ],
     "files": [
       "package.json",
+      "dist/manager/**/*",
       "runtime/agentlog/**/*",
       "runtime/clawd/package.json",
       "runtime/clawd/NOTICE.md",
@@ -96,7 +99,8 @@
       "runtime/clawd/extensions/**/*",
       "runtime/clawd/agents/**/*",
       "runtime/clawd/themes/**/*",
-      "node_modules/jsonc-parser/**/*"
+      "node_modules/jsonc-parser/**/*",
+      "node_modules/better-sqlite3/**/*"
     ],
     "linux": {
       "maintainer": "Liujingze11",

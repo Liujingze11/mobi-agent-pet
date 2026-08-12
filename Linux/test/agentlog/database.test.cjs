@@ -8,8 +8,30 @@ const test = require("node:test");
 
 const {
   closeAgentLogDatabase,
+  loadDatabaseConstructor,
   openAgentLogDatabase,
 } = require("../../runtime/agentlog/storage/database.cjs");
+
+test("loads an explicit Electron-native binding without changing the Node default", () => {
+  const calls = [];
+  class DatabaseFixture {
+    constructor(filename, options) {
+      calls.push([filename, options]);
+    }
+  }
+  const load = () => DatabaseFixture;
+
+  assert.equal(loadDatabaseConstructor({ env: {}, load }), DatabaseFixture);
+  const ElectronDatabase = loadDatabaseConstructor({
+    env: { AGENTLOG_BETTER_SQLITE3_BINDING: "/tmp/electron-better-sqlite3.node" },
+    load,
+  });
+  new ElectronDatabase("agentlog.db", { timeout: 100 });
+  assert.deepEqual(calls, [["agentlog.db", {
+    timeout: 100,
+    nativeBinding: "/tmp/electron-better-sqlite3.node",
+  }]]);
+});
 
 test("opens a fresh AgentLog database with Phase 2 schema and pragmas", () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "agentlog-database-"));
