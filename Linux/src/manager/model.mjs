@@ -85,3 +85,54 @@ export function formatElapsedClock(milliseconds) {
   const seconds = totalSeconds % 60;
   return [hours, minutes, seconds].map((value) => String(value).padStart(2, "0")).join(":");
 }
+
+/** @param {Array<{ confirmation?: string, lifecycle?: string, updatedAt?: number, id?: string }>} projects */
+export function sortProjects(projects) {
+  return [...projects].sort((left, right) => {
+    const lifecycle = Number(left.lifecycle === "archived") - Number(right.lifecycle === "archived");
+    if (lifecycle !== 0) return lifecycle;
+    const confirmation = Number(left.confirmation !== "pending") - Number(right.confirmation !== "pending");
+    if (confirmation !== 0) return confirmation;
+    const updated = usableDuration(right.updatedAt) - usableDuration(left.updatedAt);
+    return updated || String(left.id || "").localeCompare(String(right.id || ""));
+  });
+}
+
+/**
+ * @param {unknown} value
+ * @param {boolean} endOfDay
+ */
+function localDateBoundary(value, endOfDay) {
+  if (typeof value !== "string") return null;
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]) - 1;
+  const day = Number(match[3]);
+  const date = new Date(year, month, day + (endOfDay ? 1 : 0));
+  if (!endOfDay && (date.getFullYear() !== year || date.getMonth() !== month || date.getDate() !== day)) return null;
+  return date.getTime() - (endOfDay ? 1 : 0);
+}
+
+/**
+ * @param {Array<{ source?: string, projectId?: string | null, disposition?: string, status?: string, startedAt?: number, id?: string }>} sessions
+ * @param {{ kind?: string, projectId?: string, status?: string, from?: string, to?: string, direction?: string }} filters
+ */
+export function filterSessions(sessions, filters = {}) {
+  const from = localDateBoundary(filters.from, false);
+  const to = localDateBoundary(filters.to, true);
+  const direction = filters.direction === "oldest" ? 1 : -1;
+  return sessions.filter((session) => {
+    if (filters.kind && filters.kind !== "all" && session.source !== filters.kind) return false;
+    if (filters.projectId && session.projectId !== filters.projectId) return false;
+    const status = session.source === "agent" ? session.disposition : session.status;
+    if (filters.status && status !== filters.status) return false;
+    const startedAt = typeof session.startedAt === "number" ? session.startedAt : 0;
+    if (from !== null && startedAt < from) return false;
+    if (to !== null && startedAt > to) return false;
+    return true;
+  }).sort((left, right) => {
+    const started = (usableDuration(left.startedAt) - usableDuration(right.startedAt)) * direction;
+    return started || String(left.id || "").localeCompare(String(right.id || ""));
+  });
+}

@@ -69,3 +69,35 @@ test("formatElapsedClock keeps the live timer stable", async () => {
   assert.equal(formatElapsedClock(3_661_000), "01:01:01");
   assert.equal(formatElapsedClock(Number.POSITIVE_INFINITY), "00:00:00");
 });
+
+test("project list sorts pending work before confirmed active work", async () => {
+  const { sortProjects } = await model;
+  const result = sortProjects([
+    { id: "a", confirmation: "confirmed", lifecycle: "active", updatedAt: 20 },
+    { id: "b", confirmation: "pending", lifecycle: "active", updatedAt: 10 },
+    { id: "c", confirmation: "confirmed", lifecycle: "active", updatedAt: 30 },
+  ]);
+  assert.deepEqual(result.map((item) => item.id), ["b", "c", "a"]);
+});
+
+test("session filters preserve agent and human sources separately", async () => {
+  const { filterSessions } = await model;
+  const rows = [
+    { id: "agent-1", source: "agent", projectId: "p1", disposition: "completed", startedAt: 100 },
+    { id: "human-1", source: "human", projectId: "p1", status: "completed", startedAt: 200 },
+    { id: "agent-2", source: "agent", projectId: "p2", disposition: "active", startedAt: 300 },
+  ];
+  assert.deepEqual(filterSessions(rows, { kind: "agent", projectId: "p1" }).map((row) => row.id), ["agent-1"]);
+  assert.deepEqual(filterSessions(rows, { kind: "human", status: "completed" }).map((row) => row.id), ["human-1"]);
+  assert.deepEqual(filterSessions(rows, { kind: "all", projectId: "p2" }).map((row) => row.id), ["agent-2"]);
+});
+
+test("session filters apply inclusive local date bounds and newest-first sorting", async () => {
+  const { filterSessions } = await model;
+  const rows = [
+    { id: "early", source: "human", projectId: "p1", status: "completed", startedAt: new Date(2026, 7, 10, 9).getTime() },
+    { id: "late", source: "agent", projectId: "p1", disposition: "completed", startedAt: new Date(2026, 7, 11, 17).getTime() },
+    { id: "outside", source: "agent", projectId: "p1", disposition: "completed", startedAt: new Date(2026, 7, 12, 0).getTime() },
+  ];
+  assert.deepEqual(filterSessions(rows, { kind: "all", from: "2026-08-10", to: "2026-08-11" }).map((row) => row.id), ["late", "early"]);
+});

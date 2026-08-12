@@ -70,6 +70,7 @@ function start(app, electron) {
       db: openedDatabase,
       projectResolver,
       sessionTracker,
+      onChange: () => managerIpcRegistration?.notify("agent-events"),
     });
     const overviewQueries = createOverviewQueries(openedDatabase);
     const humanTimer = createHumanTimer({

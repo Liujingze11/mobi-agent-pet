@@ -33,6 +33,11 @@ class RuntimeBrowserWindow extends EventEmitter {
     this.options = options;
     this.destroyed = false;
     this.destroyCalls = 0;
+    this.sent = [];
+    this.webContents = {
+      isDestroyed: () => this.destroyed,
+      send: (...args) => this.sent.push(args),
+    };
     RuntimeBrowserWindow.instances.push(this);
   }
 
@@ -177,6 +182,18 @@ test("events received before database readiness flush once in publication order 
     errorMessage: null,
   });
   assert.equal(bridge.getAgentEventStats().subscribers, 1);
+});
+
+test("a durable agent event notifies open manager windows", async (t) => {
+  const { bridge, electron, runtime } = createHarness(t);
+
+  runtime.install(electron);
+  await electron.app.emitReady();
+  const window = new electron.BrowserWindow({});
+
+  bridge.publishUpstreamEvent(fixture("manager-refresh"));
+
+  assert.deepEqual(window.sent, [["agentlog:data-changed", "agent-events"]]);
 });
 
 test("startup reconciliation runs before flushing a queued working event", async (t) => {

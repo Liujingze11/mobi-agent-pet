@@ -617,6 +617,17 @@ test("duplicate IPC registration reuses its owner and disposal removes only owne
   assert.equal(handlers.size, 1);
 });
 
+test("registration can notify manager windows about non-IPC data changes", (t) => {
+  const api = createHarness(t);
+
+  api.registration.notify("agent-events");
+
+  assert.deepEqual(api.sent, [{
+    channel: "agentlog:data-changed",
+    payload: "agent-events",
+  }]);
+});
+
 test("manager hide does not act on a window when the sender has no BrowserWindow", async (t) => {
   const hidden = [];
   const api = createHarness(t, {

@@ -126,7 +126,7 @@ describe("App", () => {
 
     await user.click(screen.getByRole("button", { name: "Projects" }));
 
-    expect(await screen.findByText("Worktree Project")).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Worktree Project" })).toBeVisible();
     await expect(api.projects.addPath({
       projectId: "project-worktree",
       path: "/worktrees/agentlog-pet",
@@ -141,9 +141,9 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "Live work" })).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "Projects" }));
-    expect(await screen.findByText("No projects recorded")).toBeVisible();
+    expect(await screen.findByText("No projects recorded.")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Sessions" }));
-    expect(await screen.findByText("No sessions recorded")).toBeVisible();
+    expect(await screen.findByText("No sessions match these filters.")).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "Agents" }));
     await user.click(screen.getByRole("button", { name: "Pet & Themes" }));
@@ -228,7 +228,7 @@ describe("App", () => {
     const view = render(<App api={harness.api} />);
     await screen.findByRole("heading", { name: "Live work" });
     await user.click(screen.getByRole("button", { name: "Projects" }));
-    await screen.findByText("No projects recorded");
+    await screen.findByText("No projects recorded.");
 
     harness.api.projects.list.mockResolvedValueOnce([{
       id: "project-1",
@@ -243,11 +243,63 @@ describe("App", () => {
     }]);
     await act(async () => harness.emit("projects"));
 
-    expect(await screen.findByText("Indexer")).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Indexer" })).toBeVisible();
     expect(harness.listenerCount()).toBe(1);
     expect(harness.api.events.onChanged).toHaveBeenCalledTimes(1);
     view.unmount();
     expect(harness.listenerCount()).toBe(0);
+  });
+
+  it("refreshes project and session workspaces for recorded activity", async () => {
+    const user = userEvent.setup();
+    const harness = createApi({ projects: [{
+      id: "project-refresh",
+      name: "Refresh Project",
+      description: null,
+      lifecycle: "active",
+      confirmation: "confirmed",
+      createdSource: "manual",
+      createdAt: 1,
+      updatedAt: 2,
+      paths: [],
+    }] });
+    render(<App api={harness.api} />);
+    await screen.findByRole("heading", { name: "Live work" });
+
+    await user.click(screen.getByRole("button", { name: "Projects" }));
+    await screen.findByRole("heading", { name: "Refresh Project" });
+    await user.click(screen.getByRole("tab", { name: "Settings" }));
+    const agentRefresh = deferred<ProjectSummary[]>();
+    harness.api.projects.list.mockReturnValueOnce(agentRefresh.promise);
+    const projectLoads = harness.api.projects.list.mock.calls.length;
+    act(() => harness.emit("agent-events"));
+    expect(screen.getByRole("tab", { name: "Settings" })).toHaveAttribute("aria-selected", "true");
+    await act(async () => {
+      agentRefresh.resolve([{
+        id: "project-refresh",
+        name: "Refresh Project",
+        description: null,
+        lifecycle: "active",
+        confirmation: "confirmed",
+        createdSource: "manual",
+        createdAt: 1,
+        updatedAt: 3,
+        paths: [],
+      }]);
+      await agentRefresh.promise;
+    });
+    await waitFor(() => expect(harness.api.projects.list).toHaveBeenCalledTimes(projectLoads + 1));
+    expect(screen.getByRole("tab", { name: "Settings" })).toHaveAttribute("aria-selected", "true");
+    await act(async () => harness.emit("human-timer"));
+    await waitFor(() => expect(harness.api.projects.list).toHaveBeenCalledTimes(projectLoads + 2));
+
+    await user.click(screen.getByRole("button", { name: "Sessions" }));
+    await screen.findByText("No sessions match these filters.");
+    const sessionLoads = harness.api.sessions.list.mock.calls.length;
+    await act(async () => harness.emit("agent-events"));
+    await waitFor(() => expect(harness.api.sessions.list).toHaveBeenCalledTimes(sessionLoads + 1));
+    await act(async () => harness.emit("human-timer"));
+    await waitFor(() => expect(harness.api.sessions.list).toHaveBeenCalledTimes(sessionLoads + 2));
   });
 
   it("ignores a deferred route response after unmount and leaves no listener", async () => {
@@ -300,7 +352,7 @@ describe("App", () => {
     render(<App api={harness.api} />);
     await screen.findByRole("heading", { name: "Live work" });
     await user.click(screen.getByRole("button", { name: "Projects" }));
-    expect(await screen.findByText("Initial Project")).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Initial Project" })).toBeVisible();
     harness.api.projects.list
       .mockReturnValueOnce(olderRefresh.promise)
       .mockReturnValueOnce(newerRefresh.promise);
@@ -321,7 +373,7 @@ describe("App", () => {
       }]);
       await newerRefresh.promise;
     });
-    expect(await screen.findByText("Newest Project")).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Newest Project" })).toBeVisible();
 
     await act(async () => {
       olderRefresh.resolve([{
@@ -338,7 +390,7 @@ describe("App", () => {
       await olderRefresh.promise;
     });
 
-    expect(screen.getByText("Newest Project")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Newest Project" })).toBeVisible();
     expect(screen.queryByText("Older Project")).not.toBeInTheDocument();
   });
 
@@ -362,7 +414,7 @@ describe("App", () => {
     render(<App api={harness.api} />);
     await screen.findByText("Loading Overview");
     await user.click(screen.getByRole("button", { name: "Projects" }));
-    expect(await screen.findByText("Current Project")).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Current Project" })).toBeVisible();
 
     await act(async () => {
       lateOverview.resolve({
@@ -371,7 +423,7 @@ describe("App", () => {
       });
     });
 
-    expect(screen.getByText("Current Project")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Current Project" })).toBeVisible();
   });
 
   it("contains route load failures and allows a retry", async () => {
@@ -387,6 +439,6 @@ describe("App", () => {
     expect(await screen.findByText("Unable to load Projects")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Retry" }));
 
-    await waitFor(() => expect(screen.getByText("No projects recorded")).toBeVisible());
+    await waitFor(() => expect(screen.getByText("No projects recorded.")).toBeVisible());
   });
 });

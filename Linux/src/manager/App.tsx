@@ -3,7 +3,9 @@ import type { ErrorInfo, ReactNode } from "react";
 
 import { AppShell } from "./components/AppShell";
 import { OverviewPage } from "./pages/OverviewPage";
+import { ProjectsPage } from "./pages/ProjectsPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { SessionsPage } from "./pages/SessionsPage";
 import type {
   AgentLogApi,
   DiagnosticsHealth,
@@ -15,7 +17,8 @@ import type {
 } from "./types";
 
 type OverviewRouteData = { snapshot: OverviewSnapshot; projects: ProjectSummary[] };
-type RouteData = OverviewRouteData | ProjectSummary[] | SessionSummary[] | DiagnosticsHealth;
+type SessionsRouteData = { projects: ProjectSummary[]; sessions: SessionSummary[] };
+type RouteData = OverviewRouteData | SessionsRouteData | ProjectSummary[] | DiagnosticsHealth;
 type ViewState =
   | { status: "loading"; route: InternalRouteId }
   | { status: "ready"; route: InternalRouteId; data: RouteData }
@@ -34,8 +37,13 @@ const routeLabels: Record<InternalRouteId, string> = {
 
 function isRelevantScope(route: InternalRouteId, scope: string) {
   if (route === "overview") return true;
-  if (route === "projects") return scope === "projects";
-  if (route === "sessions") return scope === "sessions" || scope === "projects";
+  if (route === "projects") {
+    return scope === "projects" || scope === "agent-events" || scope === "human-timer";
+  }
+  if (route === "sessions") {
+    return scope === "sessions" || scope === "projects"
+      || scope === "agent-events" || scope === "human-timer";
+  }
   return false;
 }
 
@@ -58,44 +66,6 @@ function StateSurface({
         <p>{detail}</p>
       </div>
       {onRetry ? <button type="button" className="command-button" onClick={onRetry}>Retry</button> : null}
-    </section>
-  );
-}
-
-function ProjectsSkeleton({ projects }: { projects: ProjectSummary[] }) {
-  if (projects.length === 0) {
-    return <StateSurface kind="pending" title="No projects recorded" detail="The project register is empty." />;
-  }
-  return (
-    <section className="workspace" aria-labelledby="projects-title">
-      <div className="workspace__heading"><h2 id="projects-title">Project register</h2><span>{projects.length} total</span></div>
-      <ul className="record-list">
-        {projects.slice(0, 8).map((project) => (
-          <li key={project.id}>
-            <div><strong>{project.name}</strong><span>{project.confirmation}</span></div>
-            <span className={`record-state record-state--${project.confirmation}`}>{project.lifecycle}</span>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-function SessionsSkeleton({ sessions }: { sessions: SessionSummary[] }) {
-  if (sessions.length === 0) {
-    return <StateSurface kind="pending" title="No sessions recorded" detail="The session register is empty." />;
-  }
-  return (
-    <section className="workspace" aria-labelledby="sessions-title">
-      <div className="workspace__heading"><h2 id="sessions-title">Session register</h2><span>{sessions.length} total</span></div>
-      <ul className="record-list">
-        {sessions.slice(0, 8).map((session) => (
-          <li key={session.id}>
-            <div><strong>{session.projectName || "Unassigned project"}</strong><span>{session.source}</span></div>
-            <span className="record-state">{session.source === "agent" ? session.disposition : session.status}</span>
-          </li>
-        ))}
-      </ul>
     </section>
   );
 }
@@ -131,10 +101,10 @@ export function App({ api = window.agentLog }: AppProps) {
   routeRef.current = route;
   healthRef.current = health;
 
-  const loadRoute = useCallback(async (target: InternalRouteId) => {
+  const loadRoute = useCallback(async (target: InternalRouteId, { silent = false } = {}) => {
     if (!mountedRef.current) return;
     const request = ++requestRef.current;
-    setView({ status: "loading", route: target });
+    if (!silent) setView({ status: "loading", route: target });
     if (target === "settings") {
       const currentHealth = healthRef.current;
       if (mountedRef.current && currentHealth && currentHealth !== "unexpected") {
@@ -148,12 +118,13 @@ export function App({ api = window.agentLog }: AppProps) {
           .then(([snapshot, projects]) => ({ snapshot, projects }))
         : target === "projects"
           ? await api.projects.list()
-          : await api.sessions.list();
+          : await Promise.all([api.sessions.list({ includeArchived: true, limit: 500 }), api.projects.list({ includeArchived: true })])
+            .then(([sessions, projects]) => ({ sessions, projects }));
       if (!mountedRef.current || request !== requestRef.current || routeRef.current !== target) return;
       setView({ status: "ready", route: target, data });
     } catch {
       if (!mountedRef.current || request !== requestRef.current || routeRef.current !== target) return;
-      setView({ status: "error", route: target });
+      if (!silent) setView({ status: "error", route: target });
     }
   }, [api]);
 
@@ -162,7 +133,7 @@ export function App({ api = window.agentLog }: AppProps) {
     let active = true;
     const unsubscribe = api.events.onChanged((scope) => {
       const currentRoute = routeRef.current;
-      if (isRelevantScope(currentRoute, scope)) void loadRoute(currentRoute);
+      if (isRelevantScope(currentRoute, scope)) void loadRoute(currentRoute, { silent: true });
     });
     void api.diagnostics.get().then((result) => {
       if (active) setHealth(result);
@@ -226,9 +197,10 @@ export function App({ api = window.agentLog }: AppProps) {
       />
     );
   } else if (route === "projects") {
-    content = <ProjectsSkeleton projects={view.data as ProjectSummary[]} />;
+    content = <ProjectsPage projectApi={api.projects} projects={view.data as ProjectSummary[]} sessionApi={api.sessions} />;
   } else if (route === "sessions") {
-    content = <SessionsSkeleton sessions={view.data as SessionSummary[]} />;
+    const sessionsData = view.data as SessionsRouteData;
+    content = <SessionsPage projects={sessionsData.projects} sessions={sessionsData.sessions} />;
   } else {
     content = <SettingsPage health={health} onOpenSettings={() => api.settings.open("general")} />;
   }

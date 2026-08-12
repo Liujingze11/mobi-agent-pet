@@ -35,6 +35,10 @@ export type ProjectSummary = {
   paths: ProjectPath[];
 };
 
+export type ProjectDetail = ProjectSummary & {
+  today?: OverviewSnapshot["today"];
+};
+
 export type AgentSession = {
   id: string;
   source: "agent";
@@ -123,7 +127,7 @@ export type AgentLogApi = {
   };
   projects: {
     list(filters?: Record<string, unknown>): Promise<ProjectSummary[]>;
-    get(id: string): Promise<(ProjectSummary & { today?: OverviewSnapshot["today"] }) | null>;
+    get(id: string): Promise<ProjectDetail | null>;
     pickFolder(): Promise<{ cancelled: boolean; path: string | null }>;
     addFromFolder(input: { path: string; name: string; description?: string }): Promise<ProjectSummary | null>;
     update(input: { id: string; name?: string; description?: string }): Promise<ProjectSummary | null>;

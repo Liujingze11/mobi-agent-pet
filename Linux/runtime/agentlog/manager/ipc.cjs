@@ -251,6 +251,9 @@ function registerManagerIpc({
   }
 
   const registration = Object.freeze({
+    notify(scope) {
+      if (!disposed) broadcast(scope);
+    },
     dispose() {
       if (disposed) return;
       disposed = true;
