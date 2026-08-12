@@ -53,3 +53,35 @@ export function deriveNavigationBadge(route, snapshot = {}) {
   const wholeCount = Math.trunc(count);
   return wholeCount > 99 ? "99+" : String(wholeCount);
 }
+
+/** @param {{ status?: string } | null | undefined} timer */
+export function deriveTimerActions(timer) {
+  if (timer?.status === "running") return ["pause", "stop"];
+  if (timer?.status === "paused") return ["resume", "stop"];
+  return ["start"];
+}
+
+/**
+ * @param {{ status?: string, startedAt?: number, accumulatedPauseMs?: number, effectiveMs?: number } | null | undefined} timer
+ * @param {number} at
+ */
+export function deriveHumanTimerMs(timer, at) {
+  if (!timer) return 0;
+  const effectiveMs = usableDuration(timer.effectiveMs);
+  if (timer.status !== "running") return effectiveMs;
+  const rawStartedAt = timer.startedAt;
+  const startedAt = typeof rawStartedAt === "number" && Number.isFinite(rawStartedAt)
+    ? rawStartedAt
+    : at;
+  const pauseMs = usableDuration(timer.accumulatedPauseMs);
+  return Math.max(effectiveMs, usableDuration(at - startedAt - pauseMs));
+}
+
+/** @param {unknown} milliseconds */
+export function formatElapsedClock(milliseconds) {
+  const totalSeconds = Math.floor(usableDuration(milliseconds) / 1_000);
+  const hours = Math.floor(totalSeconds / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  return [hours, minutes, seconds].map((value) => String(value).padStart(2, "0")).join(":");
+}

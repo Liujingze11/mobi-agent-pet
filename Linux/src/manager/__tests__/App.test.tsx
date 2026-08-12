@@ -122,7 +122,7 @@ describe("App", () => {
       }],
     });
     render(<App api={api} />);
-    await screen.findByText("No active work");
+    await screen.findByRole("heading", { name: "Live work" });
 
     await user.click(screen.getByRole("button", { name: "Projects" }));
 
@@ -138,7 +138,7 @@ describe("App", () => {
     const user = userEvent.setup();
     const { api } = createApi();
     render(<App api={api} />);
-    expect(await screen.findByText("No active work")).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Live work" })).toBeVisible();
 
     await user.click(screen.getByRole("button", { name: "Projects" }));
     expect(await screen.findByText("No projects recorded")).toBeVisible();
@@ -199,7 +199,7 @@ describe("App", () => {
       },
     });
     render(<App api={api} />);
-    await screen.findByText("No active work");
+    await screen.findByRole("heading", { name: "Live work" });
     await user.click(screen.getByRole("button", { name: "Settings" }));
 
     expect(await screen.findByText("agentlog.db")).toBeVisible();
@@ -214,7 +214,7 @@ describe("App", () => {
     const { api } = createApi();
     api.settings.open.mockRejectedValueOnce(new Error("settings unavailable"));
     render(<App api={api} />);
-    await screen.findByText("No active work");
+    await screen.findByRole("heading", { name: "Live work" });
     await user.click(screen.getByRole("button", { name: "Settings" }));
 
     await user.click(await screen.findByRole("button", { name: "Open App Settings" }));
@@ -226,7 +226,7 @@ describe("App", () => {
     const user = userEvent.setup();
     const harness = createApi();
     const view = render(<App api={harness.api} />);
-    await screen.findByText("No active work");
+    await screen.findByRole("heading", { name: "Live work" });
     await user.click(screen.getByRole("button", { name: "Projects" }));
     await screen.findByText("No projects recorded");
 
@@ -254,10 +254,13 @@ describe("App", () => {
     const user = userEvent.setup();
     const pendingProjects = deferred<ProjectSummary[]>();
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-    const harness = createApi({ projects: pendingProjects.promise });
+    const harness = createApi();
+    harness.api.projects.list
+      .mockResolvedValueOnce([])
+      .mockReturnValueOnce(pendingProjects.promise);
     try {
       const view = render(<App api={harness.api} />);
-      await screen.findByText("No active work");
+      await screen.findByRole("heading", { name: "Live work" });
       await user.click(screen.getByRole("button", { name: "Projects" }));
       expect(await screen.findByText("Loading Projects")).toBeVisible();
       expect(harness.listenerCount()).toBe(1);
@@ -270,7 +273,7 @@ describe("App", () => {
       });
       harness.emit("projects");
 
-      expect(harness.api.projects.list).toHaveBeenCalledTimes(1);
+      expect(harness.api.projects.list).toHaveBeenCalledTimes(2);
       expect(consoleError).not.toHaveBeenCalled();
     } finally {
       consoleError.mockRestore();
@@ -295,7 +298,7 @@ describe("App", () => {
       }],
     });
     render(<App api={harness.api} />);
-    await screen.findByText("No active work");
+    await screen.findByRole("heading", { name: "Live work" });
     await user.click(screen.getByRole("button", { name: "Projects" }));
     expect(await screen.findByText("Initial Project")).toBeVisible();
     harness.api.projects.list
@@ -375,7 +378,7 @@ describe("App", () => {
     const user = userEvent.setup();
     const harness = createApi();
     render(<App api={harness.api} />);
-    await screen.findByText("No active work");
+    await screen.findByRole("heading", { name: "Live work" });
     harness.api.projects.list
       .mockRejectedValueOnce(new Error("database exploded"))
       .mockResolvedValueOnce([]);

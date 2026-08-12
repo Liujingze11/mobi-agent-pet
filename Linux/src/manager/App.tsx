@@ -2,6 +2,7 @@ import { Component, useCallback, useEffect, useRef, useState } from "react";
 import type { ErrorInfo, ReactNode } from "react";
 
 import { AppShell } from "./components/AppShell";
+import { OverviewPage } from "./pages/OverviewPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import type {
   AgentLogApi,
@@ -13,7 +14,8 @@ import type {
   SessionSummary,
 } from "./types";
 
-type RouteData = OverviewSnapshot | ProjectSummary[] | SessionSummary[] | DiagnosticsHealth;
+type OverviewRouteData = { snapshot: OverviewSnapshot; projects: ProjectSummary[] };
+type RouteData = OverviewRouteData | ProjectSummary[] | SessionSummary[] | DiagnosticsHealth;
 type ViewState =
   | { status: "loading"; route: InternalRouteId }
   | { status: "ready"; route: InternalRouteId; data: RouteData }
@@ -56,26 +58,6 @@ function StateSurface({
         <p>{detail}</p>
       </div>
       {onRetry ? <button type="button" className="command-button" onClick={onRetry}>Retry</button> : null}
-    </section>
-  );
-}
-
-function OverviewSkeleton({ snapshot }: { snapshot: OverviewSnapshot }) {
-  const isEmpty = snapshot.pendingProjectCount === 0
-    && snapshot.activeAgentSessions.length === 0
-    && snapshot.humanTimer === null
-    && snapshot.recentActivity.length === 0;
-  if (isEmpty) {
-    return <StateSurface kind="pending" title="No active work" detail="No activity is currently running." />;
-  }
-  return (
-    <section className="workspace" aria-labelledby="overview-title">
-      <div className="workspace__heading"><h2 id="overview-title">Current status</h2></div>
-      <div className="summary-grid">
-        <div><span>Active agent sessions</span><strong>{snapshot.activeAgentSessions.length}</strong></div>
-        <div><span>Pending projects</span><strong>{snapshot.pendingProjectCount}</strong></div>
-        <div><span>Recent events</span><strong>{snapshot.recentActivity.length}</strong></div>
-      </div>
     </section>
   );
 }
@@ -162,7 +144,8 @@ export function App({ api = window.agentLog }: AppProps) {
     }
     try {
       const data = target === "overview"
-        ? await api.overview.get()
+        ? await Promise.all([api.overview.get(), api.projects.list({ lifecycle: "active" })])
+          .then(([snapshot, projects]) => ({ snapshot, projects }))
         : target === "projects"
           ? await api.projects.list()
           : await api.sessions.list();
@@ -233,7 +216,15 @@ export function App({ api = window.agentLog }: AppProps) {
   } else if (view.status === "error") {
     content = <StateSurface kind="error" title={`Unable to load ${routeLabels[route]}`} detail="The current view could not read local data." onRetry={() => void loadRoute(route)} />;
   } else if (route === "overview") {
-    content = <OverviewSkeleton snapshot={view.data as OverviewSnapshot} />;
+    const overviewData = view.data as OverviewRouteData;
+    content = (
+      <OverviewPage
+        onOpenProjects={() => setRoute("projects")}
+        projects={overviewData.projects}
+        snapshot={overviewData.snapshot}
+        timerApi={api.humanTimer}
+      />
+    );
   } else if (route === "projects") {
     content = <ProjectsSkeleton projects={view.data as ProjectSummary[]} />;
   } else if (route === "sessions") {
@@ -243,7 +234,7 @@ export function App({ api = window.agentLog }: AppProps) {
   }
 
   const overview = view.status === "ready" && view.route === "overview"
-    ? view.data as OverviewSnapshot
+    ? (view.data as OverviewRouteData).snapshot
     : null;
 
   return (

@@ -72,6 +72,13 @@ export type HumanSession = {
   effectiveMs: number;
 };
 
+export type HumanTimerCommandError = {
+  code: string;
+  state: HumanSession | null;
+};
+
+export type HumanTimerCommandResult = HumanSession | HumanTimerCommandError | null;
+
 export type SessionSummary = AgentSession | HumanSession;
 
 export type ActivityEvent = {
@@ -133,10 +140,10 @@ export type AgentLogApi = {
   };
   humanTimer: {
     get(): Promise<HumanSession | null>;
-    start(projectId: string): Promise<HumanSession | null>;
-    pause(): Promise<HumanSession | null>;
-    resume(): Promise<HumanSession | null>;
-    stop(notes?: string): Promise<HumanSession | null>;
+    start(projectId: string): Promise<HumanTimerCommandResult>;
+    pause(): Promise<HumanTimerCommandResult>;
+    resume(): Promise<HumanTimerCommandResult>;
+    stop(notes?: string): Promise<HumanTimerCommandResult>;
   };
   settings: {
     open(tab: "agents" | "theme" | "general"): Promise<unknown>;

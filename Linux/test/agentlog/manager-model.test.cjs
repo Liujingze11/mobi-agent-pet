@@ -42,3 +42,30 @@ test("deriveNavigationBadge reports only actionable pending work", async () => {
   assert.equal(deriveNavigationBadge("projects", { pendingProjectCount: Number.NaN }), null);
   assert.equal(deriveNavigationBadge("sessions", { pendingProjectCount: 4 }), null);
 });
+
+test("deriveTimerActions exposes only valid controls", async () => {
+  const { deriveTimerActions } = await model;
+  assert.deepEqual(deriveTimerActions({ status: "running" }), ["pause", "stop"]);
+  assert.deepEqual(deriveTimerActions({ status: "paused" }), ["resume", "stop"]);
+  assert.deepEqual(deriveTimerActions({ status: "completed" }), ["start"]);
+  assert.deepEqual(deriveTimerActions(null), ["start"]);
+});
+
+test("deriveHumanTimerMs advances only persisted running timers", async () => {
+  const { deriveHumanTimerMs } = await model;
+  const base = {
+    startedAt: 1_000,
+    accumulatedPauseMs: 2_000,
+    effectiveMs: 4_000,
+  };
+  assert.equal(deriveHumanTimerMs({ ...base, status: "running" }, 10_000), 7_000);
+  assert.equal(deriveHumanTimerMs({ ...base, status: "paused" }, 10_000), 4_000);
+  assert.equal(deriveHumanTimerMs(null, 10_000), 0);
+});
+
+test("formatElapsedClock keeps the live timer stable", async () => {
+  const { formatElapsedClock } = await model;
+  assert.equal(formatElapsedClock(0), "00:00:00");
+  assert.equal(formatElapsedClock(3_661_000), "01:01:01");
+  assert.equal(formatElapsedClock(Number.POSITIVE_INFINITY), "00:00:00");
+});
