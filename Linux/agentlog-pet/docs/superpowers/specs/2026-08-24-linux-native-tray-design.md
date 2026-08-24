@@ -1,7 +1,7 @@
 # Linux Native Tray Reliability Design
 
 - **Date:** 2026-08-24
-- **Status:** Draft for Review
+- **Status:** Approved
 - **Platform:** Linux
 - **Product:** AgentLog Pet
 
