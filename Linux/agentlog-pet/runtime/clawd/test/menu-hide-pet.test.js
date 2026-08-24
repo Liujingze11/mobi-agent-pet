@@ -448,6 +448,23 @@ describe("pet color menu placement", () => {
   });
 });
 
+describe("persistent noise settings placement", () => {
+  it("keeps bubble and sound controls out of the tray quick menu", () => {
+    const initMenu = loadMenuWithElectron(fakeElectron());
+    let trayTemplate = null;
+    const ctx = buildBaseCtx({
+      tray: { setContextMenu(menuObj) { trayTemplate = menuObj.template; } },
+    });
+    const menu = initMenu(ctx);
+
+    menu.buildTrayMenu();
+
+    const labels = trayTemplate.map((item) => item.label);
+    assert.ok(!labels.includes("Hide Bubbles"));
+    assert.ok(!labels.includes("Sound Effects"));
+  });
+});
+
 describe("macOS visibility toggles live in the tray, not the right-click menu", () => {
   it("drops Show in Dock / Show in Menu Bar from the context menu but keeps them in the tray", (t) => {
     if (process.platform !== "darwin") {

@@ -331,27 +331,11 @@ module.exports = function initMenu(ctx) {
     if (!ctx.tray) return;
 
     // Same grouping discipline as the context menu (see joinGroups), adapted
-    // for the tray's larger item set: state / noise / work / system / app /
-    // quit. Other settings (language, theme, bubble follow, start-with-Claude,
-    // updates, etc.) live only in the Settings panel / About tab.
+    // for the tray's larger item set: state / work / system / app / quit.
+    // Persistent sound and bubble preferences live in Settings with the other
+    // detailed controls; modes provide the tray's quick quiet-state switch.
     const stateGroup = [
       buildAppModeMenuItem(),
-    ];
-
-    // Quick noise toggles (bubbles + sound) kept together.
-    const noiseGroup = [
-      {
-        label: t("hideBubbles"),
-        type: "checkbox",
-        checked: ctx.hideBubbles,
-        click: (menuItem) => { ctx.hideBubbles = menuItem.checked; },
-      },
-      {
-        label: t("soundEffects"),
-        type: "checkbox",
-        checked: !ctx.soundMuted,
-        click: (menuItem) => { ctx.soundMuted = !menuItem.checked; },
-      },
     ];
 
     // Dashboard + the danger auto-approve toggle (danger last, as in the
@@ -431,7 +415,7 @@ module.exports = function initMenu(ctx) {
       { label: t("quit"), click: () => requestAppQuit() },
     ];
 
-    const items = joinGroups([stateGroup, noiseGroup, workGroup, systemGroup, appGroup, quitGroup]);
+    const items = joinGroups([stateGroup, workGroup, systemGroup, appGroup, quitGroup]);
     ctx.tray.setContextMenu(Menu.buildFromTemplate(items));
   }
 
