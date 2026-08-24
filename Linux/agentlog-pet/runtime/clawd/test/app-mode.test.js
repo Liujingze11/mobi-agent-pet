@@ -56,6 +56,23 @@ describe("app mode policy", () => {
 });
 
 describe("app mode runtime authorization", () => {
+  it("starts each runtime Normal and unauthorized after a prior Automatic run", async () => {
+    const previousRuntime = createAppModeRuntime();
+    assert.deepStrictEqual(
+      await previousRuntime.setMode(APP_MODE.AUTOMATIC, { confirmed: true }),
+      { status: "ok", mode: APP_MODE.AUTOMATIC }
+    );
+    assert.equal(previousRuntime.isAutomaticAuthorized(), true);
+
+    const restartedRuntime = createAppModeRuntime();
+    assert.equal(restartedRuntime.getMode(), APP_MODE.NORMAL);
+    assert.equal(restartedRuntime.isAutomaticAuthorized(), false);
+    assert.deepStrictEqual(
+      await restartedRuntime.setMode(APP_MODE.AUTOMATIC),
+      { status: "confirmation-required", mode: APP_MODE.NORMAL }
+    );
+  });
+
   it("starts Normal and requires one confirmation per run", async () => {
     const applied = [];
     const runtime = createAppModeRuntime({

@@ -2,10 +2,13 @@
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const vm = require("node:vm");
 const { describe, it } = require("node:test");
 const initUpdater = require("../src/updater");
+const prefsModule = require("../src/prefs");
+const { getBubblePolicy } = require("../src/bubble-policy");
 const {
   APP_MODE,
   createAppModeRuntime,
@@ -34,7 +37,7 @@ function loadMainAppModeRuntime(deps) {
   const end = source.indexOf("\nlet _remoteSshInstallationIdentity", start);
   assert.ok(start >= 0 && end > start, "main should expose the app mode runtime wiring");
   return vm.runInNewContext(
-    `${source.slice(start, end)}; ({ getActiveAppMode, getEffectiveAppModePolicy, setActiveAppMode })`,
+    `${source.slice(start, end)}; ({ getActiveAppMode, isAutomaticModeAuthorized, getEffectiveAppModePolicy, setActiveAppMode })`,
     { APP_MODE, createAppModeRuntime, resolveAppModePolicy, ...deps },
   );
 }
@@ -99,6 +102,52 @@ function makeTransitionDeps(overrides = {}) {
   };
 }
 
+function makeRuntimeDeps(snapshot, overrides = {}) {
+  return makeTransitionDeps({
+    notifyUpdaterSilentExit() {},
+    _state: {
+      clearQuietModePermissionState() {},
+      enableDoNotDisturb() {},
+      disableDoNotDisturb() {},
+      resolveDisplayState: () => "idle",
+      getSvgOverride: () => null,
+      applyState() {},
+    },
+    _settingsController: {
+      getSnapshot: () => snapshot,
+      applyCommand() {},
+    },
+    ...overrides,
+  });
+}
+
+function getEffectiveSavedSurfaces(runtime, snapshot) {
+  const policy = runtime.getEffectiveAppModePolicy();
+  return {
+    soundMuted: resolveEffectiveSoundMuted(snapshot.soundMuted, policy),
+    trayFlashEnabled: resolveEffectiveTrayFlashEnabled(
+      snapshot.flashTaskbarOnComplete,
+      policy
+    ),
+    permissionBubble: resolveEffectiveBubblePolicy(
+      getBubblePolicy(snapshot, "permission"),
+      policy.suppressPermissionBubbles
+    ),
+    notificationBubble: resolveEffectiveBubblePolicy(
+      getBubblePolicy(snapshot, "notification"),
+      policy.suppressNotificationBubbles
+    ),
+    updateBubble: resolveEffectiveBubblePolicy(
+      getBubblePolicy(snapshot, "update"),
+      policy.suppressUpdateBubbles
+    ),
+    sessionHudEnabled: policy.suppressSessionHud
+      ? false
+      : snapshot.sessionHudEnabled,
+    permissionAutomationMode: policy.permissionAutomationMode,
+  };
+}
+
 describe("effective app mode boundaries", () => {
   it("applies quiet overrides without changing Normal Mode saved values", () => {
     assert.equal(resolveEffectiveSoundMuted(false, { muteSound: true }), true);
@@ -119,6 +168,42 @@ describe("effective app mode boundaries", () => {
 
 describe("main app mode runtime wiring", () => {
   const mainSource = fs.readFileSync(MAIN_JS, "utf8");
+
+  it("keeps launch mode state out of the preferences file", async () => {
+    const prefsDir = fs.mkdtempSync(path.join(os.tmpdir(), "agentlog-app-mode-"));
+    const prefsPath = path.join(prefsDir, "clawd-prefs.json");
+    const snapshot = {
+      ...prefsModule.getDefaults(),
+      permissionAutomationMode: "auto-tools",
+    };
+    prefsModule.save(prefsPath, snapshot);
+    const savedBefore = fs.readFileSync(prefsPath, "utf8");
+    const persistenceCalls = [];
+
+    try {
+      const runtime = loadMainAppModeRuntime(makeRuntimeDeps(snapshot, {
+        _settingsController: {
+          getSnapshot: () => snapshot,
+          applyCommand: (...args) => persistenceCalls.push(["applyCommand", ...args]),
+          applyUpdate: (...args) => persistenceCalls.push(["applyUpdate", ...args]),
+        },
+      }));
+      assert.equal(runtime.getActiveAppMode(), APP_MODE.NORMAL);
+      assert.equal(runtime.isAutomaticModeAuthorized(), false);
+      await runtime.setActiveAppMode(APP_MODE.AUTOMATIC, { confirmed: true });
+      await runtime.setActiveAppMode(APP_MODE.NORMAL);
+
+      assert.equal(fs.readFileSync(prefsPath, "utf8"), savedBefore);
+      assert.equal(Object.hasOwn(JSON.parse(savedBefore), "appMode"), false);
+      assert.deepStrictEqual(persistenceCalls, []);
+
+      const restartedRuntime = loadMainAppModeRuntime(makeRuntimeDeps(snapshot));
+      assert.equal(restartedRuntime.getActiveAppMode(), APP_MODE.NORMAL);
+      assert.equal(restartedRuntime.isAutomaticModeAuthorized(), false);
+    } finally {
+      fs.rmSync(prefsDir, { recursive: true, force: true });
+    }
+  });
 
   it("owns an in-memory runtime mode source and leaves preferences untouched", () => {
     assert.ok(mainSource.includes('require("./app-mode")'));
@@ -174,6 +259,60 @@ describe("main app mode runtime wiring", () => {
     assert.equal(getPermissionAutomationMode(), "auto-tools");
     assert.deepEqual(snapshot, { permissionAutomationMode: "auto-tools" });
     assert.deepEqual(applyCommandCalls, []);
+  });
+
+  it("restores every saved surface after Background and Automatic", async () => {
+    const snapshot = {
+      soundMuted: true,
+      flashTaskbarOnComplete: true,
+      permissionBubblesEnabled: true,
+      hideBubbles: false,
+      permissionBubbleAutoCloseSeconds: 6,
+      notificationBubbleAutoCloseSeconds: 6,
+      updateBubbleAutoCloseSeconds: 6,
+      sessionHudEnabled: true,
+      permissionAutomationMode: "auto-tools",
+    };
+    const runtime = loadMainAppModeRuntime(makeRuntimeDeps(snapshot));
+    const savedEffectiveValues = {
+      soundMuted: true,
+      trayFlashEnabled: true,
+      permissionBubble: { enabled: true, autoCloseMs: 6000 },
+      notificationBubble: { enabled: true, autoCloseMs: 6000 },
+      updateBubble: { enabled: true, autoCloseMs: 6000 },
+      sessionHudEnabled: true,
+      permissionAutomationMode: "auto-tools",
+    };
+    const quietEffectiveValues = {
+      soundMuted: true,
+      trayFlashEnabled: false,
+      permissionBubble: { enabled: false, autoCloseMs: 0 },
+      notificationBubble: { enabled: false, autoCloseMs: 0 },
+      updateBubble: { enabled: false, autoCloseMs: 0 },
+      sessionHudEnabled: false,
+    };
+
+    await runtime.setActiveAppMode(APP_MODE.BACKGROUND);
+    assert.deepStrictEqual(getEffectiveSavedSurfaces(runtime, snapshot), {
+      ...quietEffectiveValues,
+      permissionAutomationMode: "off",
+    });
+    await runtime.setActiveAppMode(APP_MODE.NORMAL);
+    assert.deepStrictEqual(
+      getEffectiveSavedSurfaces(runtime, snapshot),
+      savedEffectiveValues
+    );
+
+    await runtime.setActiveAppMode(APP_MODE.AUTOMATIC, { confirmed: true });
+    assert.deepStrictEqual(getEffectiveSavedSurfaces(runtime, snapshot), {
+      ...quietEffectiveValues,
+      permissionAutomationMode: "unattended",
+    });
+    await runtime.setActiveAppMode(APP_MODE.NORMAL);
+    assert.deepStrictEqual(
+      getEffectiveSavedSurfaces(runtime, snapshot),
+      savedEffectiveValues
+    );
   });
 
   it("gates quiet surfaces and restores mode effects in the required order", () => {
