@@ -483,6 +483,10 @@ function getActiveAppMode() {
   return _appModeRuntime.getMode();
 }
 
+function isAutomaticModeAuthorized() {
+  return _appModeRuntime.isAutomaticAuthorized();
+}
+
 function getEffectiveAppModePolicy(mode = _appModeRuntime.getMode()) {
   return resolveAppModePolicy(_appModeTransitionMode || mode, _settingsController.getSnapshot());
 }
@@ -3216,6 +3220,9 @@ const _menuCtx = {
   get currentSize() { return currentSize; },
   set currentSize(v) { _settingsController.applyUpdate("size", v); },
   get doNotDisturb() { return doNotDisturb; },
+  getAppMode: () => getActiveAppMode(),
+  isAutomaticModeAuthorized: () => isAutomaticModeAuthorized(),
+  setAppMode: (mode, options) => setActiveAppMode(mode, options),
   get lang() { return lang; },
   set lang(v) { _settingsController.applyUpdate("lang", v); },
   get showTray() { return showTray; },

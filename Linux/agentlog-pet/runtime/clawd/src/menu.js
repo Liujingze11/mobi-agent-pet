@@ -47,44 +47,64 @@ module.exports = function initMenu(ctx) {
   // ── Translation helper (bound to ctx.lang via the shared i18n module) ──
   const t = createTranslator(() => ctx.lang);
 
-  function isMiniSupported() {
-    const caps = typeof ctx.getActiveThemeCapabilities === "function"
-      ? ctx.getActiveThemeCapabilities()
-      : null;
-    if (caps && typeof caps.miniMode === "boolean") return caps.miniMode;
-    return true;
+  function reportAppModeFailure(reason) {
+    const message = reason && reason.message
+      ? reason.message
+      : (typeof reason === "string" ? reason : "Unknown error");
+    console.warn("Clawd: app mode change failed:", message);
+    try {
+      return Promise.resolve(dialog.showMessageBox({
+        type: "error",
+        buttons: [t("dismiss")],
+        defaultId: 0,
+        cancelId: 0,
+        title: t("appModeErrorTitle"),
+        message: t("appModeErrorTitle"),
+        detail: `${t("appModeErrorDetail")}${message}`,
+      })).catch((err) => {
+        console.warn("Clawd: app mode error dialog failed:", err && err.message);
+      });
+    } catch (err) {
+      console.warn("Clawd: app mode error dialog failed:", err && err.message);
+      return Promise.resolve();
+    }
   }
 
-  function getCurrentAppMode() {
-    if (ctx.doNotDisturb) return "rest";
-    if (ctx.getMiniMode()) return "minimal";
-    return "normal";
-  }
-
-  function activateAppMode(mode) {
-    const miniSupported = isMiniSupported();
-    const inMiniMode = ctx.getMiniMode();
-    const miniDisabled = typeof ctx.getDisableMiniMode === "function" && ctx.getDisableMiniMode();
-    if (mode === "normal") {
-      if (ctx.doNotDisturb) ctx.disableDoNotDisturb();
-      if (inMiniMode) ctx.exitMiniMode();
-      return;
-    }
-    if (mode === "rest") {
-      if (inMiniMode) ctx.exitMiniMode();
-      if (!ctx.doNotDisturb) ctx.enableDoNotDisturb();
-      return;
-    }
-    if (mode === "minimal") {
-      if (ctx.doNotDisturb) ctx.disableDoNotDisturb();
-      if (!inMiniMode && !miniDisabled && miniSupported) ctx.enterMiniViaMenu();
+  async function requestAppMode(mode) {
+    try {
+      const automaticAlreadyAuthorized = mode === "automatic"
+        && typeof ctx.isAutomaticModeAuthorized === "function"
+        && ctx.isAutomaticModeAuthorized() === true;
+      let result = await ctx.setAppMode(mode);
+      if (result && result.status === "confirmation-required") {
+        if (automaticAlreadyAuthorized) {
+          return reportAppModeFailure(t("appModeAutomaticConfirmTitle"));
+        }
+        const confirmation = await dialog.showMessageBox({
+          type: "warning",
+          buttons: [t("appModeAutomaticConfirm"), t("permissionAutomationCancel")],
+          defaultId: 1,
+          cancelId: 1,
+          title: t("appModeAutomaticConfirmTitle"),
+          message: t("appModeAutomaticConfirmTitle"),
+          detail: t("appModeAutomaticConfirmDetail"),
+        });
+        if (!confirmation || confirmation.response !== 0) return undefined;
+        result = await ctx.setAppMode(mode, { confirmed: true });
+      }
+      if (result && result.status === "error") {
+        return reportAppModeFailure(result);
+      }
+      return result;
+    } catch (err) {
+      return reportAppModeFailure(err);
+    } finally {
+      rebuildAllMenus();
     }
   }
 
   function buildAppModeMenuItem() {
-    const current = getCurrentAppMode();
-    const miniSupported = isMiniSupported();
-    const miniDisabled = typeof ctx.getDisableMiniMode === "function" && ctx.getDisableMiniMode();
+    const current = ctx.getAppMode();
     return {
       label: t("appMode"),
       submenu: [
@@ -92,22 +112,19 @@ module.exports = function initMenu(ctx) {
           label: t("appModeNormal"),
           type: "radio",
           checked: current === "normal",
-          enabled: !ctx.getMiniTransitioning(),
-          click: () => activateAppMode("normal"),
+          click: () => requestAppMode("normal"),
         },
         {
-          label: t("appModeRest"),
+          label: t("appModeBackground"),
           type: "radio",
-          checked: current === "rest",
-          enabled: !ctx.getMiniTransitioning(),
-          click: () => activateAppMode("rest"),
+          checked: current === "background",
+          click: () => requestAppMode("background"),
         },
         {
-          label: t("appModeMinimal"),
+          label: t("appModeAutomatic"),
           type: "radio",
-          checked: current === "minimal",
-          enabled: !ctx.getMiniTransitioning() && !miniDisabled && miniSupported,
-          click: () => activateAppMode("minimal"),
+          checked: current === "automatic",
+          click: () => requestAppMode("automatic"),
         },
         {
           label: t("appModeCustom"),

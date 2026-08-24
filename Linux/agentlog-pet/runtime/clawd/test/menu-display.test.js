@@ -41,6 +41,9 @@ function buildBaseCtx(overrides = {}) {
     getMiniTransitioning: () => false,
     getDisableMiniMode: () => false,
     getActiveThemeCapabilities: () => ({ miniMode: true }),
+    getAppMode: () => "normal",
+    isAutomaticModeAuthorized: () => false,
+    setAppMode: async () => ({ status: "ok" }),
     openDashboard: () => {},
     openAgentLogManager: () => {},
     openSettingsTab: () => {},
@@ -67,7 +70,7 @@ function buildBaseCtx(overrides = {}) {
 }
 
 describe("menu send-to-display", () => {
-  it("disables mini entry when mini mode is disabled while keeping exit available", () => {
+  it("routes the tray Background entry through the runtime app mode API", async () => {
     const fakeElectron = {
       app: { quit: () => {}, setActivationPolicy: () => {}, dock: { show: () => {}, hide: () => {} } },
       BrowserWindow: function BrowserWindow() {},
@@ -95,27 +98,17 @@ describe("menu send-to-display", () => {
     const calls = [];
 
     const ctx = buildBaseCtx({
-      getDisableMiniMode: () => true,
-      enterMiniViaMenu: () => calls.push("enter"),
-      exitMiniMode: () => calls.push("exit"),
+      tray: { setContextMenu(menuObj) { this.contextMenu = menuObj; } },
+      setAppMode: async (mode, options) => { calls.push([mode, options]); },
     });
     const menu = initMenu(ctx);
 
-    menu.buildContextMenu();
-    const modeItem = ctx.contextMenu.template[0];
+    menu.buildTrayMenu();
+    const modeItem = ctx.tray.contextMenu.template[0];
     assert.strictEqual(modeItem.label, "Mode");
-    const disabledMiniItem = modeItem.submenu.find((item) => item.label === "Minimal Mode");
-    assert.strictEqual(disabledMiniItem.enabled, false);
-    disabledMiniItem.click();
-    assert.deepStrictEqual(calls, []);
-
-    ctx.getMiniMode = () => true;
-    menu.buildContextMenu();
-    const activeModeItem = ctx.contextMenu.template[0];
-    const exitMiniItem = activeModeItem.submenu.find((item) => item.label === "Normal Mode");
-    assert.strictEqual(exitMiniItem.enabled, true);
-    exitMiniItem.click();
-    assert.deepStrictEqual(calls, ["exit"]);
+    const backgroundItem = modeItem.submenu.find((item) => item.label === "Background Mode");
+    await backgroundItem.click();
+    assert.deepStrictEqual(calls, [["background", undefined]]);
   });
 
   it("uses shared proportional sizing and repositions floating bubbles even when follow is off", () => {

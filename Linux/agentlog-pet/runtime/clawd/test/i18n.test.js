@@ -89,6 +89,27 @@ describe("i18n locales", () => {
     assert.strictEqual(i18n.zh.bringPetToPrimaryDisplay, "将桌宠拉回主屏");
   });
 
+  it("provides the requested Simplified Chinese mode confirmation copy", () => {
+    assert.deepStrictEqual(
+      {
+        appModeNormal: i18n.zh.appModeNormal,
+        appModeBackground: i18n.zh.appModeBackground,
+        appModeAutomatic: i18n.zh.appModeAutomatic,
+        appModeAutomaticConfirmTitle: i18n.zh.appModeAutomaticConfirmTitle,
+        appModeAutomaticConfirmDetail: i18n.zh.appModeAutomaticConfirmDetail,
+        appModeAutomaticConfirm: i18n.zh.appModeAutomaticConfirm,
+      },
+      {
+        appModeNormal: "常规模式",
+        appModeBackground: "后台模式",
+        appModeAutomatic: "自动模式",
+        appModeAutomaticConfirmTitle: "启用自动模式？",
+        appModeAutomaticConfirmDetail: "AgentLog 将在本次运行期间自动批准新的 Agent 权限请求。已有请求不会被处理，退出应用后授权自动失效。",
+        appModeAutomaticConfirm: "启用自动模式",
+      }
+    );
+  });
+
   it("keeps Settings locale keysets aligned with English", () => {
     assertLocaleObjectParity(loadSettingsI18nStrings(), "settings");
   });

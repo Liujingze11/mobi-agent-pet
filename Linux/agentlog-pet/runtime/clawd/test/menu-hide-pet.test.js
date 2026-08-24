@@ -19,7 +19,7 @@ function loadMenuWithElectron(fakeElectron, fakeTaskbar = null) {
   }
 }
 
-function fakeElectron() {
+function fakeElectron(dialog = { showMessageBox: async () => ({ response: 1 }) }) {
   return {
     app: { quit: () => {}, setActivationPolicy: () => {}, dock: { show: () => {}, hide: () => {} } },
     BrowserWindow: function BrowserWindow() {},
@@ -42,6 +42,7 @@ function fakeElectron() {
       getCursorScreenPoint: () => ({ x: 0, y: 0 }),
       getDisplayNearestPoint: () => ({ id: 1 }),
     },
+    dialog,
   };
 }
 
@@ -68,6 +69,9 @@ function buildBaseCtx(overrides = {}) {
     getMiniTransitioning: () => false,
     getDisableMiniMode: () => false,
     getActiveThemeCapabilities: () => ({ miniMode: true, petTint: true }),
+    getAppMode: () => "normal",
+    isAutomaticModeAuthorized: () => false,
+    setAppMode: async () => ({ status: "ok" }),
     openDashboard: () => {},
     openSettingsWindow: () => {},
     togglePetVisibility: () => {},
@@ -200,11 +204,26 @@ describe("menu grouping invariants", () => {
 });
 
 describe("mode menu module", () => {
-  it("groups recommended and custom modes under one Chinese submenu", () => {
+  function getModeItem(template) {
+    const mode = template.find((item) => item.label === "模式");
+    assert.ok(mode, "menu should expose one mode module");
+    return mode;
+  }
+
+  function getModeEntry(mode, label) {
+    const entry = mode.submenu.find((item) => item.label === label);
+    assert.ok(entry, `mode menu should expose ${label}`);
+    return entry;
+  }
+
+  it("renders the same Chinese mode entries in pet and tray menus from runtime mode state", () => {
     const initMenu = loadMenuWithElectron(fakeElectron());
     let trayTemplate = null;
     const ctx = buildBaseCtx({
       lang: "zh",
+      doNotDisturb: true,
+      getMiniMode: () => true,
+      getAppMode: () => "automatic",
       tray: { setContextMenu(menuObj) { trayTemplate = menuObj.template; } },
     });
     const menu = initMenu(ctx);
@@ -213,14 +232,13 @@ describe("mode menu module", () => {
     menu.buildContextMenu();
 
     for (const template of [trayTemplate, ctx.contextMenu.template]) {
-      const mode = template.find((item) => item.label === "模式");
-      assert.ok(mode, "menu should expose one mode module");
+      const mode = getModeItem(template);
       assert.deepStrictEqual(
         mode.submenu.filter((item) => item.type !== "separator").map((item) => item.label),
-        ["常规模式", "休眠模式", "极简模式", "自定义模式", "编辑自定义模式…"]
+        ["常规模式", "后台模式", "自动模式", "自定义模式", "编辑自定义模式…"]
       );
       assert.strictEqual(mode.submenu[0].type, "radio");
-      assert.strictEqual(mode.submenu[0].checked, true);
+      assert.strictEqual(mode.submenu[2].checked, true, "DND and mini state must not choose the mode");
       assert.strictEqual(mode.submenu[3].enabled, false);
       assert.strictEqual(mode.submenu[5].enabled, false);
       assert.ok(!template.some((item) => item.label === "休眠（免打扰）"));
@@ -228,28 +246,125 @@ describe("mode menu module", () => {
     }
   });
 
-  it("routes the three available choices through existing mode behavior", () => {
-    const initMenu = loadMenuWithElectron(fakeElectron());
+  it("requests the first Automatic transition, confirms it, then retries with confirmation", async () => {
+    const dialogs = [];
+    const initMenu = loadMenuWithElectron(fakeElectron({
+      showMessageBox: async (options) => {
+        dialogs.push(options);
+        return { response: 0 };
+      },
+    }));
     const calls = [];
-    let miniMode = true;
+    let activeMode = "normal";
     const ctx = buildBaseCtx({
       lang: "zh",
-      doNotDisturb: true,
-      getMiniMode: () => miniMode,
-      exitMiniMode: () => { calls.push("exit-mini"); miniMode = false; },
-      enterMiniViaMenu: () => calls.push("mini"),
+      getAppMode: () => activeMode,
+      setAppMode: async (mode, options) => {
+        calls.push([mode, options]);
+        if (options && options.confirmed) activeMode = mode;
+        return options && options.confirmed
+          ? { status: "ok" }
+          : { status: "confirmation-required" };
+      },
     });
-    ctx.disableDoNotDisturb = () => { calls.push("wake"); ctx.doNotDisturb = false; };
-    ctx.enableDoNotDisturb = () => { calls.push("rest"); ctx.doNotDisturb = true; };
     const menu = initMenu(ctx);
     menu.buildContextMenu();
-    const mode = ctx.contextMenu.template.find((item) => item.label === "模式");
+    const automatic = getModeEntry(getModeItem(ctx.contextMenu.template), "自动模式");
 
-    mode.submenu.find((item) => item.label === "常规模式").click();
-    mode.submenu.find((item) => item.label === "休眠模式").click();
-    mode.submenu.find((item) => item.label === "极简模式").click();
+    await automatic.click();
 
-    assert.deepStrictEqual(calls, ["wake", "exit-mini", "rest", "wake", "mini"]);
+    assert.deepStrictEqual(calls, [
+      ["automatic", undefined],
+      ["automatic", { confirmed: true }],
+    ]);
+    assert.strictEqual(dialogs.length, 1);
+    assert.deepStrictEqual(dialogs[0].buttons, ["启用自动模式", "取消"]);
+    assert.strictEqual(dialogs[0].defaultId, 1);
+    assert.strictEqual(dialogs[0].cancelId, 1);
+    assert.strictEqual(activeMode, "automatic");
+  });
+
+  it("keeps the previous checked mode when Automatic confirmation is cancelled", async () => {
+    const initMenu = loadMenuWithElectron(fakeElectron({
+      showMessageBox: async () => ({ response: 1 }),
+    }));
+    const calls = [];
+    const ctx = buildBaseCtx({
+      lang: "zh",
+      getAppMode: () => "normal",
+      setAppMode: async (mode, options) => {
+        calls.push([mode, options]);
+        return { status: "confirmation-required" };
+      },
+    });
+    const menu = initMenu(ctx);
+    menu.buildContextMenu();
+
+    await getModeEntry(getModeItem(ctx.contextMenu.template), "自动模式").click();
+
+    assert.deepStrictEqual(calls, [["automatic", undefined]]);
+    assert.strictEqual(getModeItem(ctx.contextMenu.template).submenu[0].checked, true);
+  });
+
+  it("does not ask again when re-entering authorized Automatic mode in the same run", async () => {
+    let dialogCount = 0;
+    let activeMode = "normal";
+    let authorized = false;
+    const initMenu = loadMenuWithElectron(fakeElectron({
+      showMessageBox: async () => {
+        dialogCount += 1;
+        return { response: 0 };
+      },
+    }));
+    const ctx = buildBaseCtx({
+      lang: "zh",
+      getAppMode: () => activeMode,
+      isAutomaticModeAuthorized: () => authorized,
+      setAppMode: async (mode, options) => {
+        if (mode === "automatic" && !authorized && !(options && options.confirmed)) {
+          return { status: "confirmation-required" };
+        }
+        if (mode === "automatic" && options && options.confirmed) authorized = true;
+        activeMode = mode;
+        return { status: "ok" };
+      },
+    });
+    const menu = initMenu(ctx);
+
+    menu.buildContextMenu();
+    await getModeEntry(getModeItem(ctx.contextMenu.template), "自动模式").click();
+    menu.buildContextMenu();
+    await getModeEntry(getModeItem(ctx.contextMenu.template), "常规模式").click();
+    menu.buildContextMenu();
+    await getModeEntry(getModeItem(ctx.contextMenu.template), "自动模式").click();
+
+    assert.strictEqual(dialogCount, 1);
+    assert.strictEqual(activeMode, "automatic");
+  });
+
+  it("rebuilds the menu and reports a localized error when a transition fails", async () => {
+    const dialogs = [];
+    const initMenu = loadMenuWithElectron(fakeElectron({
+      showMessageBox: async (options) => {
+        dialogs.push(options);
+        return { response: 0 };
+      },
+    }));
+    const ctx = buildBaseCtx({
+      lang: "zh",
+      getAppMode: () => "normal",
+      setAppMode: async () => ({ status: "error", message: "transition failed" }),
+    });
+    const menu = initMenu(ctx);
+    menu.buildContextMenu();
+
+    await getModeEntry(getModeItem(ctx.contextMenu.template), "后台模式").click();
+
+    assert.strictEqual(dialogs.length, 1);
+    assert.strictEqual(dialogs[0].type, "error");
+    assert.strictEqual(dialogs[0].title, "模式切换失败");
+    assert.strictEqual(dialogs[0].detail, "AgentLog 无法切换模式：transition failed");
+    assert.strictEqual(getModeItem(ctx.contextMenu.template).submenu[0].checked, true);
   });
 });
 
