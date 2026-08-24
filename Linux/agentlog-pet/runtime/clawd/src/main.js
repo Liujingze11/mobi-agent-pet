@@ -267,6 +267,7 @@ const {
 } = require("./bubble-policy");
 const {
   createAppModeController,
+  createAppModePermissionBridge,
   resolveEffectiveSoundMuted,
   resolveEffectiveTrayFlashEnabled,
   resolveEffectiveBubblePolicy,
@@ -491,6 +492,11 @@ const _appModeController = createAppModeController({
   getSvgOverride: (state) => _state.getSvgOverride(state),
   applyState: (state, svgOverride) => _state.applyState(state, svgOverride),
   notifyUpdaterSilentExit: () => notifyUpdaterSilentExit(),
+});
+const _appModePermissionBridge = createAppModePermissionBridge({
+  controller: _appModeController,
+  getSavedPermissionAutomationMode: () =>
+    _settingsController.get("permissionAutomationMode"),
 });
 
 function getActiveAppMode() {
@@ -1501,16 +1507,9 @@ const _permCtx = {
   syncImeEditingPetDodge: () => topmostRuntime.syncImeEditingPetDodge(),
   isAgentPermissionsEnabled: (agentId) =>
     _isAgentPermissionsEnabled({ agents: _settingsController.get("agents") }, agentId),
-  capturePermissionRequest: () => _appModeController.capturePermissionRequest(),
-  isAutomaticPermissionRequestCurrent: (requestContext) =>
-    _appModeController.isAutomaticPermissionRequestCurrent(requestContext),
+  ..._appModePermissionBridge,
   // The permission layer consumes the request's ingress ticket. DND,
   // headless, per-agent and bubble gates still run before this chokepoint.
-  getPermissionAutomationMode: (permEntry) =>
-    _appModeController.resolvePermissionAutomationMode(
-      permEntry && permEntry.appModeRequest,
-      _settingsController.get("permissionAutomationMode"),
-    ),
   focusTerminalForSession: (sessionId, options = {}) => {
     focusDashboardSession(sessionId, {
       requestSource: options.requestSource || "permission-bubble",
@@ -2141,6 +2140,7 @@ const _serverCtx = {
   isAgentSubagentPermissionsEnabled: (agentId) => _isAgentSubagentPermissionsEnabled({ agents: _settingsController.get("agents") }, agentId),
   isCodexNativeNotificationSoundEnabled: () => _isCodexNativeNotificationSoundEnabled({ agents: _settingsController.get("agents") }),
   isCodexPermissionInterceptEnabled: () => _isCodexPermissionInterceptEnabled({ agents: _settingsController.get("agents") }),
+  ..._appModePermissionBridge,
   codexSubagentClassifier: agentRuntime.getCodexSubagentClassifier(),
   setState,
   updateSession: agentRuntime.updateSessionFromServer,

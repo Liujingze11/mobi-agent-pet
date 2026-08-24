@@ -26,6 +26,7 @@ const {
 } = require("../src/permission-automation-policy");
 const {
   APP_MODE,
+  createAppModePermissionBridge,
   createAppModeRuntime,
   resolveAppModePolicy,
 } = require("../src/app-mode");
@@ -213,21 +214,19 @@ function callPermissionPostThroughAutomation(body, mode, options = {}) {
 function createAutomaticPermissionHarness({ savedPermissionMode = "off" } = {}) {
   const runtime = createAppModeRuntime();
   let capturedRequests = 0;
-  const ctx = makeCtx({
-    getBubblePolicy: () => ({
-      enabled: runtime.getMode() !== APP_MODE.AUTOMATIC,
-      autoCloseMs: 0,
-    }),
-    capturePermissionRequest: () => {
-      capturedRequests += 1;
-      return runtime.capturePermissionRequest();
+  const permissionBridge = createAppModePermissionBridge({
+    controller: {
+      capturePermissionRequest() {
+        capturedRequests += 1;
+        return runtime.capturePermissionRequest();
+      },
+      isAutomaticPermissionRequestCurrent: runtime.isAutomaticPermissionRequestCurrent,
+      resolvePermissionAutomationMode: runtime.resolvePermissionAutomationMode,
     },
-    isAutomaticPermissionRequestCurrent: (requestContext) =>
-      runtime.isAutomaticPermissionRequestCurrent(requestContext),
-    getPermissionAutomationMode: (entry) => runtime.resolvePermissionAutomationMode(
-      entry && entry.appModeRequest,
-      savedPermissionMode
-    ),
+    getSavedPermissionAutomationMode: () => savedPermissionMode,
+  });
+  const permissionCtx = makeCtx({
+    ...permissionBridge,
     getPetWindowBounds: () => null,
     getNearestWorkArea: () => ({ x: 0, y: 0, width: 1920, height: 1080 }),
     getHitRectScreen: () => null,
@@ -243,7 +242,14 @@ function createAutomaticPermissionHarness({ savedPermissionMode = "off" } = {}) 
     bubbleFollowPet: false,
     petHidden: false,
   });
-  const permission = initPermission(ctx);
+  const permission = initPermission(permissionCtx);
+  const ctx = makeCtx({
+    ...permissionBridge,
+    getBubblePolicy: () => ({
+      enabled: runtime.getMode() !== APP_MODE.AUTOMATIC,
+      autoCloseMs: 0,
+    }),
+  });
   Object.assign(ctx, {
     pendingPermissions: permission.pendingPermissions,
     PASSTHROUGH_TOOLS: permission.PASSTHROUGH_TOOLS,
@@ -258,6 +264,7 @@ function createAutomaticPermissionHarness({ savedPermissionMode = "off" } = {}) 
   return {
     runtime,
     ctx,
+    permissionCtx,
     permission,
     getCapturedRequests: () => capturedRequests,
   };

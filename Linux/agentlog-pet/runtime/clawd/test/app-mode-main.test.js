@@ -321,6 +321,41 @@ describe("app mode controller lifecycle", () => {
     await visiblePrompt;
   });
 
+  it("restores an already-visible update prompt when quiet-mode entry rolls back", async () => {
+    let controller;
+    const bubbles = [];
+    const visiblePromptResolvers = [];
+    const updater = createDeferredUpdater(
+      () => controller.getEffectiveAppModePolicy().suppressUpdateBubbles,
+      bubbles,
+      (payload) => {
+        bubbles.push(payload);
+        return new Promise((resolve) => { visiblePromptResolvers.push(resolve); });
+      }
+    );
+    ({ controller } = createController({}, {
+      notifyUpdaterSilentExit: () => updater.onSilentModeExit(),
+      rememberUpdatePrompt: () => updater.onSilentModeEnter(),
+      applyState: () => { throw new Error("quiet entry failed"); },
+    }));
+
+    const visiblePrompt = updater.handlePendingVersion("v0.9.0", { tag_name: "v0.9.0" });
+    await flushAsyncWork();
+    assert.equal(bubbles.length, 1, "the prompt starts visible in Normal");
+
+    const failed = await controller.setActiveAppMode(APP_MODE.AUTOMATIC, { confirmed: true });
+    await flushAsyncWork();
+
+    assert.equal(failed.status, "error");
+    assert.equal(controller.getActiveAppMode(), APP_MODE.NORMAL);
+    assert.equal(bubbles.length, 2, "rollback to Normal replays the hidden prompt once");
+
+    for (const resolve of visiblePromptResolvers) {
+      resolve({ action: "closed", source: "policy" });
+    }
+    await visiblePrompt;
+  });
+
   it("does not duplicate updater resume after an actual DND exit", async () => {
     let controller;
     let updaterSilentExits = 0;

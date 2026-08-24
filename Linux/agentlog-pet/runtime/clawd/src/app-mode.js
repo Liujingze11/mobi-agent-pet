@@ -186,6 +186,7 @@ function createAppModeController(options = {}) {
     stopTrayFlash();
     dismissPermissionsForDnd();
     if (mode === APP_MODE.BACKGROUND || mode === APP_MODE.AUTOMATIC) {
+      updaterResumePending = true;
       rememberUpdatePrompt();
     }
     hideUpdateBubble();
@@ -260,6 +261,23 @@ function createAppModeController(options = {}) {
   };
 }
 
+function createAppModePermissionBridge({
+  controller,
+  getSavedPermissionAutomationMode = () => "off",
+} = {}) {
+  if (!controller) throw new TypeError("controller is required");
+  return {
+    capturePermissionRequest: () => controller.capturePermissionRequest(),
+    isAutomaticPermissionRequestCurrent: (requestContext) =>
+      controller.isAutomaticPermissionRequestCurrent(requestContext),
+    getPermissionAutomationMode: (permEntry) =>
+      controller.resolvePermissionAutomationMode(
+        permEntry && permEntry.appModeRequest,
+        getSavedPermissionAutomationMode(),
+      ),
+  };
+}
+
 module.exports = {
   APP_MODE,
   isAppMode,
@@ -269,4 +287,5 @@ module.exports = {
   resolveEffectiveBubblePolicy,
   createAppModeRuntime,
   createAppModeController,
+  createAppModePermissionBridge,
 };
