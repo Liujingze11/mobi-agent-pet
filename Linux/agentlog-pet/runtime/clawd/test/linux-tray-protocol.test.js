@@ -93,6 +93,16 @@ test("validates parent messages into frozen copies", () => {
   assert.strictEqual(Object.isFrozen(normalized.items[0]), true);
 });
 
+test("requires init iconThemeRoot to match the supervisor-provided packaged root", () => {
+  const expectedIconThemeRoot = "/opt/agentlog/icons";
+
+  assert.doesNotThrow(() => validateParentMessage(parentInit(), { expectedIconThemeRoot }));
+  expectCode("invalid-icon-theme-root", () => validateParentMessage(
+    parentInit({ iconThemeRoot: "/tmp/untrusted-icons" }),
+    { expectedIconThemeRoot }
+  ));
+});
+
 test("accepts the complete parent message vocabulary and rejects unknown types or versions", () => {
   assert.strictEqual(validateParentMessage(parentInit()).type, "init");
   assert.strictEqual(validateParentMessage({
