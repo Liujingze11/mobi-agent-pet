@@ -3,7 +3,9 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const vm = require("node:vm");
 const { describe, it } = require("node:test");
+const initUpdater = require("../src/updater");
 const {
   APP_MODE,
   resolveEffectiveSoundMuted,
@@ -12,6 +14,70 @@ const {
 } = require("../src/app-mode");
 
 const MAIN_JS = path.join(__dirname, "..", "src", "main.js");
+
+function loadApplyAppModeTransition(deps) {
+  const source = fs.readFileSync(MAIN_JS, "utf8");
+  const start = source.indexOf("async function applyAppModeTransition(");
+  const end = source.indexOf("\n}\n\nconst _appModeRuntime", start) + 2;
+  assert.ok(start >= 0 && end > start, "main should expose the app mode transition implementation");
+  return vm.runInNewContext(
+    `${source.slice(start, end)}; applyAppModeTransition`,
+    { APP_MODE, _appModeTransitionMode: null, ...deps },
+  );
+}
+
+function createDeferredUpdater(mode, bubbles) {
+  const prefs = new Map();
+  return initUpdater({
+    get doNotDisturb() { return mode.current === APP_MODE.AUTOMATIC; },
+    miniMode: false,
+    rebuildAllMenus() {},
+    updateLog() {},
+    t: (key) => key,
+    showUpdateBubble: (payload) => {
+      bubbles.push(payload);
+      return Promise.resolve({ action: "closed", source: "policy" });
+    },
+    hideUpdateBubble() {},
+    setUpdateVisualState() {},
+    applyState() {},
+    resolveDisplayState: () => "idle",
+    getUpdatePref: (key) => prefs.get(key),
+    setUpdatePref: (key, value) => prefs.set(key, value),
+  }, {
+    app: { isPackaged: true, getVersion: () => "0.5.0", relaunch() {}, exit() {} },
+    dialog: { showMessageBox: async () => ({ response: 1 }) },
+    shell: { openExternal() {} },
+    Notification: class { show() {} },
+    autoUpdaterFactory: () => ({
+      autoDownload: false,
+      autoInstallOnAppQuit: true,
+      on() {},
+      checkForUpdates: async () => null,
+      quitAndInstall() {},
+      downloadUpdate() {},
+    }),
+  });
+}
+
+function makeTransitionDeps(overrides = {}) {
+  return {
+    doNotDisturb: false,
+    stopTrayFlash() {},
+    _perm: { dismissPermissionsForDnd() {} },
+    hideUpdateBubble() {},
+    syncSessionHudVisibility() {},
+    _roam: { cancelRoam() {} },
+    _state: {
+      enableDoNotDisturb() {},
+      disableDoNotDisturb() {},
+      resolveDisplayState: () => "idle",
+      getSvgOverride: () => null,
+      applyState() {},
+    },
+    ...overrides,
+  };
+}
 
 describe("effective app mode boundaries", () => {
   it("applies quiet overrides without changing Normal Mode saved values", () => {
@@ -77,5 +143,48 @@ describe("main app mode runtime wiring", () => {
     assert.match(mainSource, /resolveAppModePolicy\(_appModeTransitionMode \|\| mode, _settingsController\.getSnapshot\(\)\)/);
     assert.match(mainSource, /_appModeTransitionMode = mode;/);
     assert.match(mainSource, /finally \{\s*_appModeTransitionMode = null;\s*\}/);
+  });
+
+  it("clears Kimi permission runtime state during the Automatic transition", async () => {
+    let kimiPermissionStateClears = 0;
+    const deps = makeTransitionDeps();
+    deps._state.clearQuietModePermissionState = () => { kimiPermissionStateClears += 1; };
+
+    const applyAppModeTransition = loadApplyAppModeTransition(deps);
+    await applyAppModeTransition(APP_MODE.AUTOMATIC);
+
+    assert.equal(kimiPermissionStateClears, 1);
+  });
+
+  it("restores an updater prompt deferred in Automatic when the Normal transition finishes", async () => {
+    const mode = { current: APP_MODE.AUTOMATIC };
+    const bubbles = [];
+    const updater = createDeferredUpdater(mode, bubbles);
+    await updater.handlePendingVersion("v0.9.0", { tag_name: "v0.9.0" });
+    assert.equal(bubbles.length, 0, "Automatic should defer the update prompt");
+
+    mode.current = APP_MODE.NORMAL;
+    const applyAppModeTransition = loadApplyAppModeTransition(makeTransitionDeps({
+      notifyUpdaterSilentExit: () => updater.onSilentModeExit(),
+    }));
+    await applyAppModeTransition(APP_MODE.NORMAL);
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.equal(bubbles.length, 1, "Normal should restore the deferred update prompt");
+  });
+
+  it("does not duplicate the updater resume after an actual DND exit", async () => {
+    let updaterSilentExits = 0;
+    const deps = makeTransitionDeps({
+      doNotDisturb: true,
+      notifyUpdaterSilentExit: () => { updaterSilentExits += 1; },
+    });
+    deps._state.disableDoNotDisturb = () => { updaterSilentExits += 1; };
+
+    const applyAppModeTransition = loadApplyAppModeTransition(deps);
+    await applyAppModeTransition(APP_MODE.NORMAL);
+
+    assert.equal(updaterSilentExits, 1);
   });
 });

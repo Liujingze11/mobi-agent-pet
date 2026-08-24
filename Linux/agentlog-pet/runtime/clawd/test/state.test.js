@@ -3570,6 +3570,62 @@ describe("runtime mode animation policy", () => {
     assert.strictEqual(ctx.doNotDisturb, true);
     assert.strictEqual(api.getCurrentState(), "yawning");
   });
+
+  it("does not replay a held Kimi permission animation while Automatic is active", () => {
+    const pulses = [];
+    ctx.sendToRenderer = (channel) => pulses.push(channel);
+    update(api, {
+      id: "kimi-held-permission",
+      state: "notification",
+      event: "PermissionRequest",
+      agentId: "kimi-cli",
+    });
+
+    mock.timers.tick(3000);
+    api.clearPermissionNotification("unrelated-session");
+
+    assert.deepStrictEqual(pulses.filter((channel) => channel === "kimi-permission-pulse"), []);
+  });
+});
+
+describe("Automatic Mode Kimi permission cleanup", () => {
+  let api, ctx, automatic;
+
+  beforeEach(() => {
+    mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"] });
+    automatic = false;
+    ctx = makeCtx({
+      allowNotificationAnimation: () => !automatic,
+      isAgentPermissionsEnabled: () => true,
+      showKimiNotifyBubble: () => {},
+      clearKimiNotifyBubbles: () => {},
+    });
+    api = require("../src/state")(ctx);
+  });
+
+  afterEach(() => {
+    api.cleanup();
+    mock.timers.reset();
+  });
+
+  it("clears an active Kimi hold on Automatic entry so later work remains visible", () => {
+    update(api, {
+      id: "kimi-held-permission",
+      state: "notification",
+      event: "PermissionRequest",
+      agentId: "kimi-cli",
+    });
+    update(api, { id: "active-work", state: "working", event: "PreToolUse" });
+    assert.strictEqual(api.resolveDisplayState(), "notification");
+
+    automatic = true;
+    assert.strictEqual(typeof api.clearQuietModePermissionState, "function");
+    assert.strictEqual(api.clearQuietModePermissionState(), true);
+    assert.strictEqual(api.resolveDisplayState(), "working");
+
+    api.applyState(api.resolveDisplayState(), api.getSvgOverride("working"));
+    assert.strictEqual(api.getCurrentState(), "working");
+  });
 });
 
 describe("refreshTheme()", () => {

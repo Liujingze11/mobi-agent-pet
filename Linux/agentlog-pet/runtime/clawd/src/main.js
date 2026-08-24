@@ -501,9 +501,16 @@ async function applyAppModeTransition(mode) {
       return;
     }
 
+    if (mode === APP_MODE.AUTOMATIC) {
+      _state.clearQuietModePermissionState();
+    }
+    const wasDoNotDisturb = doNotDisturb;
     _state.disableDoNotDisturb();
     const resolved = _state.resolveDisplayState();
     _state.applyState(resolved, _state.getSvgOverride(resolved));
+    if (mode === APP_MODE.NORMAL && !wasDoNotDisturb) {
+      notifyUpdaterSilentExit();
+    }
   } finally {
     _appModeTransitionMode = null;
   }

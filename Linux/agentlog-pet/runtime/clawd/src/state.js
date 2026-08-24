@@ -569,7 +569,7 @@ function applyResolvedDisplayState() {
   // renderer animation so non-looping GIF/APNG assets replay instead of
   // freezing on their last frame. Throttled so concurrent agents flooding
   // events don't make the GIF visibly restart every tick.
-  if (hasPermissionAnimationLock() && resolved === "notification") {
+  if (isNotificationAnimationAllowed() && hasPermissionAnimationLock() && resolved === "notification") {
     const now = Date.now();
     if (now - _lastKimiPulseAt >= KIMI_PULSE_MIN_GAP_MS) {
       _lastKimiPulseAt = now;
@@ -2504,6 +2504,10 @@ function disposeAllKimiPermissionState() {
   return true;
 }
 
+function clearQuietModePermissionState() {
+  return disposeAllKimiPermissionState();
+}
+
 function enableDoNotDisturb() {
   if (ctx.doNotDisturb) return;
   ctx.doNotDisturb = true;
@@ -2512,7 +2516,7 @@ function enableDoNotDisturb() {
   if (typeof ctx.dismissPermissionsForDnd === "function") {
     ctx.dismissPermissionsForDnd();
   }
-  disposeAllKimiPermissionState();
+  clearQuietModePermissionState();
   if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; pendingState = null; }
   if (autoReturnTimer) { clearTimeout(autoReturnTimer); autoReturnTimer = null; }
   clearAllCompletionDebounces();
@@ -2603,6 +2607,7 @@ return {
   ackSessionCompletion,
   clearSessionsByAgent,
   disposeAllKimiPermissionState,
+  clearQuietModePermissionState,
   deriveSessionBadge,
   getCurrentState, getCurrentSvg, getCurrentHitBox, getStartupRecoveryActive,
   sessions, STATE_PRIORITY, ONESHOT_STATES, SLEEP_SEQUENCE,
