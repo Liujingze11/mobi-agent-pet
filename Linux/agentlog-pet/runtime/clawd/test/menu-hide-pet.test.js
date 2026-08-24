@@ -201,6 +201,20 @@ describe("menu grouping invariants", () => {
     menu.buildTrayMenu();
     assertNoStraySeparators(trayTemplate, "tray menu");
   });
+
+  it("routes the tray startup toggle without exposing Electron menu-item state", () => {
+    const initMenu = loadMenuWithElectron(fakeElectron());
+    let trayTemplate = null;
+    const ctx = buildBaseCtx({
+      tray: { setContextMenu(menuObj) { trayTemplate = menuObj.template; } },
+    });
+
+    initMenu(ctx).buildTrayMenu();
+    const startup = trayTemplate.find((item) => item.label === "Start on Login");
+    startup.click();
+
+    assert.strictEqual(ctx.openAtLogin, true);
+  });
 });
 
 describe("mode menu module", () => {

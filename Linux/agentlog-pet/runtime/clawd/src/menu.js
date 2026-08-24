@@ -4,6 +4,7 @@ const { app, BrowserWindow, screen, Menu, Tray, nativeImage, dialog } = require(
 const path = require("path");
 const { keepOutOfTaskbar } = require("./taskbar");
 const { loadTrayNormalIcon } = require("./tray-flash-icon");
+const { createTrayMenuModel } = require("./tray-menu-model");
 
 const isMac = process.platform === "darwin";
 const isWin = process.platform === "win32";
@@ -41,6 +42,26 @@ function joinGroups(groups) {
     template.push(...group);
   }
   return template;
+}
+
+function toElectronTemplate(items, commands) {
+  return items.map((item) => {
+    if (item.kind === "separator") return { type: "separator" };
+    const rendered = {
+      label: item.label,
+      enabled: item.enabled !== false,
+    };
+    if (item.kind === "checkbox" || item.kind === "radio") {
+      rendered.type = item.kind;
+      rendered.checked = item.checked === true;
+    }
+    if (item.kind === "submenu") {
+      rendered.submenu = toElectronTemplate(item.items, commands);
+    } else if (item.id) {
+      rendered.click = () => commands.execute(item.id);
+    }
+    return rendered;
+  });
 }
 
 module.exports = function initMenu(ctx) {
@@ -208,6 +229,37 @@ module.exports = function initMenu(ctx) {
 
   function buildTrayMenu() {
     if (!ctx.tray) return;
+
+    if (isLinux) {
+      const modelContext = {
+        getAppMode: () => ctx.getAppMode(),
+        getMiniMode: () => ctx.getMiniMode(),
+        getMiniTransitioning: () => ctx.getMiniTransitioning(),
+        get petHidden() { return ctx.petHidden; },
+        get openAtLogin() { return ctx.openAtLogin; },
+        set openAtLogin(value) { ctx.openAtLogin = value; },
+        requestAppMode,
+        openAgentLogManager: () => {
+          if (typeof ctx.openAgentLogManager === "function") ctx.openAgentLogManager();
+        },
+        openDashboard: () => {
+          if (typeof ctx.openDashboard === "function") ctx.openDashboard();
+        },
+        bringPetToPrimaryDisplay: () => {
+          if (typeof ctx.bringPetToPrimaryDisplay === "function") ctx.bringPetToPrimaryDisplay();
+        },
+        openSettingsWindow: () => ctx.openSettingsWindow(),
+        openSettingsTab: (tab) => ctx.openSettingsTab(tab),
+        getUpdateMenuItem: () => (
+          typeof ctx.getUpdateMenuItem === "function" ? ctx.getUpdateMenuItem() : null
+        ),
+        togglePetVisibility: () => ctx.togglePetVisibility(),
+        requestAppQuit,
+      };
+      const { items, commands } = createTrayMenuModel(modelContext, t);
+      ctx.tray.setContextMenu(Menu.buildFromTemplate(toElectronTemplate(items, commands)));
+      return;
+    }
 
     // Same grouping discipline as the context menu (see joinGroups), adapted
     // for the tray's larger item set: state / work / system / app / quit.
