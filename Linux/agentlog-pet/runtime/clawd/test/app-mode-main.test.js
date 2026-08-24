@@ -9,6 +9,7 @@ const { describe, it } = require("node:test");
 const initUpdater = require("../src/updater");
 const prefsModule = require("../src/prefs");
 const { getBubblePolicy } = require("../src/bubble-policy");
+const { createSettingsController } = require("../src/settings-controller");
 const {
   APP_MODE,
   createAppModeRuntime,
@@ -179,28 +180,49 @@ describe("main app mode runtime wiring", () => {
     prefsModule.save(prefsPath, snapshot);
     const savedBefore = fs.readFileSync(prefsPath, "utf8");
     const persistenceCalls = [];
+    let settingsController;
+    let restartedController;
 
     try {
-      const runtime = loadMainAppModeRuntime(makeRuntimeDeps(snapshot, {
-        _settingsController: {
-          getSnapshot: () => snapshot,
-          applyCommand: (...args) => persistenceCalls.push(["applyCommand", ...args]),
-          applyUpdate: (...args) => persistenceCalls.push(["applyUpdate", ...args]),
+      settingsController = createSettingsController({ prefsPath });
+      const trackedSettingsController = {
+        ...settingsController,
+        applyCommand: (...args) => {
+          persistenceCalls.push(["applyCommand", ...args]);
+          return settingsController.applyCommand(...args);
         },
-      }));
+        applyUpdate: (...args) => {
+          persistenceCalls.push(["applyUpdate", ...args]);
+          return settingsController.applyUpdate(...args);
+        },
+      };
+      const runtime = loadMainAppModeRuntime(makeRuntimeDeps(
+        settingsController.getSnapshot(),
+        { _settingsController: trackedSettingsController }
+      ));
+      assert.equal(settingsController.get("permissionAutomationMode"), "auto-tools");
       assert.equal(runtime.getActiveAppMode(), APP_MODE.NORMAL);
       assert.equal(runtime.isAutomaticModeAuthorized(), false);
       await runtime.setActiveAppMode(APP_MODE.AUTOMATIC, { confirmed: true });
       await runtime.setActiveAppMode(APP_MODE.NORMAL);
 
-      assert.equal(fs.readFileSync(prefsPath, "utf8"), savedBefore);
-      assert.equal(Object.hasOwn(JSON.parse(savedBefore), "appMode"), false);
+      const savedAfter = fs.readFileSync(prefsPath, "utf8");
+      assert.equal(savedAfter, savedBefore);
+      assert.equal(Object.hasOwn(JSON.parse(savedAfter), "appMode"), false);
       assert.deepStrictEqual(persistenceCalls, []);
 
-      const restartedRuntime = loadMainAppModeRuntime(makeRuntimeDeps(snapshot));
+      restartedController = createSettingsController({ prefsPath });
+      const restartedRuntime = loadMainAppModeRuntime(makeRuntimeDeps(
+        restartedController.getSnapshot(),
+        { _settingsController: restartedController }
+      ));
+      assert.equal(restartedController.get("permissionAutomationMode"), "auto-tools");
+      assert.equal(Object.hasOwn(restartedController.getSnapshot(), "appMode"), false);
       assert.equal(restartedRuntime.getActiveAppMode(), APP_MODE.NORMAL);
       assert.equal(restartedRuntime.isAutomaticModeAuthorized(), false);
     } finally {
+      if (settingsController) settingsController.dispose();
+      if (restartedController) restartedController.dispose();
       fs.rmSync(prefsDir, { recursive: true, force: true });
     }
   });
