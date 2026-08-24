@@ -3586,6 +3586,20 @@ describe("runtime mode animation policy", () => {
 
     assert.deepStrictEqual(pulses.filter((channel) => channel === "kimi-permission-pulse"), []);
   });
+
+  it("keeps later work visible when a Kimi permission request arrives during Automatic", () => {
+    update(api, {
+      id: "kimi-permission-after-automatic",
+      state: "notification",
+      event: "PermissionRequest",
+      agentId: "kimi-cli",
+    });
+    update(api, { id: "work-after-kimi-permission", state: "working", event: "PreToolUse" });
+
+    assert.strictEqual(api.resolveDisplayState(), "working");
+    api.applyState(api.resolveDisplayState(), api.getSvgOverride("working"));
+    assert.strictEqual(api.getCurrentState(), "working");
+  });
 });
 
 describe("Automatic Mode Kimi permission cleanup", () => {

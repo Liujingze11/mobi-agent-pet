@@ -2295,14 +2295,14 @@ function stopStaleCleanup() {
 
 function startKimiPermissionPoll(sessionId, permissionDetail = null, source = "confirmed") {
   if (!sessionId) return;
-  // DND / agent permissions-off both suppress the passive bubble at creation
-  // time (see shouldSuppressKimiNotifyBubble in permission.js). Skipping the
-  // hold here keeps the animation lock in sync: without it, turning DND off
-  // or flipping permissions back on would pin a stale `notification` with
+  // DND, quiet modes, and agent permissions-off all suppress the passive
+  // bubble at creation time. Skipping the hold keeps the animation lock in
+  // sync: otherwise later work could resolve to a stale `notification` with
   // nothing actionable for the user. hideBubbles intentionally does NOT
   // short-circuit here — that flag means "hide the UI, keep the animation
   // cue" (mirrors the Codex working-state behavior).
   if (ctx.doNotDisturb) return;
+  if (!isNotificationAnimationAllowed()) return;
   if (
     typeof ctx.isAgentPermissionsEnabled === "function"
     && !ctx.isAgentPermissionsEnabled("kimi-cli")
@@ -2358,6 +2358,7 @@ function cancelPermissionSuspect(sessionId) {
 
 function schedulePermissionSuspect(sessionId, permissionDetail = null) {
   if (!sessionId) return;
+  if (!isNotificationAnimationAllowed()) return;
   const delay = parseSuspectDelay();
   // A zero delay disables the heuristic entirely (caller shouldn't reach
   // this path in that case, but handle defensively).
@@ -2368,12 +2369,11 @@ function schedulePermissionSuspect(sessionId, permissionDetail = null) {
     // Only promote if the session still exists and no terminal event has
     // flipped it elsewhere (PostToolUse etc. would have cancelled us).
     if (!sessions.has(sessionId) && !kimiPermissionHolds.has(sessionId)) return;
-    // Mirror startKimiPermissionPoll's gates here: if DND / Kimi permissions
-    // are off, don't even flash notification — startKimiPermissionPoll would
-    // skip the hold and the setState("notification") below would either be
-    // swallowed by DND or briefly leak a lock-less flash. Keeping the two
-    // paths in sync avoids subtle visual noise.
+    // Mirror startKimiPermissionPoll's gates here: if DND, quiet mode, or
+    // Kimi permissions suppress notification, don't flash it either.
+    // Keeping the two paths in sync avoids subtle visual noise.
     if (ctx.doNotDisturb) return;
+    if (!isNotificationAnimationAllowed()) return;
     if (
       typeof ctx.isAgentPermissionsEnabled === "function"
       && !ctx.isAgentPermissionsEnabled("kimi-cli")
