@@ -284,6 +284,70 @@ describe("mode menu module", () => {
     assert.strictEqual(activeMode, "automatic");
   });
 
+  it("deduplicates concurrent Automatic clicks until the shared confirmation flow settles", async () => {
+    let resolveConfirmation;
+    const dialogs = [];
+    const initMenu = loadMenuWithElectron(fakeElectron({
+      showMessageBox: (options) => {
+        dialogs.push(options);
+        return new Promise((resolve) => { resolveConfirmation = resolve; });
+      },
+    }));
+    const calls = [];
+    let activeMode = "normal";
+    let authorized = false;
+    const ctx = buildBaseCtx({
+      lang: "zh",
+      getAppMode: () => activeMode,
+      setAppMode: async (mode, options) => {
+        calls.push([mode, options]);
+        if (mode === "automatic" && !authorized && !(options && options.confirmed)) {
+          return { status: "confirmation-required" };
+        }
+        if (mode === "automatic" && options && options.confirmed) authorized = true;
+        activeMode = mode;
+        return { status: "ok", mode };
+      },
+    });
+    const menu = initMenu(ctx);
+    menu.buildContextMenu();
+    const automatic = getModeEntry(getModeItem(ctx.contextMenu.template), "自动模式");
+
+    const firstClick = automatic.click();
+    const secondClick = automatic.click();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.deepStrictEqual(calls, [["automatic", undefined]]);
+    assert.strictEqual(dialogs.length, 1);
+
+    resolveConfirmation({ response: 0 });
+    const [firstResult, secondResult] = await Promise.all([firstClick, secondClick]);
+
+    assert.deepStrictEqual(firstResult, { status: "ok", mode: "automatic" });
+    assert.deepStrictEqual(secondResult, firstResult);
+    assert.deepStrictEqual(calls, [
+      ["automatic", undefined],
+      ["automatic", { confirmed: true }],
+    ]);
+    assert.strictEqual(dialogs.length, 1);
+
+    menu.buildContextMenu();
+    const normalResult = await getModeEntry(getModeItem(ctx.contextMenu.template), "常规模式").click();
+    menu.buildContextMenu();
+    const laterAutomaticResult = await getModeEntry(getModeItem(ctx.contextMenu.template), "自动模式").click();
+
+    assert.deepStrictEqual(normalResult, { status: "ok", mode: "normal" });
+    assert.deepStrictEqual(laterAutomaticResult, { status: "ok", mode: "automatic" });
+    assert.deepStrictEqual(calls, [
+      ["automatic", undefined],
+      ["automatic", { confirmed: true }],
+      ["normal", undefined],
+      ["automatic", undefined],
+    ]);
+    assert.strictEqual(dialogs.length, 1, "authorized re-entry should not show another warning");
+    assert.strictEqual(activeMode, "automatic");
+  });
+
   it("keeps the previous checked mode when Automatic confirmation is cancelled", async () => {
     const initMenu = loadMenuWithElectron(fakeElectron({
       showMessageBox: async () => ({ response: 1 }),

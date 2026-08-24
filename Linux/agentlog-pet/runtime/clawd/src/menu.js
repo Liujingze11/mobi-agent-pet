@@ -46,6 +46,7 @@ function joinGroups(groups) {
 module.exports = function initMenu(ctx) {
   // ── Translation helper (bound to ctx.lang via the shared i18n module) ──
   const t = createTranslator(() => ctx.lang);
+  let pendingAutomaticModeRequest = null;
 
   function reportAppModeFailure(reason) {
     const message = reason && reason.message
@@ -70,7 +71,7 @@ module.exports = function initMenu(ctx) {
     }
   }
 
-  async function requestAppMode(mode) {
+  async function requestAppModeTransition(mode) {
     try {
       const automaticAlreadyAuthorized = mode === "automatic"
         && typeof ctx.isAutomaticModeAuthorized === "function"
@@ -101,6 +102,23 @@ module.exports = function initMenu(ctx) {
     } finally {
       rebuildAllMenus();
     }
+  }
+
+  function requestAppMode(mode) {
+    if (mode !== "automatic") return requestAppModeTransition(mode);
+    if (pendingAutomaticModeRequest) return pendingAutomaticModeRequest;
+
+    const request = requestAppModeTransition(mode);
+    pendingAutomaticModeRequest = request;
+    request.then(
+      () => {
+        if (pendingAutomaticModeRequest === request) pendingAutomaticModeRequest = null;
+      },
+      () => {
+        if (pendingAutomaticModeRequest === request) pendingAutomaticModeRequest = null;
+      }
+    );
+    return request;
   }
 
   function buildAppModeMenuItem() {
