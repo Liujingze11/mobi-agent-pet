@@ -124,4 +124,74 @@ describe("app mode runtime authorization", () => {
       "confirmation-required"
     );
   });
+
+  it("serializes concurrent transitions around the committed result", async () => {
+    let releaseFirst;
+    let firstEntered;
+    const calls = [];
+    const runtime = createAppModeRuntime({
+      applyMode: async (next, previous, options) => {
+        calls.push([next, previous, options]);
+        if (next === APP_MODE.AUTOMATIC && !options.rollback) {
+          await new Promise((resolve) => {
+            releaseFirst = resolve;
+            firstEntered();
+          });
+          throw new Error("first transition failed");
+        }
+      },
+    });
+    const entered = new Promise((resolve) => { firstEntered = resolve; });
+    const first = runtime.setMode(APP_MODE.AUTOMATIC, { confirmed: true });
+    await entered;
+
+    let secondSettled = false;
+    const second = runtime.setMode(APP_MODE.BACKGROUND).then((result) => {
+      secondSettled = true;
+      return result;
+    });
+    await Promise.resolve();
+    assert.equal(secondSettled, false);
+
+    releaseFirst();
+    assert.equal((await first).status, "error");
+    assert.deepStrictEqual(await second, {
+      status: "ok",
+      mode: APP_MODE.BACKGROUND,
+    });
+    assert.equal(runtime.getMode(), APP_MODE.BACKGROUND);
+    assert.equal(runtime.isAutomaticAuthorized(), false);
+    assert.deepStrictEqual(calls, [
+      [APP_MODE.AUTOMATIC, APP_MODE.NORMAL, { rollback: false }],
+      [APP_MODE.NORMAL, APP_MODE.AUTOMATIC, { rollback: true }],
+      [APP_MODE.BACKGROUND, APP_MODE.NORMAL, { rollback: false }],
+    ]);
+  });
+
+  it("keeps the queue usable after rejection and no-op decisions", async () => {
+    let shouldReject = true;
+    const runtime = createAppModeRuntime({
+      applyMode: async (next, previous, options) => {
+        if (shouldReject && !options.rollback) {
+          shouldReject = false;
+          throw new Error("rejected transition");
+        }
+      },
+    });
+
+    const [rejected, invalid, confirmation, applied] = await Promise.all([
+      runtime.setMode(APP_MODE.BACKGROUND),
+      runtime.setMode("invalid"),
+      runtime.setMode(APP_MODE.AUTOMATIC),
+      runtime.setMode(APP_MODE.BACKGROUND),
+    ]);
+    assert.equal(rejected.status, "error");
+    assert.equal(invalid.status, "error");
+    assert.equal(confirmation.status, "confirmation-required");
+    assert.deepStrictEqual(applied, {
+      status: "ok",
+      mode: APP_MODE.BACKGROUND,
+    });
+    assert.equal(runtime.getMode(), APP_MODE.BACKGROUND);
+  });
 });

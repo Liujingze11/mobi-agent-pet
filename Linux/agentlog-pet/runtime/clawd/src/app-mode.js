@@ -35,6 +35,54 @@ function resolveAppModePolicy(mode, snapshot = {}) {
 function createAppModeRuntime({ applyMode = async () => {} } = {}) {
   let mode = APP_MODE.NORMAL;
   let automaticAuthorized = false;
+  let transitionQueue = Promise.resolve();
+
+  async function setModeInternal(targetMode, { confirmed = false } = {}) {
+    if (!isAppMode(targetMode)) {
+      return {
+        status: "error",
+        mode,
+        message: `Invalid app mode: ${String(targetMode)}`,
+      };
+    }
+
+    if (targetMode === mode) {
+      return { status: "ok", mode };
+    }
+
+    if (
+      targetMode === APP_MODE.AUTOMATIC &&
+      !automaticAuthorized &&
+      !confirmed
+    ) {
+      return { status: "confirmation-required", mode };
+    }
+
+    const previousMode = mode;
+    const previousAuthorization = automaticAuthorized;
+    if (targetMode === APP_MODE.AUTOMATIC) {
+      automaticAuthorized = true;
+    }
+
+    try {
+      await applyMode(targetMode, previousMode, { rollback: false });
+      mode = targetMode;
+      return { status: "ok", mode };
+    } catch (error) {
+      mode = previousMode;
+      automaticAuthorized = previousAuthorization;
+      try {
+        await applyMode(previousMode, targetMode, { rollback: true });
+      } catch {
+        // Preserve the original transition error for the caller.
+      }
+      return {
+        status: "error",
+        mode,
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
 
   return {
     getMode() {
@@ -45,51 +93,10 @@ function createAppModeRuntime({ applyMode = async () => {} } = {}) {
       return automaticAuthorized;
     },
 
-    async setMode(targetMode, { confirmed = false } = {}) {
-      if (!isAppMode(targetMode)) {
-        return {
-          status: "error",
-          mode,
-          message: `Invalid app mode: ${String(targetMode)}`,
-        };
-      }
-
-      if (targetMode === mode) {
-        return { status: "ok", mode };
-      }
-
-      if (
-        targetMode === APP_MODE.AUTOMATIC &&
-        !automaticAuthorized &&
-        !confirmed
-      ) {
-        return { status: "confirmation-required", mode };
-      }
-
-      const previousMode = mode;
-      const previousAuthorization = automaticAuthorized;
-      if (targetMode === APP_MODE.AUTOMATIC) {
-        automaticAuthorized = true;
-      }
-
-      try {
-        await applyMode(targetMode, previousMode, { rollback: false });
-        mode = targetMode;
-        return { status: "ok", mode };
-      } catch (error) {
-        mode = previousMode;
-        automaticAuthorized = previousAuthorization;
-        try {
-          await applyMode(previousMode, targetMode, { rollback: true });
-        } catch {
-          // Preserve the original transition error for the caller.
-        }
-        return {
-          status: "error",
-          mode,
-          message: error instanceof Error ? error.message : String(error),
-        };
-      }
+    setMode(targetMode, options) {
+      const transition = transitionQueue.then(() => setModeInternal(targetMode, options));
+      transitionQueue = transition.catch(() => {});
+      return transition;
     },
   };
 }
