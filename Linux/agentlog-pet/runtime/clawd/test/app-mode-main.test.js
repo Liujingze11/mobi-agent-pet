@@ -8,9 +8,11 @@ const { describe, it } = require("node:test");
 const initUpdater = require("../src/updater");
 const {
   APP_MODE,
+  createAppModeRuntime,
   resolveEffectiveSoundMuted,
   resolveEffectiveTrayFlashEnabled,
   resolveEffectiveBubblePolicy,
+  resolveAppModePolicy,
 } = require("../src/app-mode");
 
 const MAIN_JS = path.join(__dirname, "..", "src", "main.js");
@@ -24,6 +26,24 @@ function loadApplyAppModeTransition(deps) {
     `${source.slice(start, end)}; applyAppModeTransition`,
     { APP_MODE, _appModeTransitionMode: null, ...deps },
   );
+}
+
+function loadMainAppModeRuntime(deps) {
+  const source = fs.readFileSync(MAIN_JS, "utf8");
+  const start = source.indexOf("let _appModeTransitionMode = null;");
+  const end = source.indexOf("\nlet _remoteSshInstallationIdentity", start);
+  assert.ok(start >= 0 && end > start, "main should expose the app mode runtime wiring");
+  return vm.runInNewContext(
+    `${source.slice(start, end)}; ({ getActiveAppMode, getEffectiveAppModePolicy, setActiveAppMode })`,
+    { APP_MODE, createAppModeRuntime, resolveAppModePolicy, ...deps },
+  );
+}
+
+function loadPermissionAutomationModeReader(deps) {
+  const source = fs.readFileSync(MAIN_JS, "utf8");
+  const match = source.match(/getPermissionAutomationMode: \(\) =>\s*([^,]+),/);
+  assert.ok(match, "main should provide a permission automation reader");
+  return vm.runInNewContext(`() => (${match[1]})`, deps);
 }
 
 function createDeferredUpdater(mode, bubbles) {
@@ -108,6 +128,52 @@ describe("main app mode runtime wiring", () => {
     assert.match(mainSource, /async function setActiveAppMode\(mode, options\) \{\s*return _appModeRuntime\.setMode\(mode, options\);\s*\}/);
     assert.doesNotMatch(mainSource, /applyUpdate\(\s*["']appMode["']/);
     assert.doesNotMatch(mainSource, /appMode\s*:/);
+  });
+
+  it("keeps Automatic permission automation runtime-only while returning to Normal", async () => {
+    const snapshot = { permissionAutomationMode: "auto-tools" };
+    const applyCommandCalls = [];
+    const runtime = loadMainAppModeRuntime({
+      doNotDisturb: false,
+      stopTrayFlash() {},
+      _perm: { dismissPermissionsForDnd() {} },
+      hideUpdateBubble() {},
+      notifyUpdaterSilentExit() {},
+      syncSessionHudVisibility() {},
+      _roam: { cancelRoam() {} },
+      _state: {
+        clearQuietModePermissionState() {},
+        enableDoNotDisturb() {},
+        disableDoNotDisturb() {},
+        resolveDisplayState: () => "idle",
+        getSvgOverride: () => null,
+        applyState() {},
+      },
+      _settingsController: {
+        getSnapshot: () => snapshot,
+        applyCommand: (...args) => applyCommandCalls.push(args),
+      },
+    });
+    const getPermissionAutomationMode = loadPermissionAutomationModeReader({
+      getEffectiveAppModePolicy: runtime.getEffectiveAppModePolicy,
+      _settingsController: {
+        get: (key) => snapshot[key],
+      },
+    });
+
+    assert.equal(getPermissionAutomationMode(), "auto-tools");
+    assert.deepEqual(
+      await runtime.setActiveAppMode(APP_MODE.AUTOMATIC, { confirmed: true }),
+      { status: "ok", mode: APP_MODE.AUTOMATIC }
+    );
+    assert.equal(getPermissionAutomationMode(), "unattended");
+    assert.deepEqual(
+      await runtime.setActiveAppMode(APP_MODE.NORMAL),
+      { status: "ok", mode: APP_MODE.NORMAL }
+    );
+    assert.equal(getPermissionAutomationMode(), "auto-tools");
+    assert.deepEqual(snapshot, { permissionAutomationMode: "auto-tools" });
+    assert.deepEqual(applyCommandCalls, []);
   });
 
   it("gates quiet surfaces and restores mode effects in the required order", () => {

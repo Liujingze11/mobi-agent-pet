@@ -1517,7 +1517,7 @@ const _permCtx = {
   // The permission layer consumes one normalized runtime mode. DND,
   // headless, per-agent and bubble gates run before this chokepoint.
   getPermissionAutomationMode: () =>
-    _settingsController.get("permissionAutomationMode") || "off",
+    getEffectiveAppModePolicy().permissionAutomationMode,
   focusTerminalForSession: (sessionId, options = {}) => {
     focusDashboardSession(sessionId, {
       requestSource: options.requestSource || "permission-bubble",

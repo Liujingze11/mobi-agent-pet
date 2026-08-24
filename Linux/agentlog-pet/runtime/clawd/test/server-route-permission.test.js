@@ -23,6 +23,7 @@ const {
   classifyPermissionInteraction,
   isValidInteraction,
 } = require("../src/permission-automation-policy");
+const { APP_MODE, resolveAppModePolicy } = require("../src/app-mode");
 const { makeSessionKey } = require("../src/session-key");
 
 function localSessionKey(rawSessionId) {
@@ -503,6 +504,78 @@ describe("server-route-permission POST", () => {
     assert.strictEqual(res.headers[CLAWD_SERVER_HEADER], CLAWD_SERVER_ID);
     assert.deepStrictEqual(res.recorder.map((entry) => entry.outcome).filter(Boolean), ["dnd"]);
     assert.deepStrictEqual(res.ctx.pendingPermissions, []);
+  });
+
+  it("keeps Claude, Codex, and opencode-family permissions in their native fallback paths in Background Mode", async () => {
+    const backgroundPolicy = resolveAppModePolicy(APP_MODE.BACKGROUND, {
+      permissionAutomationMode: "unattended",
+    });
+    assert.strictEqual(backgroundPolicy.permissionAutomationMode, "off");
+
+    const cases = [
+      {
+        name: "Claude",
+        body: {
+          agent_id: "claude-code",
+          session_id: "claude:background",
+          tool_name: "Bash",
+          tool_input: { command: "npm test" },
+        },
+        verify(res) {
+          assert.strictEqual(res.destroyed, true);
+          assert.strictEqual(res.statusCode, null);
+        },
+      },
+      {
+        name: "Codex",
+        body: {
+          agent_id: "codex",
+          session_id: "codex:background",
+          tool_name: "Bash",
+          tool_input: { command: "npm test" },
+        },
+        verify(res) {
+          assert.strictEqual(res.statusCode, 204);
+          assert.strictEqual(res.body, "");
+          assert.strictEqual(res.headers[CLAWD_SERVER_HEADER], CLAWD_SERVER_ID);
+        },
+      },
+      {
+        name: "opencode",
+        body: {
+          agent_id: "opencode",
+          session_id: "opencode:background",
+          tool_name: "Bash",
+          tool_input: { command: "npm test" },
+          request_id: "background-request",
+          bridge_url: "http://127.0.0.1:1234",
+          bridge_token: "background-token",
+        },
+        verify(res) {
+          assert.strictEqual(res.statusCode, 200);
+          assert.strictEqual(res.body, "ok");
+        },
+      },
+    ];
+
+    for (const testCase of cases) {
+      const res = await callPermissionPost(JSON.stringify(testCase.body), {
+        ctx: {
+          doNotDisturb: true,
+          getPermissionAutomationMode: () => backgroundPolicy.permissionAutomationMode,
+        },
+      });
+      testCase.verify(res);
+      assert.deepStrictEqual(res.ctx.pendingPermissions, [], testCase.name);
+      assert.deepStrictEqual(res.ctx.calls.showPermissionBubble, [], testCase.name);
+      assert.deepStrictEqual(res.ctx.calls.sendPermissionResponse, [], testCase.name);
+      assert.deepStrictEqual(res.ctx.calls.replyOpencodeFamilyPermission, [], testCase.name);
+      assert.deepStrictEqual(
+        res.recorder.map((entry) => entry.outcome).filter(Boolean),
+        ["dnd"],
+        testCase.name
+      );
+    }
   });
 
   it("passes Codex Desktop focus metadata through permission bubbles", async () => {

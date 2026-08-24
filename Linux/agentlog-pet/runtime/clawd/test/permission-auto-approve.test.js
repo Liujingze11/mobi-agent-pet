@@ -17,6 +17,11 @@ const assert = require("node:assert");
 
 const initPermission = require("../src/permission");
 const {
+  APP_MODE,
+  createAppModeRuntime,
+  resolveAppModePolicy,
+} = require("../src/app-mode");
+const {
   classifyPermissionInteraction,
 } = require("../src/permission-automation-policy");
 
@@ -144,6 +149,45 @@ describe("permission automation: showPermissionBubble chokepoint", () => {
       perm.pendingPermissions.indexOf(permEntry),
       0,
       "entry should still be pending (auto-approve did not consume it)"
+    );
+  });
+
+  it("does not retroactively approve a request pending before Automatic Mode", async () => {
+    const snapshot = { permissionAutomationMode: "off" };
+    let activeMode = APP_MODE.NORMAL;
+    const ctx = makeCtx({
+      getPermissionAutomationMode: () =>
+        resolveAppModePolicy(activeMode, snapshot).permissionAutomationMode,
+    });
+    const perm = initPermission(ctx);
+    const pendingRes = makeCapturingRes();
+    const pendingBeforeSwitch = makePermEntry({ res: pendingRes });
+    perm.pendingPermissions.push(pendingBeforeSwitch);
+    const runtime = createAppModeRuntime({
+      applyMode: async (nextMode) => {
+        activeMode = nextMode;
+        perm.dismissPermissionsForDnd();
+      },
+    });
+
+    assert.deepStrictEqual(
+      await runtime.setMode(APP_MODE.AUTOMATIC, { confirmed: true }),
+      { status: "ok", mode: APP_MODE.AUTOMATIC }
+    );
+    assert.equal(perm.pendingPermissions.includes(pendingBeforeSwitch), false);
+    assert.equal(pendingRes.destroyed, true);
+    assert.equal(pendingRes.captured.statusCode, null);
+    assert.equal(pendingRes.captured.body, "");
+
+    const newRes = makeCapturingRes();
+    const requestedAfterSwitch = makePermEntry({ res: newRes });
+    perm.pendingPermissions.push(requestedAfterSwitch);
+    perm.showPermissionBubble(requestedAfterSwitch);
+
+    assert.equal(newRes.captured.statusCode, 200);
+    assert.equal(
+      JSON.parse(newRes.captured.body).hookSpecificOutput.decision.behavior,
+      "allow"
     );
   });
 
