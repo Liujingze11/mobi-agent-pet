@@ -12,6 +12,8 @@ const {
   validateHelperMessage,
 } = require("../src/linux-tray-protocol");
 
+const EXPECTED_ICON_THEME_ROOT = "/opt/agentlog/icons";
+
 function expectCode(code, fn) {
   assert.throws(fn, (error) => {
     assert.ok(error instanceof TrayProtocolError);
@@ -27,7 +29,7 @@ function parentInit(overrides = {}) {
     revision: 0,
     productId: "com.agentlog.pet",
     tooltip: "AgentLog Pet",
-    iconThemeRoot: "/opt/agentlog/icons",
+    iconThemeRoot: EXPECTED_ICON_THEME_ROOT,
     icon: "agentlog-pet",
     items: [
       { kind: "command", id: "settings.open", label: "Settings", enabled: true },
@@ -38,6 +40,10 @@ function parentInit(overrides = {}) {
 
 function commandItem(overrides = {}) {
   return { kind: "command", id: "settings.open", label: "Settings", ...overrides };
+}
+
+function validateParentInit(overrides = {}) {
+  return validateParentMessage(parentInit(overrides), { expectedIconThemeRoot: EXPECTED_ICON_THEME_ROOT });
 }
 
 test("encodes a JSON message as one UTF-8 line and enforces the byte limit", () => {
@@ -82,7 +88,7 @@ test("rejects malformed, incomplete, and oversized JSON lines before accepting t
 
 test("validates parent messages into frozen copies", () => {
   const input = parentInit();
-  const normalized = validateParentMessage(input);
+  const normalized = validateParentMessage(input, { expectedIconThemeRoot: EXPECTED_ICON_THEME_ROOT });
 
   assert.notStrictEqual(normalized, input);
   assert.notStrictEqual(normalized.items, input.items);
@@ -94,17 +100,16 @@ test("validates parent messages into frozen copies", () => {
 });
 
 test("requires init iconThemeRoot to match the supervisor-provided packaged root", () => {
-  const expectedIconThemeRoot = "/opt/agentlog/icons";
-
-  assert.doesNotThrow(() => validateParentMessage(parentInit(), { expectedIconThemeRoot }));
+  assert.doesNotThrow(() => validateParentInit());
+  expectCode("invalid-icon-theme-root", () => validateParentMessage(parentInit()));
   expectCode("invalid-icon-theme-root", () => validateParentMessage(
     parentInit({ iconThemeRoot: "/tmp/untrusted-icons" }),
-    { expectedIconThemeRoot }
+    { expectedIconThemeRoot: EXPECTED_ICON_THEME_ROOT }
   ));
 });
 
 test("accepts the complete parent message vocabulary and rejects unknown types or versions", () => {
-  assert.strictEqual(validateParentMessage(parentInit()).type, "init");
+  assert.strictEqual(validateParentInit().type, "init");
   assert.strictEqual(validateParentMessage({
     version: 1,
     type: "replace-menu",
@@ -120,7 +125,7 @@ test("accepts the complete parent message vocabulary and rejects unknown types o
   assert.strictEqual(validateParentMessage({ version: 1, type: "shutdown" }).type, "shutdown");
 
   expectCode("unknown-message-type", () => validateParentMessage({ version: 1, type: "launch-shell" }));
-  expectCode("wrong-version", () => validateParentMessage(parentInit({ version: 2 })));
+  expectCode("wrong-version", () => validateParentInit({ version: 2 }));
 });
 
 test("requires nonnegative safe integer revisions and rejects stale revisions when bounded", () => {
@@ -149,29 +154,29 @@ test("enforces menu depth, total item count, label length, and command ID length
     ? [commandItem()]
     : [{ kind: "submenu", label: `Level ${depth}`, items: nested(depth - 1) }];
 
-  assert.doesNotThrow(() => validateParentMessage(parentInit({ items: nested(3) })));
-  expectCode("menu-too-deep", () => validateParentMessage(parentInit({ items: nested(4) })));
-  expectCode("menu-too-many-items", () => validateParentMessage(parentInit({
+  assert.doesNotThrow(() => validateParentInit({ items: nested(3) }));
+  expectCode("menu-too-deep", () => validateParentInit({ items: nested(4) }));
+  expectCode("menu-too-many-items", () => validateParentInit({
     items: Array.from({ length: LIMITS.menuItems + 1 }, (_, index) => commandItem({ id: `cmd.${index}` })),
-  })));
-  expectCode("label-too-long", () => validateParentMessage(parentInit({
+  }));
+  expectCode("label-too-long", () => validateParentInit({
     items: [commandItem({ label: "😀".repeat(LIMITS.labelChars + 1) })],
-  })));
-  expectCode("command-id-too-long", () => validateParentMessage(parentInit({
+  }));
+  expectCode("command-id-too-long", () => validateParentInit({
     items: [commandItem({ id: "x".repeat(LIMITS.commandIdChars + 1) })],
-  })));
+  }));
 });
 
 test("rejects duplicate command IDs and executable or path-bearing descriptor keys", () => {
-  expectCode("duplicate-command-id", () => validateParentMessage(parentInit({
+  expectCode("duplicate-command-id", () => validateParentInit({
     items: [commandItem(), commandItem({ label: "Again" })],
-  })));
-  expectCode("forbidden-key", () => validateParentMessage(parentInit({
+  }));
+  expectCode("forbidden-key", () => validateParentInit({
     items: [commandItem({ click: "exec" })],
-  })));
-  expectCode("forbidden-key", () => validateParentMessage(parentInit({
+  }));
+  expectCode("forbidden-key", () => validateParentInit({
     items: [commandItem({ path: "/tmp/icon" })],
-  })));
+  }));
 });
 
 test("validates helper messages and copies only their approved primitive fields", () => {

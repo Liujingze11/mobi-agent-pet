@@ -146,13 +146,11 @@ function validateParentMessage(value, options = {}) {
     case "init": {
       checkKeys(value, new Set(["version", "type", "revision", "productId", "tooltip", "iconThemeRoot", "icon", "items"]));
       const iconThemeRoot = requiredString(value.iconThemeRoot, "iconThemeRoot");
-      if (options.expectedIconThemeRoot !== undefined) {
-        if (typeof options.expectedIconThemeRoot !== "string" || options.expectedIconThemeRoot.length === 0) {
-          fail("invalid-icon-theme-root", "expected icon theme root must be a non-empty string");
-        }
-        if (iconThemeRoot !== options.expectedIconThemeRoot) {
-          fail("invalid-icon-theme-root", "icon theme root is not the expected packaged root");
-        }
+      if (typeof options.expectedIconThemeRoot !== "string" || options.expectedIconThemeRoot.length === 0) {
+        fail("invalid-icon-theme-root", "expected icon theme root must be a non-empty string");
+      }
+      if (iconThemeRoot !== options.expectedIconThemeRoot) {
+        fail("invalid-icon-theme-root", "icon theme root is not the expected packaged root");
       }
       const result = {
         version: 1,
