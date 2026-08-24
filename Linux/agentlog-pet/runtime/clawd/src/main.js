@@ -265,6 +265,14 @@ const {
   getBubblePolicy,
   isAllBubblesHidden,
 } = require("./bubble-policy");
+const {
+  APP_MODE,
+  createAppModeRuntime,
+  resolveAppModePolicy,
+  resolveEffectiveSoundMuted,
+  resolveEffectiveTrayFlashEnabled,
+  resolveEffectiveBubblePolicy,
+} = require("./app-mode");
 const loginItemHelpers = require("./login-item");
 const PREFS_PATH = path.join(app.getPath("userData"), "clawd-prefs.json");
 const _initialPrefsLoad = prefsModule.load(PREFS_PATH);
@@ -468,6 +476,44 @@ const _settingsController = createSettingsController({
     },
   },
 });
+
+let _appModeTransitionMode = null;
+
+function getActiveAppMode() {
+  return _appModeRuntime.getMode();
+}
+
+function getEffectiveAppModePolicy(mode = _appModeRuntime.getMode()) {
+  return resolveAppModePolicy(_appModeTransitionMode || mode, _settingsController.getSnapshot());
+}
+
+async function applyAppModeTransition(mode) {
+  _appModeTransitionMode = mode;
+  try {
+    stopTrayFlash();
+    _perm.dismissPermissionsForDnd();
+    hideUpdateBubble();
+    syncSessionHudVisibility();
+    _roam.cancelRoam();
+
+    if (mode === APP_MODE.BACKGROUND) {
+      _state.enableDoNotDisturb();
+      return;
+    }
+
+    _state.disableDoNotDisturb();
+    const resolved = _state.resolveDisplayState();
+    _state.applyState(resolved, _state.getSvgOverride(resolved));
+  } finally {
+    _appModeTransitionMode = null;
+  }
+}
+
+const _appModeRuntime = createAppModeRuntime({ applyMode: applyAppModeTransition });
+
+async function setActiveAppMode(mode, options) {
+  return _appModeRuntime.setMode(mode, options);
+}
 let _remoteSshInstallationIdentity = null;
 
 async function initializeRemoteSshInstallationIdentity() {
@@ -1073,7 +1119,16 @@ function endTextScalePreview() {
 }
 
 function getRuntimeBubblePolicy(kind) {
-  return getBubblePolicy(_settingsController.getSnapshot(), kind);
+  const policy = getEffectiveAppModePolicy();
+  const suppressed = kind === "permission"
+    ? policy.suppressPermissionBubbles
+    : (kind === "notification"
+      ? policy.suppressNotificationBubbles
+      : policy.suppressUpdateBubbles);
+  return resolveEffectiveBubblePolicy(
+    getBubblePolicy(_settingsController.getSnapshot(), kind),
+    suppressed
+  );
 }
 
 function getAllBubblesHidden() {
@@ -1207,7 +1262,8 @@ let lastSoundTime = 0;
 const SOUND_COOLDOWN_MS = 10000;
 
 function playSound(name) {
-  if (soundMuted || doNotDisturb) return;
+  if (resolveEffectiveSoundMuted(soundMuted, getEffectiveAppModePolicy())) return;
+  if (doNotDisturb) return;
   const now = Date.now();
   if (now - lastSoundTime < SOUND_COOLDOWN_MS) return;
   const url = themeRuntime.getSoundUrl(name);
@@ -1236,8 +1292,8 @@ function stopTrayFlash() {
 }
 
 function flashTaskbar() {
+  if (!resolveEffectiveTrayFlashEnabled(_settingsController.get("flashTaskbarOnComplete"), getEffectiveAppModePolicy())) return;
   if (doNotDisturb) return;
-  if (!_settingsController.get("flashTaskbarOnComplete")) return;
 
   const tray = _menu.getTray ? _menu.getTray() : null;
   if (!tray) return;
@@ -1635,6 +1691,7 @@ const _stateCtx = {
   focusTerminalWindow: (...args) => focusTerminalWindow(...args),
   resolvePermissionEntry: (...args) => resolvePermissionEntry(...args),
   dismissPermissionsForDnd: (...args) => _perm.dismissPermissionsForDnd(...args),
+  allowNotificationAnimation: () => getEffectiveAppModePolicy().allowNotificationAnimation,
   showKimiNotifyBubble: (...args) => showKimiNotifyBubble(...args),
   clearKimiNotifyBubbles: (...args) => clearKimiNotifyBubbles(...args),
   // state.js needs this to gate startKimiPermissionPoll symmetrically with
@@ -1996,11 +2053,15 @@ const _tutorial = require("./tutorial")({
 const _sessionHud = require("./session-hud")({
   get win() { return win; },
   get petHidden() { return petWindowRuntime.isPetHidden(); },
-  get sessionHudEnabled() { return sessionHudEnabled; },
+  get sessionHudEnabled() {
+    return getEffectiveAppModePolicy().suppressSessionHud ? false : sessionHudEnabled;
+  },
   get sessionHudShowStateLabels() { return sessionHudShowStateLabels; },
   get sessionHudShowElapsed() { return sessionHudShowElapsed; },
   get sessionHudShowContextUsage() { return sessionHudShowContextUsage; },
-  get sessionHudShowQuota() { return sessionHudShowQuota; },
+  get sessionHudShowQuota() {
+    return getEffectiveAppModePolicy().suppressSessionHud ? false : sessionHudShowQuota;
+  },
   get sessionHudPinned() { return sessionHudPinned; },
   get lowPowerIdleMode() { return lowPowerIdleMode; },
   getMiniMode: () => _mini.getMiniMode(),
@@ -3462,7 +3523,9 @@ registerSettingsAnimationOverridesIpc({
 });
 // ── Auto-updater — delegated to src/updater.js ──
 const _updaterCtx = {
-  get doNotDisturb() { return doNotDisturb; },
+  get doNotDisturb() {
+    return doNotDisturb || getEffectiveAppModePolicy().suppressUpdateBubbles;
+  },
   get miniMode() { return _mini.getMiniMode(); },
   get lang() { return lang; },
   t, rebuildAllMenus, updateLog,
@@ -4006,6 +4069,7 @@ const _roamCtx = {
   getNearestWorkArea,
   clampToScreenVisual,
   getMiniMode: () => _mini.getMiniMode(),
+  isModeMovementAllowed: () => !getEffectiveAppModePolicy().freezePet,
   getCurrentState: () => _state.getCurrentState(),
   get miniTransitioning() { return _mini.getMiniTransitioning(); },
   applyState: (state, svgOverride, opts) => _state.applyState(state, svgOverride, opts),

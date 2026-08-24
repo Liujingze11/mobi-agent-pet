@@ -700,3 +700,44 @@ describe("roam pauses during IME editing (#640)", () => {
     );
   });
 });
+
+describe("roam runtime mode gate", () => {
+  beforeEach(() => {
+    const randomValues = [0.9, 0.9, 0.9, 0.1];
+    let randomIndex = 0;
+    mock.method(Math, "random", () => randomValues[randomIndex++ % randomValues.length]);
+    mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  });
+
+  afterEach(() => {
+    mock.timers.reset();
+    mock.reset();
+  });
+
+  it("cancels an active roam when Background Mode freezes movement", () => {
+    let modeMovementAllowed = true;
+    const ctx = makeCtx({ isModeMovementAllowed: () => modeMovementAllowed });
+    const roam = roamModule(ctx);
+    roam.setEnabled(true);
+
+    roam.tick();
+    mock.timers.tick(8000);
+    mock.timers.tick(160);
+    assert.ok(ctx._realBounds.x !== 400 || ctx._realBounds.y !== 300, "walk should be underway");
+
+    modeMovementAllowed = false;
+    mock.timers.tick(64);
+
+    assert.ok(
+      ctx._stateLog.some((entry) => entry.type === "setState" && entry.state === "idle"),
+      "freezing movement must restore idle instead of leaving the walk pose visible"
+    );
+    const stopped = { x: ctx._realBounds.x, y: ctx._realBounds.y };
+    mock.timers.tick(320);
+    assert.deepEqual(
+      { x: ctx._realBounds.x, y: ctx._realBounds.y },
+      stopped,
+      "Background Mode must prevent further frames after cancelling the roam"
+    );
+  });
+});

@@ -3532,6 +3532,46 @@ describe("DND mode", () => {
   });
 });
 
+describe("runtime mode animation policy", () => {
+  let api, ctx;
+
+  beforeEach(() => {
+    mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"] });
+    ctx = makeCtx({ allowNotificationAnimation: () => false });
+    api = require("../src/state")(ctx);
+  });
+
+  afterEach(() => {
+    api.cleanup();
+    mock.timers.reset();
+  });
+
+  it("Automatic Mode retains work and completion visuals while suppressing notification", () => {
+    api.applyState("working");
+    api.applyState("notification");
+    assert.strictEqual(api.getCurrentState(), "working");
+
+    api.applyState("attention");
+    assert.strictEqual(api.getCurrentState(), "attention");
+  });
+
+  it("Automatic Mode suppresses mini-alert while retaining mini-happy", () => {
+    ctx.miniMode = true;
+    api.applyState("mini-working");
+    api.applyState("mini-alert");
+    assert.strictEqual(api.getCurrentState(), "mini-working");
+
+    api.applyState("mini-happy");
+    assert.strictEqual(api.getCurrentState(), "mini-happy");
+  });
+
+  it("Background Mode continues through the existing DND sleeping path", () => {
+    api.enableDoNotDisturb();
+    assert.strictEqual(ctx.doNotDisturb, true);
+    assert.strictEqual(api.getCurrentState(), "yawning");
+  });
+});
+
 describe("refreshTheme()", () => {
   let api, ctx;
 

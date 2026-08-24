@@ -32,6 +32,19 @@ function resolveAppModePolicy(mode, snapshot = {}) {
   };
 }
 
+function resolveEffectiveSoundMuted(savedMuted, policy = {}) {
+  return savedMuted === true || policy.muteSound === true;
+}
+
+function resolveEffectiveTrayFlashEnabled(savedEnabled, policy = {}) {
+  return savedEnabled === true && policy.suppressTrayFlash !== true;
+}
+
+function resolveEffectiveBubblePolicy(basePolicy, suppressed) {
+  if (suppressed) return { enabled: false, autoCloseMs: 0 };
+  return basePolicy;
+}
+
 function createAppModeRuntime({ applyMode = async () => {} } = {}) {
   let mode = APP_MODE.NORMAL;
   let automaticAuthorized = false;
@@ -105,5 +118,8 @@ module.exports = {
   APP_MODE,
   isAppMode,
   resolveAppModePolicy,
+  resolveEffectiveSoundMuted,
+  resolveEffectiveTrayFlashEnabled,
+  resolveEffectiveBubblePolicy,
   createAppModeRuntime,
 };

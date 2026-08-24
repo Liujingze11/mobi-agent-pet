@@ -542,6 +542,18 @@ function isOneshotDisabled(logicalState) {
   catch { return false; }
 }
 
+function isNotificationAnimationAllowed() {
+  if (typeof ctx.allowNotificationAnimation !== "function") return true;
+  try { return ctx.allowNotificationAnimation() !== false; }
+  catch { return true; }
+}
+
+function resolveSuppressedNotificationFallback() {
+  if (currentState === "notification") return "idle";
+  if (currentState === "mini-alert") return "mini-idle";
+  return currentState;
+}
+
 function hasOwnVisualFiles(state) {
   return hasOwnVisualFilesWithBindings(STATE_BINDINGS, state);
 }
@@ -608,6 +620,15 @@ function normalizeApplyStateOptions(state, options = {}) {
 }
 
 function applyState(state, svgOverride, options = {}) {
+  if (
+    (state === "notification" || state === "mini-alert")
+    && !isNotificationAnimationAllowed()
+  ) {
+    const fallback = resolveSuppressedNotificationFallback();
+    if (fallback !== state) applyState(fallback, getSvgOverride(fallback));
+    return;
+  }
+
   const applyOptions = normalizeApplyStateOptions(state, options);
   // Phase 3b: user-disabled oneshot state — skip visual + sound, fall back to
   // whatever resolveDisplayState picks (usually working/idle). Gate lives at
