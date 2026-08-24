@@ -159,127 +159,6 @@ module.exports = function initMenu(ctx) {
     };
   }
 
-  function getPermissionAutomationMode() {
-    const mode = ctx.permissionAutomationMode;
-    return mode === "auto-tools" || mode === "unattended" ? mode : "off";
-  }
-
-  function permissionAutomationModeLabel(mode) {
-    if (mode === "auto-tools") return t("permissionAutomationAutoTools");
-    if (mode === "unattended") return t("permissionAutomationUnattended");
-    return t("permissionAutomationOff");
-  }
-
-  function isPermissionAutomationWarningDismissed(mode) {
-    return typeof ctx.isPermissionAutomationWarningDismissed === "function"
-      && ctx.isPermissionAutomationWarningDismissed(mode) === true;
-  }
-
-  function reportPermissionAutomationFailure(reason) {
-    const message = reason && reason.message
-      ? reason.message
-      : (typeof reason === "string" ? reason : "Unknown error");
-    console.warn("Clawd: permission automation mode change failed:", message);
-    try {
-      return Promise.resolve(dialog.showMessageBox({
-        type: "error",
-        buttons: ["OK"],
-        defaultId: 0,
-        cancelId: 0,
-        title: t("menuPermissionAutomation"),
-        message: t("menuPermissionAutomation"),
-        detail: message,
-      })).catch((err) => {
-        console.warn("Clawd: permission automation error dialog failed:", err && err.message);
-      });
-    } catch (err) {
-      console.warn("Clawd: permission automation error dialog failed:", err && err.message);
-      return Promise.resolve();
-    }
-  }
-
-  function applyPermissionAutomationMode(mode, options) {
-    return Promise.resolve()
-      .then(() => ctx.setPermissionAutomationMode(mode, options))
-      .then((result) => {
-        if (result && result.status === "error") {
-          return reportPermissionAutomationFailure(result);
-        }
-        return result;
-      })
-      .catch((err) => reportPermissionAutomationFailure(err));
-  }
-
-  // Three explicit radio choices avoid hiding a materially different trust
-  // boundary behind one checkbox. Both automatic modes require confirmation;
-  // off is immediate.
-  function buildPermissionAutomationMenuItem() {
-    const current = getPermissionAutomationMode();
-    const options = ["off", "auto-tools", "unattended"];
-    const setMode = (mode) => {
-      if (mode === current) return;
-      if (mode === "off") {
-        applyPermissionAutomationMode("off", { confirmed: false })
-          .finally(() => rebuildAllMenus());
-        return;
-      }
-      const unattended = mode === "unattended";
-      if (isPermissionAutomationWarningDismissed(mode)) {
-        applyPermissionAutomationMode(mode, { confirmed: false })
-          .finally(() => rebuildAllMenus());
-        return;
-      }
-      Promise.resolve(
-        dialog.showMessageBox({
-          type: "warning",
-          buttons: [
-            t(unattended
-              ? "permissionAutomationEnableUnattended"
-              : "permissionAutomationEnableAutoTools"),
-            t("permissionAutomationCancel"),
-          ],
-          defaultId: 1,
-          cancelId: 1,
-          title: t(unattended
-            ? "permissionAutomationUnattendedConfirmTitle"
-            : "permissionAutomationAutoToolsConfirmTitle"),
-          message: t(unattended
-            ? "permissionAutomationUnattendedConfirmTitle"
-            : "permissionAutomationAutoToolsConfirmTitle"),
-          detail: t(unattended
-            ? "permissionAutomationUnattendedConfirmDetail"
-            : "permissionAutomationAutoToolsConfirmDetail"),
-          checkboxLabel: t(unattended
-            ? "permissionAutomationUnattendedDontShowAgain"
-            : "permissionAutomationAutoToolsDontShowAgain"),
-          checkboxChecked: false,
-        })
-      ).then((res) => {
-        if (res && res.response === 0) {
-          return applyPermissionAutomationMode(mode, {
-            confirmed: true,
-            suppressFutureConfirmation: res.checkboxChecked === true,
-          });
-        }
-        return undefined;
-      }).catch((err) => {
-        return reportPermissionAutomationFailure(err);
-      }).finally(() => {
-        rebuildAllMenus();
-      });
-    };
-
-    return {
-      label: `${t("menuPermissionAutomation")}: ${permissionAutomationModeLabel(current)}`,
-      submenu: options.map((mode) => ({
-        label: permissionAutomationModeLabel(mode),
-        type: "radio",
-        checked: current === mode,
-        click: () => setMode(mode),
-      })),
-    };
-  }
-
   function buildBringToPrimaryDisplayMenuItem() {
     return {
       label: t("bringPetToPrimaryDisplay"),
@@ -338,8 +217,8 @@ module.exports = function initMenu(ctx) {
       buildAppModeMenuItem(),
     ];
 
-    // Dashboard + the danger auto-approve toggle (danger last, as in the
-    // context menu).
+    // Project surfaces stay quick to reach; persistent permission handling
+    // lives in Settings alongside the other detailed controls.
     const workGroup = [
       {
         label: t("openAgentLog"),
@@ -353,7 +232,6 @@ module.exports = function initMenu(ctx) {
           if (typeof ctx.openDashboard === "function") ctx.openDashboard();
         },
       },
-      buildPermissionAutomationMenuItem(),
     ];
 
     // OS-integration / placement group: bring-to-primary, mac dock/menu-bar,
@@ -589,10 +467,6 @@ module.exports = function initMenu(ctx) {
           },
         ],
       },
-      // Danger auto-approve sits at the tail of the work group: it governs how
-      // agent permission requests are handled, and keeping it here (rather than
-      // near the top) makes it harder to hit by accident.
-      buildPermissionAutomationMenuItem(),
     ];
 
     // Display group: just the multi-display "send to display" entry. The mac

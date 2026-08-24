@@ -48,7 +48,6 @@ const AGENTLOG_PATCHED_UPSTREAM_FILES = [
   "test/doctor-modal-no-active-integrations.test.js",
   "test/discord-presence-rpc.test.js",
   "test/i18n.test.js",
-  "test/menu-auto-approve.test.js",
   "test/menu-display.test.js",
   "test/menu-hide-pet.test.js",
   "test/package-build-config.test.js",

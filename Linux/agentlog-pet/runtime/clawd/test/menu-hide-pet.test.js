@@ -465,6 +465,23 @@ describe("persistent noise settings placement", () => {
   });
 });
 
+describe("permission settings placement", () => {
+  it("keeps permission handling out of both tray and context quick menus", () => {
+    const initMenu = loadMenuWithElectron(fakeElectron());
+    let trayTemplate = null;
+    const ctx = buildBaseCtx({
+      tray: { setContextMenu(menuObj) { trayTemplate = menuObj.template; } },
+    });
+    const menu = initMenu(ctx);
+
+    menu.buildTrayMenu();
+    menu.buildContextMenu();
+
+    assert.ok(!trayTemplate.some((item) => item.label && item.label.startsWith("Permission handling:")));
+    assert.ok(!ctx.contextMenu.template.some((item) => item.label && item.label.startsWith("Permission handling:")));
+  });
+});
+
 describe("macOS visibility toggles live in the tray, not the right-click menu", () => {
   it("drops Show in Dock / Show in Menu Bar from the context menu but keeps them in the tray", (t) => {
     if (process.platform !== "darwin") {
