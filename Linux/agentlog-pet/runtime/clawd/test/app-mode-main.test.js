@@ -4,7 +4,6 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const vm = require("node:vm");
 const { describe, it } = require("node:test");
 const initUpdater = require("../src/updater");
 const prefsModule = require("../src/prefs");
@@ -12,56 +11,28 @@ const { getBubblePolicy } = require("../src/bubble-policy");
 const { createSettingsController } = require("../src/settings-controller");
 const {
   APP_MODE,
-  createAppModeRuntime,
+  createAppModeController,
+  resolveEffectiveBubblePolicy,
   resolveEffectiveSoundMuted,
   resolveEffectiveTrayFlashEnabled,
-  resolveEffectiveBubblePolicy,
-  resolveAppModePolicy,
 } = require("../src/app-mode");
 
-const MAIN_JS = path.join(__dirname, "..", "src", "main.js");
-
-function loadApplyAppModeTransition(deps) {
-  const source = fs.readFileSync(MAIN_JS, "utf8");
-  const start = source.indexOf("async function applyAppModeTransition(");
-  const end = source.indexOf("\n}\n\nconst _appModeRuntime", start) + 2;
-  assert.ok(start >= 0 && end > start, "main should expose the app mode transition implementation");
-  return vm.runInNewContext(
-    `${source.slice(start, end)}; applyAppModeTransition`,
-    { APP_MODE, _appModeTransitionMode: null, ...deps },
-  );
+function flushAsyncWork() {
+  return new Promise((resolve) => setImmediate(() => setImmediate(resolve)));
 }
 
-function loadMainAppModeRuntime(deps) {
-  const source = fs.readFileSync(MAIN_JS, "utf8");
-  const start = source.indexOf("let _appModeTransitionMode = null;");
-  const end = source.indexOf("\nlet _remoteSshInstallationIdentity", start);
-  assert.ok(start >= 0 && end > start, "main should expose the app mode runtime wiring");
-  return vm.runInNewContext(
-    `${source.slice(start, end)}; ({ getActiveAppMode, isAutomaticModeAuthorized, getEffectiveAppModePolicy, setActiveAppMode })`,
-    { APP_MODE, createAppModeRuntime, resolveAppModePolicy, ...deps },
-  );
-}
-
-function loadPermissionAutomationModeReader(deps) {
-  const source = fs.readFileSync(MAIN_JS, "utf8");
-  const match = source.match(/getPermissionAutomationMode: \(\) =>\s*([^,]+),/);
-  assert.ok(match, "main should provide a permission automation reader");
-  return vm.runInNewContext(`() => (${match[1]})`, deps);
-}
-
-function createDeferredUpdater(mode, bubbles) {
+function createDeferredUpdater(getSilentMode, bubbles, showUpdateBubble) {
   const prefs = new Map();
   return initUpdater({
-    get doNotDisturb() { return mode.current === APP_MODE.AUTOMATIC; },
+    get doNotDisturb() { return getSilentMode(); },
     miniMode: false,
     rebuildAllMenus() {},
     updateLog() {},
     t: (key) => key,
-    showUpdateBubble: (payload) => {
+    showUpdateBubble: showUpdateBubble || ((payload) => {
       bubbles.push(payload);
       return Promise.resolve({ action: "closed", source: "policy" });
-    },
+    }),
     hideUpdateBubble() {},
     setUpdateVisualState() {},
     applyState() {},
@@ -84,46 +55,32 @@ function createDeferredUpdater(mode, bubbles) {
   });
 }
 
-function makeTransitionDeps(overrides = {}) {
-  return {
-    doNotDisturb: false,
-    stopTrayFlash() {},
-    _perm: { dismissPermissionsForDnd() {} },
-    hideUpdateBubble() {},
-    syncSessionHudVisibility() {},
-    _roam: { cancelRoam() {} },
-    _state: {
-      enableDoNotDisturb() {},
-      disableDoNotDisturb() {},
-      resolveDisplayState: () => "idle",
-      getSvgOverride: () => null,
-      applyState() {},
-    },
+function createController(snapshot = {}, overrides = {}) {
+  const calls = [];
+  let controller;
+  const effects = {
+    getSettingsSnapshot: () => snapshot,
+    stopTrayFlash: () => calls.push("stopTrayFlash"),
+    dismissPermissionsForDnd: () => calls.push("dismissPermissionsForDnd"),
+    rememberUpdatePrompt: () => calls.push("rememberUpdatePrompt"),
+    hideUpdateBubble: () => calls.push("hideUpdateBubble"),
+    syncSessionHudVisibility: () => calls.push("syncSessionHudVisibility"),
+    cancelRoam: () => calls.push("cancelRoam"),
+    enableDoNotDisturb: () => calls.push("enableDoNotDisturb"),
+    clearQuietModePermissionState: () => calls.push("clearQuietModePermissionState"),
+    disableDoNotDisturb: () => calls.push("disableDoNotDisturb"),
+    resolveDisplayState: () => "idle",
+    getSvgOverride: () => null,
+    applyState: () => calls.push("applyState"),
+    notifyUpdaterSilentExit: () => calls.push("notifyUpdaterSilentExit"),
     ...overrides,
   };
+  controller = createAppModeController(effects);
+  return { controller, calls, effects };
 }
 
-function makeRuntimeDeps(snapshot, overrides = {}) {
-  return makeTransitionDeps({
-    notifyUpdaterSilentExit() {},
-    _state: {
-      clearQuietModePermissionState() {},
-      enableDoNotDisturb() {},
-      disableDoNotDisturb() {},
-      resolveDisplayState: () => "idle",
-      getSvgOverride: () => null,
-      applyState() {},
-    },
-    _settingsController: {
-      getSnapshot: () => snapshot,
-      applyCommand() {},
-    },
-    ...overrides,
-  });
-}
-
-function getEffectiveSavedSurfaces(runtime, snapshot) {
-  const policy = runtime.getEffectiveAppModePolicy();
+function getEffectiveSavedSurfaces(controller, snapshot) {
+  const policy = controller.getEffectiveAppModePolicy();
   return {
     soundMuted: resolveEffectiveSoundMuted(snapshot.soundMuted, policy),
     trayFlashEnabled: resolveEffectiveTrayFlashEnabled(
@@ -167,9 +124,7 @@ describe("effective app mode boundaries", () => {
   });
 });
 
-describe("main app mode runtime wiring", () => {
-  const mainSource = fs.readFileSync(MAIN_JS, "utf8");
-
+describe("app mode controller lifecycle", () => {
   it("keeps launch mode state out of the preferences file", async () => {
     const prefsDir = fs.mkdtempSync(path.join(os.tmpdir(), "agentlog-app-mode-"));
     const prefsPath = path.join(prefsDir, "clawd-prefs.json");
@@ -179,47 +134,27 @@ describe("main app mode runtime wiring", () => {
     };
     prefsModule.save(prefsPath, snapshot);
     const savedBefore = fs.readFileSync(prefsPath, "utf8");
-    const persistenceCalls = [];
     let settingsController;
     let restartedController;
 
     try {
       settingsController = createSettingsController({ prefsPath });
-      const trackedSettingsController = {
-        ...settingsController,
-        applyCommand: (...args) => {
-          persistenceCalls.push(["applyCommand", ...args]);
-          return settingsController.applyCommand(...args);
-        },
-        applyUpdate: (...args) => {
-          persistenceCalls.push(["applyUpdate", ...args]);
-          return settingsController.applyUpdate(...args);
-        },
-      };
-      const runtime = loadMainAppModeRuntime(makeRuntimeDeps(
-        settingsController.getSnapshot(),
-        { _settingsController: trackedSettingsController }
-      ));
-      assert.equal(settingsController.get("permissionAutomationMode"), "auto-tools");
-      assert.equal(runtime.getActiveAppMode(), APP_MODE.NORMAL);
-      assert.equal(runtime.isAutomaticModeAuthorized(), false);
-      await runtime.setActiveAppMode(APP_MODE.AUTOMATIC, { confirmed: true });
-      await runtime.setActiveAppMode(APP_MODE.NORMAL);
+      const { controller } = createController(settingsController.getSnapshot());
+      assert.equal(controller.getActiveAppMode(), APP_MODE.NORMAL);
+      assert.equal(controller.isAutomaticModeAuthorized(), false);
+      await controller.setActiveAppMode(APP_MODE.AUTOMATIC, { confirmed: true });
+      await controller.setActiveAppMode(APP_MODE.NORMAL);
 
       const savedAfter = fs.readFileSync(prefsPath, "utf8");
       assert.equal(savedAfter, savedBefore);
       assert.equal(Object.hasOwn(JSON.parse(savedAfter), "appMode"), false);
-      assert.deepStrictEqual(persistenceCalls, []);
 
       restartedController = createSettingsController({ prefsPath });
-      const restartedRuntime = loadMainAppModeRuntime(makeRuntimeDeps(
-        restartedController.getSnapshot(),
-        { _settingsController: restartedController }
-      ));
+      const { controller: restarted } = createController(restartedController.getSnapshot());
       assert.equal(restartedController.get("permissionAutomationMode"), "auto-tools");
       assert.equal(Object.hasOwn(restartedController.getSnapshot(), "appMode"), false);
-      assert.equal(restartedRuntime.getActiveAppMode(), APP_MODE.NORMAL);
-      assert.equal(restartedRuntime.isAutomaticModeAuthorized(), false);
+      assert.equal(restarted.getActiveAppMode(), APP_MODE.NORMAL);
+      assert.equal(restarted.isAutomaticModeAuthorized(), false);
     } finally {
       if (settingsController) settingsController.dispose();
       if (restartedController) restartedController.dispose();
@@ -227,60 +162,39 @@ describe("main app mode runtime wiring", () => {
     }
   });
 
-  it("owns an in-memory runtime mode source and leaves preferences untouched", () => {
-    assert.ok(mainSource.includes('require("./app-mode")'));
-    assert.match(mainSource, /const _appModeRuntime = createAppModeRuntime\(/);
-    assert.match(mainSource, /function getActiveAppMode\(\) \{\s*return _appModeRuntime\.getMode\(\);\s*\}/);
-    assert.match(mainSource, /function getEffectiveAppModePolicy\(mode = _appModeRuntime\.getMode\(\)\) \{\s*return resolveAppModePolicy\(_appModeTransitionMode \|\| mode, _settingsController\.getSnapshot\(\)\);\s*\}/);
-    assert.match(mainSource, /async function setActiveAppMode\(mode, options\) \{\s*return _appModeRuntime\.setMode\(mode, options\);\s*\}/);
-    assert.doesNotMatch(mainSource, /applyUpdate\(\s*["']appMode["']/);
-    assert.doesNotMatch(mainSource, /appMode\s*:/);
+  it("captures ingress tickets without changing Normal saved automation", async () => {
+    const { controller } = createController({ permissionAutomationMode: "auto-tools" });
+    const normalRequest = controller.capturePermissionRequest();
+
+    await controller.setActiveAppMode(APP_MODE.AUTOMATIC, { confirmed: true });
+    const automaticRequest = controller.capturePermissionRequest();
+
+    assert.equal(
+      controller.resolvePermissionAutomationMode(normalRequest, "auto-tools"),
+      "auto-tools"
+    );
+    assert.equal(
+      controller.resolvePermissionAutomationMode(automaticRequest, "auto-tools"),
+      "unattended"
+    );
   });
 
-  it("keeps Automatic permission automation runtime-only while returning to Normal", async () => {
-    const snapshot = { permissionAutomationMode: "auto-tools" };
-    const applyCommandCalls = [];
-    const runtime = loadMainAppModeRuntime({
-      doNotDisturb: false,
-      stopTrayFlash() {},
-      _perm: { dismissPermissionsForDnd() {} },
-      hideUpdateBubble() {},
-      notifyUpdaterSilentExit() {},
-      syncSessionHudVisibility() {},
-      _roam: { cancelRoam() {} },
-      _state: {
-        clearQuietModePermissionState() {},
-        enableDoNotDisturb() {},
-        disableDoNotDisturb() {},
-        resolveDisplayState: () => "idle",
-        getSvgOverride: () => null,
-        applyState() {},
-      },
-      _settingsController: {
-        getSnapshot: () => snapshot,
-        applyCommand: (...args) => applyCommandCalls.push(args),
-      },
-    });
-    const getPermissionAutomationMode = loadPermissionAutomationModeReader({
-      getEffectiveAppModePolicy: runtime.getEffectiveAppModePolicy,
-      _settingsController: {
-        get: (key) => snapshot[key],
-      },
-    });
+  it("applies complete quiet-mode cleanup through its production factory", async () => {
+    const { controller, calls } = createController();
 
-    assert.equal(getPermissionAutomationMode(), "auto-tools");
-    assert.deepEqual(
-      await runtime.setActiveAppMode(APP_MODE.AUTOMATIC, { confirmed: true }),
-      { status: "ok", mode: APP_MODE.AUTOMATIC }
-    );
-    assert.equal(getPermissionAutomationMode(), "unattended");
-    assert.deepEqual(
-      await runtime.setActiveAppMode(APP_MODE.NORMAL),
-      { status: "ok", mode: APP_MODE.NORMAL }
-    );
-    assert.equal(getPermissionAutomationMode(), "auto-tools");
-    assert.deepEqual(snapshot, { permissionAutomationMode: "auto-tools" });
-    assert.deepEqual(applyCommandCalls, []);
+    await controller.setActiveAppMode(APP_MODE.AUTOMATIC, { confirmed: true });
+
+    assert.deepStrictEqual(calls, [
+      "stopTrayFlash",
+      "dismissPermissionsForDnd",
+      "rememberUpdatePrompt",
+      "hideUpdateBubble",
+      "syncSessionHudVisibility",
+      "cancelRoam",
+      "clearQuietModePermissionState",
+      "disableDoNotDisturb",
+      "applyState",
+    ]);
   });
 
   it("restores every saved surface after Background and Automatic", async () => {
@@ -295,7 +209,7 @@ describe("main app mode runtime wiring", () => {
       sessionHudEnabled: true,
       permissionAutomationMode: "auto-tools",
     };
-    const runtime = loadMainAppModeRuntime(makeRuntimeDeps(snapshot));
+    const { controller } = createController(snapshot);
     const savedEffectiveValues = {
       soundMuted: true,
       trayFlashEnabled: true,
@@ -314,104 +228,142 @@ describe("main app mode runtime wiring", () => {
       sessionHudEnabled: false,
     };
 
-    await runtime.setActiveAppMode(APP_MODE.BACKGROUND);
-    assert.deepStrictEqual(getEffectiveSavedSurfaces(runtime, snapshot), {
+    await controller.setActiveAppMode(APP_MODE.BACKGROUND);
+    assert.deepStrictEqual(getEffectiveSavedSurfaces(controller, snapshot), {
       ...quietEffectiveValues,
       permissionAutomationMode: "off",
     });
-    await runtime.setActiveAppMode(APP_MODE.NORMAL);
-    assert.deepStrictEqual(
-      getEffectiveSavedSurfaces(runtime, snapshot),
-      savedEffectiveValues
-    );
+    await controller.setActiveAppMode(APP_MODE.NORMAL);
+    assert.deepStrictEqual(getEffectiveSavedSurfaces(controller, snapshot), savedEffectiveValues);
 
-    await runtime.setActiveAppMode(APP_MODE.AUTOMATIC, { confirmed: true });
-    assert.deepStrictEqual(getEffectiveSavedSurfaces(runtime, snapshot), {
+    await controller.setActiveAppMode(APP_MODE.AUTOMATIC, { confirmed: true });
+    assert.deepStrictEqual(getEffectiveSavedSurfaces(controller, snapshot), {
       ...quietEffectiveValues,
       permissionAutomationMode: "unattended",
     });
-    await runtime.setActiveAppMode(APP_MODE.NORMAL);
-    assert.deepStrictEqual(
-      getEffectiveSavedSurfaces(runtime, snapshot),
-      savedEffectiveValues
-    );
+    await controller.setActiveAppMode(APP_MODE.NORMAL);
+    assert.deepStrictEqual(getEffectiveSavedSurfaces(controller, snapshot), savedEffectiveValues);
   });
 
-  it("gates quiet surfaces and restores mode effects in the required order", () => {
-    assert.ok(mainSource.includes("resolveEffectiveSoundMuted(soundMuted, getEffectiveAppModePolicy())"));
-    assert.ok(mainSource.includes("resolveEffectiveTrayFlashEnabled(_settingsController.get(\"flashTaskbarOnComplete\"), getEffectiveAppModePolicy())"));
-    assert.ok(mainSource.includes("isModeMovementAllowed: () => !getEffectiveAppModePolicy().freezePet"));
-    assert.ok(mainSource.includes("allowNotificationAnimation: () => getEffectiveAppModePolicy().allowNotificationAnimation"));
-
-    const transitionStart = mainSource.indexOf("async function applyAppModeTransition(");
-    assert.ok(transitionStart >= 0, "main should define the runtime transition effects");
-    const transition = mainSource.slice(transitionStart, mainSource.indexOf("\n}\n", transitionStart) + 2);
-    const effects = [
-      "stopTrayFlash()",
-      "_perm.dismissPermissionsForDnd()",
-      "hideUpdateBubble()",
-      "syncSessionHudVisibility()",
-      "_roam.cancelRoam()",
-    ];
-    let previousIndex = -1;
-    for (const effect of effects) {
-      const index = transition.indexOf(effect);
-      assert.ok(index > previousIndex, `${effect} should follow the quiet-surface cleanup order`);
-      previousIndex = index;
-    }
-    assert.ok(transition.includes("APP_MODE.BACKGROUND"));
-    assert.ok(transition.includes("enableDoNotDisturb()"));
-    assert.ok(transition.includes("disableDoNotDisturb()"));
-    assert.ok(transition.includes("_state.resolveDisplayState()"));
-  });
-
-  it("evaluates quiet-surface cleanup against the transition target mode", () => {
-    assert.match(mainSource, /let _appModeTransitionMode = null;/);
-    assert.match(mainSource, /resolveAppModePolicy\(_appModeTransitionMode \|\| mode, _settingsController\.getSnapshot\(\)\)/);
-    assert.match(mainSource, /_appModeTransitionMode = mode;/);
-    assert.match(mainSource, /finally \{\s*_appModeTransitionMode = null;\s*\}/);
-  });
-
-  it("clears Kimi permission runtime state during the Automatic transition", async () => {
-    let kimiPermissionStateClears = 0;
-    const deps = makeTransitionDeps();
-    deps._state.clearQuietModePermissionState = () => { kimiPermissionStateClears += 1; };
-
-    const applyAppModeTransition = loadApplyAppModeTransition(deps);
-    await applyAppModeTransition(APP_MODE.AUTOMATIC);
-
-    assert.equal(kimiPermissionStateClears, 1);
-  });
-
-  it("restores an updater prompt deferred in Automatic when the Normal transition finishes", async () => {
-    const mode = { current: APP_MODE.AUTOMATIC };
+  it("resumes a deferred update only after Automatic commits Normal", async () => {
+    let controller;
     const bubbles = [];
-    const updater = createDeferredUpdater(mode, bubbles);
+    const updater = createDeferredUpdater(
+      () => controller.getEffectiveAppModePolicy().suppressUpdateBubbles,
+      bubbles
+    );
+    ({ controller } = createController({}, {
+      notifyUpdaterSilentExit: () => updater.onSilentModeExit(),
+      rememberUpdatePrompt: () => updater.onSilentModeEnter(),
+    }));
+
+    await controller.setActiveAppMode(APP_MODE.AUTOMATIC, { confirmed: true });
     await updater.handlePendingVersion("v0.9.0", { tag_name: "v0.9.0" });
     assert.equal(bubbles.length, 0, "Automatic should defer the update prompt");
 
-    mode.current = APP_MODE.NORMAL;
-    const applyAppModeTransition = loadApplyAppModeTransition(makeTransitionDeps({
-      notifyUpdaterSilentExit: () => updater.onSilentModeExit(),
-    }));
-    await applyAppModeTransition(APP_MODE.NORMAL);
-    await new Promise((resolve) => setImmediate(resolve));
-    await new Promise((resolve) => setImmediate(resolve));
+    await controller.setActiveAppMode(APP_MODE.NORMAL);
+    await flushAsyncWork();
 
     assert.equal(bubbles.length, 1, "Normal should restore the deferred update prompt");
   });
 
-  it("does not duplicate the updater resume after an actual DND exit", async () => {
-    let updaterSilentExits = 0;
-    const deps = makeTransitionDeps({
-      doNotDisturb: true,
-      notifyUpdaterSilentExit: () => { updaterSilentExits += 1; },
-    });
-    deps._state.disableDoNotDisturb = () => { updaterSilentExits += 1; };
+  it("resumes a deferred update only after Background commits Normal", async () => {
+    let controller;
+    const bubbles = [];
+    const updater = createDeferredUpdater(
+      () => controller.getEffectiveAppModePolicy().suppressUpdateBubbles,
+      bubbles
+    );
+    ({ controller } = createController({}, {
+      notifyUpdaterSilentExit: () => updater.onSilentModeExit(),
+      rememberUpdatePrompt: () => updater.onSilentModeEnter(),
+    }));
 
-    const applyAppModeTransition = loadApplyAppModeTransition(deps);
-    await applyAppModeTransition(APP_MODE.NORMAL);
+    await controller.setActiveAppMode(APP_MODE.BACKGROUND);
+    await updater.handlePendingVersion("v0.9.0", { tag_name: "v0.9.0" });
+    assert.equal(bubbles.length, 0, "Background should defer the update prompt");
+
+    await controller.setActiveAppMode(APP_MODE.NORMAL);
+    await flushAsyncWork();
+
+    assert.equal(bubbles.length, 1, "Normal should restore the Background-deferred prompt");
+  });
+
+  it("restores an already-visible update prompt after a quiet-mode round trip", async () => {
+    let controller;
+    const bubbles = [];
+    const visiblePromptResolvers = [];
+    const updater = createDeferredUpdater(
+      () => controller.getEffectiveAppModePolicy().suppressUpdateBubbles,
+      bubbles,
+      (payload) => {
+        bubbles.push(payload);
+        return new Promise((resolve) => { visiblePromptResolvers.push(resolve); });
+      }
+    );
+    ({ controller } = createController({}, {
+      notifyUpdaterSilentExit: () => updater.onSilentModeExit(),
+      rememberUpdatePrompt: () => updater.onSilentModeEnter(),
+    }));
+
+    const visiblePrompt = updater.handlePendingVersion("v0.9.0", { tag_name: "v0.9.0" });
+    await flushAsyncWork();
+    assert.equal(bubbles.length, 1, "the prompt starts visible in Normal");
+
+    await controller.setActiveAppMode(APP_MODE.AUTOMATIC, { confirmed: true });
+    await controller.setActiveAppMode(APP_MODE.NORMAL);
+    await flushAsyncWork();
+    assert.equal(bubbles.length, 2, "Normal replays the prompt hidden by Automatic");
+
+    for (const resolve of visiblePromptResolvers) {
+      resolve({ action: "closed", source: "policy" });
+    }
+    await visiblePrompt;
+  });
+
+  it("does not duplicate updater resume after an actual DND exit", async () => {
+    let controller;
+    let updaterSilentExits = 0;
+    ({ controller } = createController({}, {
+      disableDoNotDisturb: () => controller.notifyUpdaterSilentExit(),
+      notifyUpdaterSilentExit: () => { updaterSilentExits += 1; },
+    }));
+
+    await controller.setActiveAppMode(APP_MODE.BACKGROUND);
+    await controller.setActiveAppMode(APP_MODE.NORMAL);
 
     assert.equal(updaterSilentExits, 1);
+  });
+
+  it("keeps deferred updater work quiet when a Normal transition rolls back", async () => {
+    let controller;
+    let shouldFail = false;
+    const bubbles = [];
+    const updater = createDeferredUpdater(
+      () => controller.getEffectiveAppModePolicy().suppressUpdateBubbles,
+      bubbles
+    );
+    ({ controller } = createController({}, {
+      notifyUpdaterSilentExit: () => updater.onSilentModeExit(),
+      rememberUpdatePrompt: () => updater.onSilentModeEnter(),
+      applyState: () => {
+        if (shouldFail) throw new Error("apply failed");
+      },
+    }));
+
+    await controller.setActiveAppMode(APP_MODE.AUTOMATIC, { confirmed: true });
+    await updater.handlePendingVersion("v0.9.0", { tag_name: "v0.9.0" });
+    shouldFail = true;
+    const failed = await controller.setActiveAppMode(APP_MODE.NORMAL);
+    await flushAsyncWork();
+
+    assert.equal(failed.status, "error");
+    assert.equal(controller.getActiveAppMode(), APP_MODE.AUTOMATIC);
+    assert.equal(bubbles.length, 0);
+
+    shouldFail = false;
+    await controller.setActiveAppMode(APP_MODE.NORMAL);
+    await flushAsyncWork();
+    assert.equal(bubbles.length, 1);
   });
 });

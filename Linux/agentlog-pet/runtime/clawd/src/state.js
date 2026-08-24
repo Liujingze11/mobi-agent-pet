@@ -548,6 +548,18 @@ function isNotificationAnimationAllowed() {
   catch { return true; }
 }
 
+function isCompletionAnimationForced(state) {
+  if (state !== "attention" && state !== "mini-happy") return false;
+  if (typeof ctx.forceCompletionAnimation !== "function") return false;
+  try {
+    const allowed = typeof ctx.allowCompletionAnimation !== "function"
+      || ctx.allowCompletionAnimation() !== false;
+    return allowed && ctx.forceCompletionAnimation() === true;
+  } catch {
+    return false;
+  }
+}
+
 function resolveSuppressedNotificationFallback() {
   if (currentState === "notification") return "idle";
   if (currentState === "mini-alert") return "mini-idle";
@@ -638,7 +650,7 @@ function applyState(state, svgOverride, options = {}) {
   //   · pending queued oneshot (state.js:163)
   // and also runs before the mini-mode remap below, so "disable notification"
   // silences both normal and mini visuals consistently.
-  if (isOneshotDisabled(state)) {
+  if (isOneshotDisabled(state) && !isCompletionAnimationForced(state)) {
     const resolved = resolveDisplayState();
     if (resolved !== state) {
       setState(resolved, getSvgOverride(resolved));

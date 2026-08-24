@@ -3537,7 +3537,12 @@ describe("runtime mode animation policy", () => {
 
   beforeEach(() => {
     mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"] });
-    ctx = makeCtx({ allowNotificationAnimation: () => false });
+    ctx = makeCtx({
+      allowNotificationAnimation: () => false,
+      allowCompletionAnimation: () => true,
+      forceCompletionAnimation: () => true,
+      isOneshotDisabled: (state) => state === "attention" || state === "mini-happy",
+    });
     api = require("../src/state")(ctx);
   });
 
@@ -3561,8 +3566,15 @@ describe("runtime mode animation policy", () => {
     api.applyState("mini-alert");
     assert.strictEqual(api.getCurrentState(), "mini-working");
 
-    api.applyState("mini-happy");
+    api.applyState("attention");
     assert.strictEqual(api.getCurrentState(), "mini-happy");
+  });
+
+  it("Normal Mode honors a saved disabled completion one-shot", () => {
+    ctx.forceCompletionAnimation = () => false;
+    api.applyState("working");
+    api.applyState("attention");
+    assert.strictEqual(api.getCurrentState(), "working");
   });
 
   it("Background Mode continues through the existing DND sleeping path", () => {

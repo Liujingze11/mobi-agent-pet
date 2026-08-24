@@ -24,6 +24,7 @@ describe("app mode policy", () => {
       allowWorkAnimations: true,
       allowNotificationAnimation: true,
       allowCompletionAnimation: true,
+      forceCompletionAnimation: false,
       permissionAutomationMode: "auto-tools",
     });
   });
@@ -37,6 +38,7 @@ describe("app mode policy", () => {
     assert.equal(policy.allowWorkAnimations, false);
     assert.equal(policy.allowNotificationAnimation, false);
     assert.equal(policy.allowCompletionAnimation, false);
+    assert.equal(policy.forceCompletionAnimation, false);
     assert.equal(policy.muteSound, true);
     assert.equal(policy.suppressTrayFlash, true);
   });
@@ -50,12 +52,99 @@ describe("app mode policy", () => {
     assert.equal(policy.allowWorkAnimations, true);
     assert.equal(policy.allowNotificationAnimation, false);
     assert.equal(policy.allowCompletionAnimation, true);
+    assert.equal(policy.forceCompletionAnimation, true);
     assert.equal(policy.suppressPermissionBubbles, true);
     assert.equal(policy.suppressNotificationBubbles, true);
   });
 });
 
 describe("app mode runtime authorization", () => {
+  it("does not apply Automatic permission policy to a request captured in Normal", async () => {
+    const runtime = createAppModeRuntime();
+    const requestContext = runtime.capturePermissionRequest();
+
+    await runtime.setMode(APP_MODE.AUTOMATIC, { confirmed: true });
+
+    assert.equal(
+      runtime.resolvePermissionAutomationMode(requestContext, "off"),
+      "off"
+    );
+  });
+
+  it("invalidates an Automatic request as soon as Automatic exits", async () => {
+    const runtime = createAppModeRuntime();
+    await runtime.setMode(APP_MODE.AUTOMATIC, { confirmed: true });
+    const requestContext = runtime.capturePermissionRequest();
+    assert.equal(
+      runtime.resolvePermissionAutomationMode(requestContext, "off"),
+      "unattended"
+    );
+
+    await runtime.setMode(APP_MODE.NORMAL);
+
+    assert.equal(
+      runtime.resolvePermissionAutomationMode(requestContext, "off"),
+      "off"
+    );
+  });
+
+  it("uses a distinct generation when Automatic is re-entered", async () => {
+    const runtime = createAppModeRuntime();
+    await runtime.setMode(APP_MODE.AUTOMATIC, { confirmed: true });
+    const firstAutomaticRequest = runtime.capturePermissionRequest();
+
+    await runtime.setMode(APP_MODE.NORMAL);
+    await runtime.setMode(APP_MODE.AUTOMATIC);
+    const secondAutomaticRequest = runtime.capturePermissionRequest();
+
+    assert.notEqual(
+      secondAutomaticRequest.generation,
+      firstAutomaticRequest.generation
+    );
+    assert.equal(
+      runtime.isAutomaticPermissionRequestCurrent(firstAutomaticRequest),
+      false
+    );
+    assert.equal(
+      runtime.isAutomaticPermissionRequestCurrent(secondAutomaticRequest),
+      true
+    );
+    assert.equal(
+      runtime.resolvePermissionAutomationMode(firstAutomaticRequest, "off"),
+      "off"
+    );
+    assert.equal(
+      runtime.resolvePermissionAutomationMode(secondAutomaticRequest, "off"),
+      "unattended"
+    );
+  });
+
+  it("keeps Normal saved automation behavior on a Normal ingress ticket", () => {
+    const runtime = createAppModeRuntime();
+    const requestContext = runtime.capturePermissionRequest();
+
+    assert.equal(
+      runtime.resolvePermissionAutomationMode(requestContext, "auto-tools"),
+      "auto-tools"
+    );
+    assert.equal(
+      runtime.resolvePermissionAutomationMode(requestContext, "unattended"),
+      "unattended"
+    );
+  });
+
+  it("keeps the request automation resolver usable as a detached callback", async () => {
+    const runtime = createAppModeRuntime();
+    await runtime.setMode(APP_MODE.AUTOMATIC, { confirmed: true });
+    const requestContext = runtime.capturePermissionRequest();
+    const resolvePermissionAutomationMode = runtime.resolvePermissionAutomationMode;
+
+    assert.equal(
+      resolvePermissionAutomationMode(requestContext, "off"),
+      "unattended"
+    );
+  });
+
   it("starts each runtime Normal and unauthorized after a prior Automatic run", async () => {
     const previousRuntime = createAppModeRuntime();
     assert.deepStrictEqual(

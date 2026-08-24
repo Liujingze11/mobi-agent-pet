@@ -37,11 +37,12 @@ const MAX_PERMISSION_BODY_BYTES = 524288;
 // chat prompt. The previous behavior merely skipped showPermissionBubble,
 // leaving the request parked in pendingPermissions — CC would then hang for
 // 600s before timing out with nothing in the terminal.
-function shouldBypassCCBubble(ctx, interaction, agentId) {
+function shouldBypassCCBubble(ctx, interaction, agentId, requestContext) {
   if (isDecisionInteraction(interaction)) return false;
-  if (!arePermissionBubblesEnabled(ctx)) return true;
-  if (typeof ctx.isAgentPermissionsEnabled !== "function") return false;
-  return !ctx.isAgentPermissionsEnabled(agentId);
+  if (typeof ctx.isAgentPermissionsEnabled === "function"
+      && !ctx.isAgentPermissionsEnabled(agentId)) return true;
+  return !arePermissionBubblesEnabled(ctx)
+    && !isAutomaticPermissionRequestCurrent(ctx, requestContext);
 }
 
 // #451: PermissionRequests fired from inside a Claude Code subagent (Task
@@ -66,28 +67,32 @@ function shouldBypassFamilyBubble(ctx, agentId) {
   return !ctx.isAgentPermissionsEnabled(agentId);
 }
 
-function shouldBypassCodexBubble(ctx) {
-  if (!arePermissionBubblesEnabled(ctx)) return true;
-  if (typeof ctx.isAgentPermissionsEnabled !== "function") return false;
-  return !ctx.isAgentPermissionsEnabled("codex");
+function shouldBypassCodexBubble(ctx, requestContext) {
+  if (typeof ctx.isAgentPermissionsEnabled === "function"
+      && !ctx.isAgentPermissionsEnabled("codex")) return true;
+  return !arePermissionBubblesEnabled(ctx)
+    && !isAutomaticPermissionRequestCurrent(ctx, requestContext);
 }
 
-function shouldBypassQwenCodeBubble(ctx) {
-  if (!arePermissionBubblesEnabled(ctx)) return true;
-  if (typeof ctx.isAgentPermissionsEnabled !== "function") return false;
-  return !ctx.isAgentPermissionsEnabled("qwen-code");
+function shouldBypassQwenCodeBubble(ctx, requestContext) {
+  if (typeof ctx.isAgentPermissionsEnabled === "function"
+      && !ctx.isAgentPermissionsEnabled("qwen-code")) return true;
+  return !arePermissionBubblesEnabled(ctx)
+    && !isAutomaticPermissionRequestCurrent(ctx, requestContext);
 }
 
-function shouldBypassCopilotBubble(ctx) {
-  if (!arePermissionBubblesEnabled(ctx)) return true;
-  if (typeof ctx.isAgentPermissionsEnabled !== "function") return false;
-  return !ctx.isAgentPermissionsEnabled("copilot-cli");
+function shouldBypassCopilotBubble(ctx, requestContext) {
+  if (typeof ctx.isAgentPermissionsEnabled === "function"
+      && !ctx.isAgentPermissionsEnabled("copilot-cli")) return true;
+  return !arePermissionBubblesEnabled(ctx)
+    && !isAutomaticPermissionRequestCurrent(ctx, requestContext);
 }
 
-function shouldBypassHermesBubble(ctx) {
-  if (!arePermissionBubblesEnabled(ctx)) return true;
-  if (typeof ctx.isAgentPermissionsEnabled !== "function") return false;
-  return !ctx.isAgentPermissionsEnabled("hermes");
+function shouldBypassHermesBubble(ctx, requestContext) {
+  if (typeof ctx.isAgentPermissionsEnabled === "function"
+      && !ctx.isAgentPermissionsEnabled("hermes")) return true;
+  return !arePermissionBubblesEnabled(ctx)
+    && !isAutomaticPermissionRequestCurrent(ctx, requestContext);
 }
 
 function shouldInterceptCodexPermission(ctx) {
@@ -119,6 +124,26 @@ function arePermissionBubblesEnabled(ctx) {
     } catch {}
   }
   return !ctx.hideBubbles;
+}
+
+function capturePermissionRequest(ctx) {
+  if (typeof ctx.capturePermissionRequest !== "function") return null;
+  try {
+    return ctx.capturePermissionRequest();
+  } catch {
+    return null;
+  }
+}
+
+function isAutomaticPermissionRequestCurrent(ctx, requestContext) {
+  if (!requestContext || typeof ctx.isAutomaticPermissionRequestCurrent !== "function") {
+    return false;
+  }
+  try {
+    return ctx.isAutomaticPermissionRequestCurrent(requestContext) === true;
+  } catch {
+    return false;
+  }
 }
 
 function normalizeString(value) {
@@ -273,6 +298,11 @@ function sendPiPermissionAllow(res) {
   res.end(responseBody);
 }
 
+function sendPiPermissionNoDecision(res) {
+  res.writeHead(204, { [CLAWD_SERVER_HEADER]: CLAWD_SERVER_ID });
+  res.end();
+}
+
 function sendAntigravityPermissionNoDecision(res) {
   res.writeHead(204, { [CLAWD_SERVER_HEADER]: CLAWD_SERVER_ID });
   res.end();
@@ -365,7 +395,8 @@ function startRemoteApproval(ctx, permEntry) {
   }
 }
 
-function addPendingPermission(ctx, permEntry) {
+function addPendingPermission(ctx, permEntry, appModeRequest = null) {
+  if (appModeRequest) permEntry.appModeRequest = appModeRequest;
   if (typeof ctx.addPendingPermission === "function") {
     return ctx.addPendingPermission(permEntry);
   }
@@ -389,6 +420,7 @@ function handlePermissionPost(req, res, options) {
     createRequestHookRecorder,
     remoteProfile = null,
   } = options;
+  const appModeRequest = capturePermissionRequest(ctx);
   ctx.permLog(`/permission hit | DND=${ctx.doNotDisturb} pending=${ctx.pendingPermissions.length}`);
   let body = "";
   let bodySize = 0;
@@ -519,7 +551,11 @@ function handlePermissionPost(req, res, options) {
         // No HTTP connection to hold open — only degradation is to
         // not render a bubble and let the TUI prompt handle it.
         const familySubGateBypass = shouldBypassFamilyBubble(ctx, agentId);
-        if (!arePermissionBubblesEnabled(ctx) || familySubGateBypass) {
+        if (
+          (!arePermissionBubblesEnabled(ctx)
+            && !isAutomaticPermissionRequestCurrent(ctx, appModeRequest))
+          || familySubGateBypass
+        ) {
           recordRequestHookEvent.accepted();
           ctx.permLog(`${agentId} bubble hidden: tool=${toolName} — TUI fallback (permissionBubblesEnabled=${arePermissionBubblesEnabled(ctx)} subGateBypass=${familySubGateBypass})`);
           return;
@@ -549,7 +585,7 @@ function handlePermissionPost(req, res, options) {
           familyAlwaysCandidates: alwaysCandidates,
           familyPatterns: patterns,
         };
-        addPendingPermission(ctx, permEntry);
+        addPendingPermission(ctx, permEntry, appModeRequest);
         // Play notification animation on the pet body so the bubble doesn't
         // appear "silently". Mirrors the Codex path (main.js showCodexNotifyBubble)
         // and the Elicitation branch below. state.js:581 has a special
@@ -663,7 +699,7 @@ function handlePermissionPost(req, res, options) {
           return;
         }
 
-        if (shouldBypassCodexBubble(ctx)) {
+        if (shouldBypassCodexBubble(ctx, appModeRequest)) {
           recordRequestHookEvent.accepted();
           const reason = !arePermissionBubblesEnabled(ctx)
             ? "permission bubbles disabled"
@@ -710,7 +746,7 @@ function handlePermissionPost(req, res, options) {
         permEntry.abortHandler = abortHandler;
         res.on("close", abortHandler);
 
-        addPendingPermission(ctx, permEntry);
+        addPendingPermission(ctx, permEntry, appModeRequest);
         ctx.updateSession(sessionId, "notification", "PermissionRequest", codexSessionOptions);
 
         ctx.permLog(`codex showing bubble: tool=${toolName} session=${sessionId} stack=${ctx.pendingPermissions.length}`);
@@ -775,7 +811,7 @@ function handlePermissionPost(req, res, options) {
           return;
         }
 
-        if (shouldBypassQwenCodeBubble(ctx)) {
+        if (shouldBypassQwenCodeBubble(ctx, appModeRequest)) {
           recordRequestHookEvent.accepted();
           const reason = !arePermissionBubblesEnabled(ctx)
             ? "permission bubbles disabled"
@@ -820,7 +856,7 @@ function handlePermissionPost(req, res, options) {
         permEntry.abortHandler = abortHandler;
         res.on("close", abortHandler);
 
-        addPendingPermission(ctx, permEntry);
+        addPendingPermission(ctx, permEntry, appModeRequest);
         ctx.updateSession(sessionId, "notification", "PermissionRequest", qwenSessionOptions);
 
         ctx.permLog(`qwen showing bubble: tool=${toolName} session=${sessionId} stack=${ctx.pendingPermissions.length}`);
@@ -894,7 +930,7 @@ function handlePermissionPost(req, res, options) {
           return;
         }
 
-        if (shouldBypassCopilotBubble(ctx)) {
+        if (shouldBypassCopilotBubble(ctx, appModeRequest)) {
           recordRequestHookEvent.accepted();
           const reason = !arePermissionBubblesEnabled(ctx)
             ? "permission bubbles disabled"
@@ -941,7 +977,7 @@ function handlePermissionPost(req, res, options) {
         permEntry.abortHandler = abortHandler;
         res.on("close", abortHandler);
 
-        addPendingPermission(ctx, permEntry);
+        addPendingPermission(ctx, permEntry, appModeRequest);
         ctx.updateSession(sessionId, "notification", "PermissionRequest", copilotSessionOptions);
 
         ctx.permLog(`copilot showing bubble: tool=${toolName} session=${sessionId} stack=${ctx.pendingPermissions.length}`);
@@ -963,13 +999,17 @@ function handlePermissionPost(req, res, options) {
       // ── Pi extension legacy PermissionRequest branch ──
       // Pi is state-only in Clawd. Current extensions never POST /permission.
       // A pre-state-only managed extension may still be loaded in an existing
-      // Pi process, so return "allow" to preserve Pi's native YOLO behavior
-      // instead of turning Clawd fallback into a terminal confirmation prompt.
+      // Pi process, so Normal retains its legacy allow response. DND must win
+      // first, however: sending allow after recording a drop is a decision.
       if (agentId === "pi") {
         const toolName = typeof data.tool_name === "string" && data.tool_name ? data.tool_name : "unknown";
         if (ctx.doNotDisturb) {
           recordRequestHookEvent.droppedByDnd();
-        } else if (typeof ctx.isAgentEnabled === "function" && !ctx.isAgentEnabled("pi")) {
+          ctx.permLog(`pi DND -> no decision, native fallback (tool=${toolName})`);
+          sendPiPermissionNoDecision(res);
+          return;
+        }
+        if (typeof ctx.isAgentEnabled === "function" && !ctx.isAgentEnabled("pi")) {
           recordRequestHookEvent.droppedByDisabled();
         } else {
           recordRequestHookEvent.accepted();
@@ -1019,7 +1059,7 @@ function handlePermissionPost(req, res, options) {
           return;
         }
 
-        if (shouldBypassHermesBubble(ctx)) {
+        if (shouldBypassHermesBubble(ctx, appModeRequest)) {
           recordRequestHookEvent.accepted();
           const reason = !arePermissionBubblesEnabled(ctx)
             ? "permission bubbles disabled"
@@ -1081,7 +1121,7 @@ function handlePermissionPost(req, res, options) {
           };
           permEntry.abortHandler = abortHandler;
           res.on("close", abortHandler);
-          addPendingPermission(ctx, permEntry);
+          addPendingPermission(ctx, permEntry, appModeRequest);
           recordRequestHookEvent.accepted();
           try {
             ctx.showPermissionBubble(permEntry);
@@ -1144,7 +1184,7 @@ function handlePermissionPost(req, res, options) {
         };
         permEntry.abortHandler = abortHandler;
         res.on("close", abortHandler);
-        addPendingPermission(ctx, permEntry);
+        addPendingPermission(ctx, permEntry, appModeRequest);
         recordRequestHookEvent.accepted();
         try {
           ctx.showPermissionBubble(permEntry);
@@ -1231,7 +1271,7 @@ function handlePermissionPost(req, res, options) {
         return;
       }
 
-      if (shouldBypassCCBubble(ctx, interaction, permAgentId)) {
+      if (shouldBypassCCBubble(ctx, interaction, permAgentId, appModeRequest)) {
         recordRequestHookEvent.accepted();
         // "Permission bubbles disabled" (the global/local toggle) only means
         // no desktop window — it must not also drop Telegram remote approval.
@@ -1321,7 +1361,7 @@ function handlePermissionPost(req, res, options) {
         };
         permEntry.abortHandler = abortHandler;
         res.on("close", abortHandler);
-        addPendingPermission(ctx, permEntry);
+        addPendingPermission(ctx, permEntry, appModeRequest);
         recordRequestHookEvent.accepted();
         try {
           ctx.showPermissionBubble(permEntry);
@@ -1371,7 +1411,7 @@ function handlePermissionPost(req, res, options) {
       permEntry.abortHandler = abortHandler;
       res.on("close", abortHandler);
 
-      addPendingPermission(ctx, permEntry);
+      addPendingPermission(ctx, permEntry, appModeRequest);
 
       // Play notification animation on the pet body so the bubble doesn't
       // appear "silently". Mirrors the other permission-notification branches
@@ -1437,6 +1477,7 @@ module.exports = {
   sendQwenCodePermissionNoDecision,
   sendCopilotPermissionNoDecision,
   sendPiPermissionAllow,
+  sendPiPermissionNoDecision,
   sendAntigravityPermissionNoDecision,
   sendHermesPermissionNoDecision,
   shouldBypassHermesBubble,

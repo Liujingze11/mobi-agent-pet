@@ -24,9 +24,11 @@ const AGENTLOG_PATCHED_UPSTREAM_FILES = [
   "src/login-item.js",
   "src/main.js",
   "src/menu.js",
+  "src/permission.js",
   "src/prefs.js",
   "src/preload-settings.js",
   "src/roam.js",
+  "src/server-route-permission.js",
   "src/settings-i18n.js",
   "src/settings-ipc.js",
   "src/settings-renderer.js",
@@ -39,6 +41,7 @@ const AGENTLOG_PATCHED_UPSTREAM_FILES = [
   "src/tray-flash-icon.js",
   "src/tutorial-renderer.js",
   "src/tutorial.js",
+  "src/updater.js",
   "test/agents.test.js",
   "test/app-mode-main.test.js",
   "test/app-mode.test.js",
@@ -63,6 +66,7 @@ const AGENTLOG_PATCHED_UPSTREAM_FILES = [
   "test/tutorial-hero-asset.test.js",
   "test/tutorial-renderer-agent-icons.test.js",
   "test/tutorial.test.js",
+  "test/updater.test.js",
 ];
 
 test("the complete Clawd runtime is pinned to the approved commit", () => {

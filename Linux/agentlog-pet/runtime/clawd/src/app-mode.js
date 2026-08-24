@@ -6,12 +6,18 @@ const APP_MODE = Object.freeze({
   AUTOMATIC: "automatic",
 });
 
+const PERMISSION_AUTOMATION_MODES = new Set([
+  "off",
+  "auto-tools",
+  "unattended",
+]);
+
 function isAppMode(value) {
   return Object.values(APP_MODE).includes(value);
 }
 
 function resolveAppModePolicy(mode, snapshot = {}) {
-  const savedPermissionMode = ["off", "auto-tools", "unattended"].includes(
+  const savedPermissionMode = PERMISSION_AUTOMATION_MODES.has(
     snapshot.permissionAutomationMode
   ) ? snapshot.permissionAutomationMode : "off";
   const quiet = mode === APP_MODE.BACKGROUND || mode === APP_MODE.AUTOMATIC;
@@ -26,6 +32,7 @@ function resolveAppModePolicy(mode, snapshot = {}) {
     allowWorkAnimations: mode !== APP_MODE.BACKGROUND,
     allowNotificationAnimation: mode === APP_MODE.NORMAL,
     allowCompletionAnimation: mode !== APP_MODE.BACKGROUND,
+    forceCompletionAnimation: mode === APP_MODE.AUTOMATIC,
     permissionAutomationMode: mode === APP_MODE.AUTOMATIC
       ? "unattended"
       : (mode === APP_MODE.BACKGROUND ? "off" : savedPermissionMode),
@@ -45,10 +52,30 @@ function resolveEffectiveBubblePolicy(basePolicy, suppressed) {
   return basePolicy;
 }
 
-function createAppModeRuntime({ applyMode = async () => {} } = {}) {
+function createAppModeRuntime({
+  applyMode = async () => {},
+  onModeCommitted = async () => {},
+} = {}) {
   let mode = APP_MODE.NORMAL;
+  let generation = 0;
   let automaticAuthorized = false;
   let transitionQueue = Promise.resolve();
+
+  function isAutomaticPermissionRequestCurrent(requestContext) {
+    return !!requestContext
+      && requestContext.mode === APP_MODE.AUTOMATIC
+      && requestContext.generation === generation
+      && mode === APP_MODE.AUTOMATIC;
+  }
+
+  function resolvePermissionAutomationMode(requestContext, savedPermissionMode) {
+    const savedMode = PERMISSION_AUTOMATION_MODES.has(savedPermissionMode)
+      ? savedPermissionMode
+      : "off";
+    if (!requestContext || !isAppMode(requestContext.mode)) return "off";
+    if (requestContext.mode === APP_MODE.NORMAL) return savedMode;
+    return isAutomaticPermissionRequestCurrent(requestContext) ? "unattended" : "off";
+  }
 
   async function setModeInternal(targetMode, { confirmed = false } = {}) {
     if (!isAppMode(targetMode)) {
@@ -80,6 +107,12 @@ function createAppModeRuntime({ applyMode = async () => {} } = {}) {
     try {
       await applyMode(targetMode, previousMode, { rollback: false });
       mode = targetMode;
+      generation += 1;
+      try {
+        await onModeCommitted(targetMode, previousMode);
+      } catch {
+        // A post-commit observer must not roll back a completed user transition.
+      }
       return { status: "ok", mode };
     } catch (error) {
       mode = previousMode;
@@ -98,9 +131,17 @@ function createAppModeRuntime({ applyMode = async () => {} } = {}) {
   }
 
   return {
+    capturePermissionRequest() {
+      return Object.freeze({ mode, generation });
+    },
+
     getMode() {
       return mode;
     },
+
+    isAutomaticPermissionRequestCurrent,
+
+    resolvePermissionAutomationMode,
 
     isAutomaticAuthorized() {
       return automaticAuthorized;
@@ -114,6 +155,111 @@ function createAppModeRuntime({ applyMode = async () => {} } = {}) {
   };
 }
 
+function createAppModeController(options = {}) {
+  const getSettingsSnapshot = options.getSettingsSnapshot || (() => ({}));
+  const stopTrayFlash = options.stopTrayFlash || (() => {});
+  const dismissPermissionsForDnd = options.dismissPermissionsForDnd || (() => {});
+  const rememberUpdatePrompt = options.rememberUpdatePrompt || (() => {});
+  const hideUpdateBubble = options.hideUpdateBubble || (() => {});
+  const syncSessionHudVisibility = options.syncSessionHudVisibility || (() => {});
+  const cancelRoam = options.cancelRoam || (() => {});
+  const enableDoNotDisturb = options.enableDoNotDisturb || (() => {});
+  const clearQuietModePermissionState = options.clearQuietModePermissionState || (() => {});
+  const disableDoNotDisturb = options.disableDoNotDisturb || (() => {});
+  const resolveDisplayState = options.resolveDisplayState || (() => "idle");
+  const getSvgOverride = options.getSvgOverride || (() => null);
+  const applyState = options.applyState || (() => {});
+  const notifyUpdaterSilentExit = options.notifyUpdaterSilentExit || (() => {});
+  let transitionMode = null;
+  let updaterResumePending = false;
+
+  function resumeUpdaterAfterCommit() {
+    updaterResumePending = false;
+    try {
+      notifyUpdaterSilentExit();
+    } catch {
+      // Update restoration is best effort and must not undo a mode change.
+    }
+  }
+
+  async function applyModeTransition(mode) {
+    stopTrayFlash();
+    dismissPermissionsForDnd();
+    if (mode === APP_MODE.BACKGROUND || mode === APP_MODE.AUTOMATIC) {
+      rememberUpdatePrompt();
+    }
+    hideUpdateBubble();
+    syncSessionHudVisibility();
+    cancelRoam();
+
+    if (mode === APP_MODE.BACKGROUND) {
+      enableDoNotDisturb();
+      return;
+    }
+
+    if (mode === APP_MODE.AUTOMATIC) {
+      clearQuietModePermissionState();
+    }
+    disableDoNotDisturb();
+    const resolved = resolveDisplayState();
+    applyState(resolved, getSvgOverride(resolved));
+  }
+
+  const runtime = createAppModeRuntime({
+    applyMode: async (targetMode, previousMode, transitionOptions) => {
+      transitionMode = targetMode;
+      try {
+        await applyModeTransition(targetMode, previousMode, transitionOptions);
+      } finally {
+        transitionMode = null;
+      }
+    },
+    onModeCommitted: (targetMode, previousMode) => {
+      if (
+        targetMode === APP_MODE.NORMAL
+        && (
+          previousMode === APP_MODE.BACKGROUND
+          || previousMode === APP_MODE.AUTOMATIC
+          || updaterResumePending
+        )
+      ) {
+        resumeUpdaterAfterCommit();
+      }
+    },
+  });
+
+  async function setActiveAppMode(mode, options) {
+    const result = await runtime.setMode(mode, options);
+    if (
+      result.status === "error"
+      && runtime.getMode() === APP_MODE.NORMAL
+      && updaterResumePending
+    ) {
+      resumeUpdaterAfterCommit();
+    }
+    return result;
+  }
+
+  return {
+    getActiveAppMode: runtime.getMode,
+    isAutomaticModeAuthorized: runtime.isAutomaticAuthorized,
+    getEffectiveAppModePolicy(mode = runtime.getMode()) {
+      return resolveAppModePolicy(transitionMode || mode, getSettingsSnapshot());
+    },
+    capturePermissionRequest: runtime.capturePermissionRequest,
+    isAutomaticPermissionRequestCurrent: runtime.isAutomaticPermissionRequestCurrent,
+    resolvePermissionAutomationMode: runtime.resolvePermissionAutomationMode,
+    notifyUpdaterSilentExit() {
+      if (transitionMode !== null) {
+        updaterResumePending = true;
+        return;
+      }
+      resumeUpdaterAfterCommit();
+    },
+    setActiveAppMode,
+  };
+}
+
 module.exports = {
   APP_MODE,
   isAppMode,
@@ -122,4 +268,5 @@ module.exports = {
   resolveEffectiveTrayFlashEnabled,
   resolveEffectiveBubblePolicy,
   createAppModeRuntime,
+  createAppModeController,
 };

@@ -119,6 +119,8 @@ function initUpdater(ctx, deps = {}) {
   let pendingUpdateVersion = "";
   let pendingUpdateRelease = null;
   let pendingPromptDeferred = null;
+  let activePendingPrompt = null;
+  let pendingPromptToken = 0;
 
   function isManualCheck() {
     return !!activeCheck && activeCheck.trigger === "manual";
@@ -208,10 +210,12 @@ function initUpdater(ctx, deps = {}) {
 
   function clearPendingUpdate() {
     const storedPending = String(readPref("pendingUpdateVersion", "") || "");
-    if (!pendingUpdateVersion && !pendingUpdateRelease && !pendingPromptDeferred && !storedPending) return;
+    if (!pendingUpdateVersion && !pendingUpdateRelease && !pendingPromptDeferred && !activePendingPrompt && !storedPending) return;
     pendingUpdateVersion = "";
     pendingUpdateRelease = null;
     pendingPromptDeferred = null;
+    activePendingPrompt = null;
+    pendingPromptToken += 1;
     writePref("pendingUpdateVersion", "");
     rebuildMenus();
   }
@@ -237,19 +241,35 @@ function initUpdater(ctx, deps = {}) {
     rebuildMenus();
   }
 
-  // Called by main.js when the user leaves DND or exits mini mode. If we
-  // discovered a new version during silent mode and stashed a deferred
-  // prompt, run it now — but only if both silent modes are actually off.
-  // Otherwise (e.g. DND off but still in mini, or vice versa) we are still
-  // in silent territory and the prompt has to keep waiting for the second
-  // exit.
+  // Called by main.js immediately after a silent mode becomes active. An
+  // already-visible prompt has no useful result while its bubble is hidden,
+  // so retain its input and recreate it after the next real silent exit.
+  function onSilentModeEnter() {
+    if (!activePendingPrompt) return false;
+    const prompt = activePendingPrompt;
+    activePendingPrompt = null;
+    pendingPromptToken += 1;
+    pendingPromptDeferred = () => handlePendingVersion(
+      prompt.version,
+      prompt.release,
+      prompt.promptCtx,
+    );
+    return true;
+  }
+
+  // Called by main.js when the user leaves DND or exits mini mode. Keep the
+  // queued callback intact until its execution-time silent check succeeds;
+  // another transition may begin between this call and the microtask.
   function onSilentModeExit() {
     if (!pendingPromptDeferred) return;
     if (isSilentMode()) return;
     const run = pendingPromptDeferred;
-    pendingPromptDeferred = null;
     Promise.resolve()
-      .then(() => run())
+      .then(() => {
+        if (pendingPromptDeferred !== run || isSilentMode()) return;
+        pendingPromptDeferred = null;
+        return run();
+      })
       .catch((err) => log(`pending prompt resume failed: ${err && err.message}`));
   }
 
@@ -642,6 +662,14 @@ function initUpdater(ctx, deps = {}) {
       ? t("updateAvailableMacMsg", "v{version} is available. Open the download page?")
       : t("updateAvailableMsg", "v{version} is available. Download and install now?");
 
+    const promptToken = ++pendingPromptToken;
+    activePendingPrompt = {
+      token: promptToken,
+      version,
+      release,
+      promptCtx,
+    };
+
     const result = await awaitBubbleResult(showBubble({
       mode: "available",
       title: t("updateAvailable", "Update Available"),
@@ -655,6 +683,9 @@ function initUpdater(ctx, deps = {}) {
       lang: ctx.lang || "en",
       requireAction: true,
     }));
+
+    if (!activePendingPrompt || activePendingPrompt.token !== promptToken) return;
+    activePendingPrompt = null;
 
     if (result.action === "primary") {
       // Round-trip to re-establish the electron-updater event context.
@@ -1338,6 +1369,7 @@ function initUpdater(ctx, deps = {}) {
     quietDiscover,
     handlePendingVersion,
     reconcilePendingOnStartup,
+    onSilentModeEnter,
     onSilentModeExit,
     getPendingUpdateVersion,
     startUpdateScheduler,

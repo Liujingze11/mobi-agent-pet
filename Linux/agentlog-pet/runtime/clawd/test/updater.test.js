@@ -1453,6 +1453,70 @@ describe("updater #329 background scheduler", () => {
     assert.strictEqual(bubbles.length, 1);
   });
 
+  it("onSilentModeEnter: preserves an already-visible update prompt until silent mode exits", async () => {
+    const prefs = makePrefs();
+    const bubbles = [];
+    const resolvers = [];
+    const ctx = makeCtxWithPrefs(prefs, {
+      showUpdateBubble: (payload) => {
+        bubbles.push(payload);
+        return new Promise((resolve) => resolvers.push(resolve));
+      },
+    });
+    const updater = initUpdater(ctx, makeDeps({
+      app: { isPackaged: true, getVersion: () => "0.5.0", relaunch() {}, exit() {} },
+    }));
+
+    const firstPrompt = updater.handlePendingVersion(
+      "v0.9.0",
+      { tag_name: "v0.9.0" },
+      { trigger: "scheduled" },
+    );
+    assert.strictEqual(bubbles.length, 1);
+
+    ctx.doNotDisturb = true;
+    assert.strictEqual(updater.onSilentModeEnter(), true);
+
+    ctx.doNotDisturb = false;
+    updater.onSilentModeExit();
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.strictEqual(bubbles.length, 2);
+
+    resolvers[0]({ action: "later", source: "user" });
+    resolvers[1]({ action: "later", source: "user" });
+    await firstPrompt;
+  });
+
+  it("onSilentModeExit: keeps a deferred prompt queued when silent mode returns before it runs", async () => {
+    const prefs = makePrefs();
+    const bubbles = [];
+    const ctx = makeCtxWithPrefs(prefs, {
+      doNotDisturb: true,
+      showUpdateBubble: (payload) => {
+        bubbles.push(payload);
+        return Promise.resolve({ action: "later", source: "user" });
+      },
+    });
+    const updater = initUpdater(ctx, makeDeps({
+      app: { isPackaged: true, getVersion: () => "0.5.0", relaunch() {}, exit() {} },
+    }));
+
+    await updater.handlePendingVersion("v0.9.0", { tag_name: "v0.9.0" }, { trigger: "scheduled" });
+    ctx.doNotDisturb = false;
+    updater.onSilentModeExit();
+    ctx.doNotDisturb = true;
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.strictEqual(bubbles.length, 0);
+
+    ctx.doNotDisturb = false;
+    updater.onSilentModeExit();
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.strictEqual(bubbles.length, 1);
+  });
+
   it("handlePendingVersion: already-dismissed version → no bubble but pending set", async () => {
     const prefs = makePrefs({ dismissedUpdateVersions: { "v0.9.0": true } });
     const bubbles = [];

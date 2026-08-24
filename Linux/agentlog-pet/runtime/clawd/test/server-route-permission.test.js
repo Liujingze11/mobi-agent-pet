@@ -3,6 +3,7 @@
 const { describe, it } = require("node:test");
 const assert = require("node:assert");
 const { EventEmitter } = require("node:events");
+const http = require("node:http");
 const initPermission = require("../src/permission");
 
 const {
@@ -23,7 +24,11 @@ const {
   classifyPermissionInteraction,
   isValidInteraction,
 } = require("../src/permission-automation-policy");
-const { APP_MODE, resolveAppModePolicy } = require("../src/app-mode");
+const {
+  APP_MODE,
+  createAppModeRuntime,
+  resolveAppModePolicy,
+} = require("../src/app-mode");
 const { makeSessionKey } = require("../src/session-key");
 
 function localSessionKey(rawSessionId) {
@@ -205,6 +210,113 @@ function callPermissionPostThroughAutomation(body, mode, options = {}) {
   });
 }
 
+function createAutomaticPermissionHarness({ savedPermissionMode = "off" } = {}) {
+  const runtime = createAppModeRuntime();
+  let capturedRequests = 0;
+  const ctx = makeCtx({
+    getBubblePolicy: () => ({
+      enabled: runtime.getMode() !== APP_MODE.AUTOMATIC,
+      autoCloseMs: 0,
+    }),
+    capturePermissionRequest: () => {
+      capturedRequests += 1;
+      return runtime.capturePermissionRequest();
+    },
+    isAutomaticPermissionRequestCurrent: (requestContext) =>
+      runtime.isAutomaticPermissionRequestCurrent(requestContext),
+    getPermissionAutomationMode: (entry) => runtime.resolvePermissionAutomationMode(
+      entry && entry.appModeRequest,
+      savedPermissionMode
+    ),
+    getPetWindowBounds: () => null,
+    getNearestWorkArea: () => ({ x: 0, y: 0, width: 1920, height: 1080 }),
+    getHitRectScreen: () => null,
+    getHudReservedOffset: () => 0,
+    guardAlwaysOnTop() {},
+    reapplyMacVisibility() {},
+    repositionUpdateBubble() {},
+    subscribeShortcuts: () => () => {},
+    reportShortcutFailure() {},
+    clearShortcutFailure() {},
+    maybeStartRemoteApproval: () => false,
+    win: null,
+    bubbleFollowPet: false,
+    petHidden: false,
+  });
+  const permission = initPermission(ctx);
+  Object.assign(ctx, {
+    pendingPermissions: permission.pendingPermissions,
+    PASSTHROUGH_TOOLS: permission.PASSTHROUGH_TOOLS,
+    addPendingPermission: permission.addPendingPermission,
+    removePendingPermission: permission.removePendingPermission,
+    showPermissionBubble: permission.showPermissionBubble,
+    resolvePermissionEntry: permission.resolvePermissionEntry,
+    sendPermissionResponse: permission.sendPermissionResponse,
+    syncPermissionShortcuts: permission.syncPermissionShortcuts,
+    replyOpencodeFamilyPermission: permission.replyOpencodeFamilyPermission,
+  });
+  return {
+    runtime,
+    ctx,
+    permission,
+    getCapturedRequests: () => capturedRequests,
+  };
+}
+
+function callPermissionPostWithHarness(harness, body) {
+  return new Promise((resolve) => {
+    const res = makeRes();
+    const recorder = [];
+    handlePermissionPost(makeReq(body), res, {
+      ctx: harness.ctx,
+      createRequestHookRecorder: (identity, data, route) => {
+        recorder.push({ identity, data, route });
+        return {
+          accepted: () => recorder.push({ outcome: "accepted" }),
+          droppedByDisabled: () => recorder.push({ outcome: "disabled" }),
+          droppedByDnd: () => recorder.push({ outcome: "dnd" }),
+          droppedInvalidAgent: () => recorder.push({ outcome: "invalid-agent" }),
+          droppedUnsupported: () => recorder.push({ outcome: "unsupported" }),
+        };
+      },
+    });
+    setImmediate(() => {
+      setImmediate(() => {
+        res.recorder = recorder;
+        resolve(res);
+      });
+    });
+  });
+}
+
+function startPermissionPostWithHarness(harness) {
+  const req = new EventEmitter();
+  const res = makeRes();
+  const recorder = [];
+  handlePermissionPost(req, res, {
+    ctx: harness.ctx,
+    createRequestHookRecorder: (identity, data, route) => {
+      recorder.push({ identity, data, route });
+      return {
+        accepted: () => recorder.push({ outcome: "accepted" }),
+        droppedByDisabled: () => recorder.push({ outcome: "disabled" }),
+        droppedByDnd: () => recorder.push({ outcome: "dnd" }),
+        droppedInvalidAgent: () => recorder.push({ outcome: "invalid-agent" }),
+        droppedUnsupported: () => recorder.push({ outcome: "unsupported" }),
+      };
+    },
+  });
+  return { req, res, recorder };
+}
+
+async function finishPermissionPost(started, body) {
+  started.req.emit("data", Buffer.from(body));
+  started.req.emit("end");
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  return started.res;
+}
+
 describe("server-route-permission helpers", () => {
   it("preserves bubble bypass decisions for CC, Codex, and opencode", () => {
     assert.strictEqual(shouldBypassCCBubble({ hideBubbles: true }, interaction("claude-code", "Bash"), "claude-code"), true);
@@ -245,6 +357,202 @@ describe("server-route-permission helpers", () => {
 });
 
 describe("server-route-permission POST", () => {
+  it("routes current Automatic requests through the real runtime despite hidden bubbles", async () => {
+    const harness = createAutomaticPermissionHarness();
+    assert.deepStrictEqual(
+      await harness.runtime.setMode(APP_MODE.AUTOMATIC, { confirmed: true }),
+      { status: "ok", mode: APP_MODE.AUTOMATIC }
+    );
+
+    const directCases = [
+      {
+        name: "Claude",
+        body: {
+          agent_id: "claude-code",
+          session_id: "claude:auto",
+          tool_name: "Bash",
+          tool_input: { command: "npm test" },
+        },
+        verify(res) {
+          assert.equal(
+            JSON.parse(res.body).hookSpecificOutput.decision.behavior,
+            "allow"
+          );
+        },
+      },
+      {
+        name: "Codex",
+        body: {
+          agent_id: "codex",
+          session_id: "codex:auto",
+          tool_name: "Bash",
+          tool_input: { command: "npm test" },
+        },
+        verify(res) {
+          assert.equal(
+            JSON.parse(res.body).hookSpecificOutput.decision.behavior,
+            "allow"
+          );
+        },
+      },
+      {
+        name: "Qwen",
+        body: {
+          agent_id: "qwen-code",
+          session_id: "qwen:auto",
+          tool_name: "run_shell_command",
+          tool_input: { command: "npm test" },
+        },
+        verify(res) {
+          assert.equal(
+            JSON.parse(res.body).hookSpecificOutput.decision.behavior,
+            "allow"
+          );
+        },
+      },
+      {
+        name: "Copilot",
+        body: {
+          agent_id: "copilot-cli",
+          session_id: "copilot:auto",
+          tool_name: "edit",
+          tool_input: { filePath: "README.md", oldString: "old", newString: "new" },
+        },
+        verify(res) {
+          const body = JSON.parse(res.body);
+          assert.equal(body.behavior, "allow");
+          assert.equal(body.hookSpecificOutput, undefined);
+        },
+      },
+      {
+        name: "Hermes",
+        body: {
+          agent_id: "hermes",
+          session_id: "hermes:auto",
+          tool_name: "execute_bash",
+          tool_input: { command: "npm test" },
+        },
+        verify(res) {
+          assert.equal(JSON.parse(res.body).decision, "allow");
+        },
+      },
+    ];
+
+    for (const testCase of directCases) {
+      const res = await callPermissionPostWithHarness(
+        harness,
+        JSON.stringify(testCase.body)
+      );
+      assert.equal(res.statusCode, 200, testCase.name);
+      assert.equal(res.destroyed, false, testCase.name);
+      testCase.verify(res);
+      assert.equal(harness.permission.pendingPermissions.length, 0, testCase.name);
+    }
+
+    let resolveBridgeReply;
+    let rejectBridgeReply;
+    let bridgeTimer;
+    const bridgeReply = new Promise((resolve, reject) => {
+      resolveBridgeReply = resolve;
+      rejectBridgeReply = reject;
+    });
+    const bridge = http.createServer((req, res) => {
+      let body = "";
+      req.on("data", (chunk) => { body += chunk; });
+      req.on("end", () => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end("{}");
+        clearTimeout(bridgeTimer);
+        resolveBridgeReply({
+          authorization: req.headers.authorization,
+          body: JSON.parse(body),
+        });
+      });
+    });
+    await new Promise((resolve) => bridge.listen(0, "127.0.0.1", resolve));
+    try {
+      const { port } = bridge.address();
+      bridgeTimer = setTimeout(() => {
+        rejectBridgeReply(new Error("Automatic opencode request did not reach the reverse bridge"));
+      }, 250);
+      const res = await callPermissionPostWithHarness(harness, JSON.stringify({
+        agent_id: "opencode",
+        session_id: "opencode:auto",
+        tool_name: "Bash",
+        tool_input: { command: "npm test" },
+        request_id: "automatic-opencode-request",
+        bridge_url: `http://127.0.0.1:${port}`,
+        bridge_token: "automatic-opencode-token",
+      }));
+      assert.equal(res.statusCode, 200);
+      assert.equal(res.body, "ok");
+      assert.equal(harness.permission.pendingPermissions.length, 0);
+      const received = await bridgeReply;
+      assert.equal(received.authorization, "Bearer automatic-opencode-token");
+      assert.deepStrictEqual(received.body, {
+        request_id: "automatic-opencode-request",
+        reply: "once",
+      });
+    } finally {
+      clearTimeout(bridgeTimer);
+      await new Promise((resolve) => bridge.close(resolve));
+    }
+
+    assert.equal(harness.getCapturedRequests(), 6);
+  });
+
+  it("binds delayed permission bodies to their ingress Automatic generation", async () => {
+    const body = JSON.stringify({
+      agent_id: "codex",
+      session_id: "codex:delayed-generation",
+      tool_name: "Bash",
+      tool_input: { command: "npm test" },
+    });
+
+    const normalToAutomatic = createAutomaticPermissionHarness();
+    const normalRequest = startPermissionPostWithHarness(normalToAutomatic);
+    await normalToAutomatic.runtime.setMode(APP_MODE.AUTOMATIC, { confirmed: true });
+    const normalToAutomaticResult = await finishPermissionPost(normalRequest, body);
+    assert.equal(normalToAutomaticResult.statusCode, 204);
+    assert.equal(normalToAutomaticResult.body, "");
+    assert.equal(normalToAutomatic.permission.pendingPermissions.length, 0);
+
+    const automaticToNormal = createAutomaticPermissionHarness({ savedPermissionMode: "unattended" });
+    automaticToNormal.ctx.showPermissionBubble = () => {};
+    await automaticToNormal.runtime.setMode(APP_MODE.AUTOMATIC, { confirmed: true });
+    const automaticRequest = startPermissionPostWithHarness(automaticToNormal);
+    await automaticToNormal.runtime.setMode(APP_MODE.NORMAL);
+    const automaticToNormalResult = await finishPermissionPost(automaticRequest, body);
+    assert.equal(automaticToNormalResult.statusCode, null);
+    assert.equal(automaticToNormalResult.body, "");
+    assert.equal(automaticToNormal.permission.pendingPermissions.length, 1);
+    assert.equal(
+      automaticToNormal.permission.pendingPermissions[0].appModeRequest.mode,
+      APP_MODE.AUTOMATIC
+    );
+    automaticToNormalResult.destroy();
+
+    const automaticReentered = createAutomaticPermissionHarness({ savedPermissionMode: "unattended" });
+    await automaticReentered.runtime.setMode(APP_MODE.AUTOMATIC, { confirmed: true });
+    const firstAutomaticRequest = startPermissionPostWithHarness(automaticReentered);
+    await automaticReentered.runtime.setMode(APP_MODE.NORMAL);
+    await automaticReentered.runtime.setMode(APP_MODE.AUTOMATIC, { confirmed: true });
+    const automaticReenteredResult = await finishPermissionPost(firstAutomaticRequest, body);
+    assert.equal(automaticReenteredResult.statusCode, 204);
+    assert.equal(automaticReenteredResult.body, "");
+    assert.equal(automaticReentered.permission.pendingPermissions.length, 0);
+
+    const normalSavedMode = createAutomaticPermissionHarness({ savedPermissionMode: "unattended" });
+    const normalSavedRequest = startPermissionPostWithHarness(normalSavedMode);
+    const normalSavedResult = await finishPermissionPost(normalSavedRequest, body);
+    assert.equal(normalSavedResult.statusCode, 200);
+    assert.equal(
+      JSON.parse(normalSavedResult.body).hookSpecificOutput.decision.behavior,
+      "allow"
+    );
+    assert.equal(normalSavedMode.permission.pendingPermissions.length, 0);
+  });
+
   it("stamps a valid tool-approval interaction on every entry-producing adapter", async () => {
     const cases = [
       { agentId: "claude-code", body: {} },
@@ -816,7 +1124,7 @@ describe("server-route-permission POST", () => {
     assert.deepStrictEqual(res.ctx.pendingPermissions, []);
   });
 
-  it("allows legacy Pi permission requests during DND to preserve Pi YOLO behavior", async () => {
+  it("returns no-decision for Pi DND fallback", async () => {
     const res = await callPermissionPost(JSON.stringify({
       agent_id: "pi",
       session_id: "pi:sid",
@@ -826,9 +1134,9 @@ describe("server-route-permission POST", () => {
       ctx: { doNotDisturb: true },
     });
 
-    assert.strictEqual(res.statusCode, 200);
+    assert.strictEqual(res.statusCode, 204);
     assert.strictEqual(res.headers[CLAWD_SERVER_HEADER], CLAWD_SERVER_ID);
-    assert.strictEqual(JSON.parse(res.body).hookSpecificOutput.decision.behavior, "allow");
+    assert.strictEqual(res.body, "");
     assert.deepStrictEqual(res.recorder.map((entry) => entry.outcome).filter(Boolean), ["dnd"]);
     assert.deepStrictEqual(res.ctx.pendingPermissions, []);
   });
@@ -957,6 +1265,26 @@ describe("server-route-permission POST", () => {
     assert.strictEqual(JSON.parse(res.body).hookSpecificOutput.decision.behavior, "allow");
     assert.deepStrictEqual(res.ctx.pendingPermissions, []);
     assert.deepStrictEqual(res.recorder.map((item) => item.outcome).filter(Boolean), ["disabled"]);
+  });
+
+  it("keeps Pi DND no-decision ahead of its disabled legacy allow path", async () => {
+    const res = await callPermissionPost(JSON.stringify({
+      agent_id: "pi",
+      session_id: "pi:dnd-disabled",
+      tool_name: "edit",
+      tool_input: { path: "a.txt" },
+    }), {
+      ctx: {
+        doNotDisturb: true,
+        isAgentEnabled: (agentId) => agentId !== "pi",
+      },
+    });
+
+    assert.strictEqual(res.statusCode, 204);
+    assert.strictEqual(res.body, "");
+    assert.doesNotMatch(res.body, /allow/);
+    assert.deepStrictEqual(res.recorder.map((item) => item.outcome).filter(Boolean), ["dnd"]);
+    assert.deepStrictEqual(res.ctx.pendingPermissions, []);
   });
 
   it("pushes a normal Claude permission entry and shows the bubble", async () => {

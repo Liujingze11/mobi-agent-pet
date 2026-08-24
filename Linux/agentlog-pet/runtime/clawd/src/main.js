@@ -266,9 +266,7 @@ const {
   isAllBubblesHidden,
 } = require("./bubble-policy");
 const {
-  APP_MODE,
-  createAppModeRuntime,
-  resolveAppModePolicy,
+  createAppModeController,
   resolveEffectiveSoundMuted,
   resolveEffectiveTrayFlashEnabled,
   resolveEffectiveBubblePolicy,
@@ -477,53 +475,38 @@ const _settingsController = createSettingsController({
   },
 });
 
-let _appModeTransitionMode = null;
+let rememberUpdatePromptForSilentMode = () => {};
+const _appModeController = createAppModeController({
+  getSettingsSnapshot: () => _settingsController.getSnapshot(),
+  stopTrayFlash: () => stopTrayFlash(),
+  dismissPermissionsForDnd: () => _perm.dismissPermissionsForDnd(),
+  rememberUpdatePrompt: () => rememberUpdatePromptForSilentMode(),
+  hideUpdateBubble: () => hideUpdateBubble(),
+  syncSessionHudVisibility: () => syncSessionHudVisibility(),
+  cancelRoam: () => _roam.cancelRoam(),
+  enableDoNotDisturb: () => _state.enableDoNotDisturb(),
+  clearQuietModePermissionState: () => _state.clearQuietModePermissionState(),
+  disableDoNotDisturb: () => _state.disableDoNotDisturb(),
+  resolveDisplayState: () => _state.resolveDisplayState(),
+  getSvgOverride: (state) => _state.getSvgOverride(state),
+  applyState: (state, svgOverride) => _state.applyState(state, svgOverride),
+  notifyUpdaterSilentExit: () => notifyUpdaterSilentExit(),
+});
 
 function getActiveAppMode() {
-  return _appModeRuntime.getMode();
+  return _appModeController.getActiveAppMode();
 }
 
 function isAutomaticModeAuthorized() {
-  return _appModeRuntime.isAutomaticAuthorized();
+  return _appModeController.isAutomaticModeAuthorized();
 }
 
-function getEffectiveAppModePolicy(mode = _appModeRuntime.getMode()) {
-  return resolveAppModePolicy(_appModeTransitionMode || mode, _settingsController.getSnapshot());
+function getEffectiveAppModePolicy(mode = getActiveAppMode()) {
+  return _appModeController.getEffectiveAppModePolicy(mode);
 }
-
-async function applyAppModeTransition(mode) {
-  _appModeTransitionMode = mode;
-  try {
-    stopTrayFlash();
-    _perm.dismissPermissionsForDnd();
-    hideUpdateBubble();
-    syncSessionHudVisibility();
-    _roam.cancelRoam();
-
-    if (mode === APP_MODE.BACKGROUND) {
-      _state.enableDoNotDisturb();
-      return;
-    }
-
-    if (mode === APP_MODE.AUTOMATIC) {
-      _state.clearQuietModePermissionState();
-    }
-    const wasDoNotDisturb = doNotDisturb;
-    _state.disableDoNotDisturb();
-    const resolved = _state.resolveDisplayState();
-    _state.applyState(resolved, _state.getSvgOverride(resolved));
-    if (mode === APP_MODE.NORMAL && !wasDoNotDisturb) {
-      notifyUpdaterSilentExit();
-    }
-  } finally {
-    _appModeTransitionMode = null;
-  }
-}
-
-const _appModeRuntime = createAppModeRuntime({ applyMode: applyAppModeTransition });
 
 async function setActiveAppMode(mode, options) {
-  return _appModeRuntime.setMode(mode, options);
+  return _appModeController.setActiveAppMode(mode, options);
 }
 let _remoteSshInstallationIdentity = null;
 
@@ -1518,10 +1501,16 @@ const _permCtx = {
   syncImeEditingPetDodge: () => topmostRuntime.syncImeEditingPetDodge(),
   isAgentPermissionsEnabled: (agentId) =>
     _isAgentPermissionsEnabled({ agents: _settingsController.get("agents") }, agentId),
-  // The permission layer consumes one normalized runtime mode. DND,
-  // headless, per-agent and bubble gates run before this chokepoint.
-  getPermissionAutomationMode: () =>
-    getEffectiveAppModePolicy().permissionAutomationMode,
+  capturePermissionRequest: () => _appModeController.capturePermissionRequest(),
+  isAutomaticPermissionRequestCurrent: (requestContext) =>
+    _appModeController.isAutomaticPermissionRequestCurrent(requestContext),
+  // The permission layer consumes the request's ingress ticket. DND,
+  // headless, per-agent and bubble gates still run before this chokepoint.
+  getPermissionAutomationMode: (permEntry) =>
+    _appModeController.resolvePermissionAutomationMode(
+      permEntry && permEntry.appModeRequest,
+      _settingsController.get("permissionAutomationMode"),
+    ),
   focusTerminalForSession: (sessionId, options = {}) => {
     focusDashboardSession(sessionId, {
       requestSource: options.requestSource || "permission-bubble",
@@ -1692,7 +1681,7 @@ const _stateCtx = {
   set forceEyeResend(v) { setForceEyeResend(v); },
   get mouseStillSince() { return _tick ? _tick._mouseStillSince : Date.now(); },
   get pendingPermissions() { return pendingPermissions; },
-  notifyUpdaterSilentExit: () => notifyUpdaterSilentExit(),
+  notifyUpdaterSilentExit: () => _appModeController.notifyUpdaterSilentExit(),
   sendToRenderer,
   sendToHitWin,
   syncHitWin,
@@ -1703,6 +1692,8 @@ const _stateCtx = {
   resolvePermissionEntry: (...args) => resolvePermissionEntry(...args),
   dismissPermissionsForDnd: (...args) => _perm.dismissPermissionsForDnd(...args),
   allowNotificationAnimation: () => getEffectiveAppModePolicy().allowNotificationAnimation,
+  allowCompletionAnimation: () => getEffectiveAppModePolicy().allowCompletionAnimation,
+  forceCompletionAnimation: () => getEffectiveAppModePolicy().forceCompletionAnimation,
   showKimiNotifyBubble: (...args) => showKimiNotifyBubble(...args),
   clearKimiNotifyBubbles: (...args) => clearKimiNotifyBubbles(...args),
   // state.js needs this to gate startKimiPermissionPoll symmetrically with
@@ -3567,11 +3558,13 @@ const {
   getUpdateMenuItem,
   getUpdateMenuLabel,
   reconcilePendingOnStartup,
+  onSilentModeEnter: updaterOnSilentModeEnter,
   onSilentModeExit: updaterOnSilentModeExit,
   startUpdateScheduler,
   stopUpdateScheduler,
 } = _updater;
 // Now that updater is constructed, point the forward hook at it.
+rememberUpdatePromptForSilentMode = () => { try { updaterOnSilentModeEnter(); } catch {} };
 notifyUpdaterSilentExit = () => { try { updaterOnSilentModeExit(); } catch {} };
 
 // #329: react to the autoUpdateCheck toggle in real time so users see

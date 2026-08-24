@@ -776,7 +776,7 @@ function maybeAutoApprovePermission(permEntry) {
   if (!permEntry) return false;
   if (isPassiveNotifyEntry(permEntry)) return false;
   const mode = typeof ctx.getPermissionAutomationMode === "function"
-    ? ctx.getPermissionAutomationMode()
+    ? ctx.getPermissionAutomationMode(permEntry)
     : PERMISSION_AUTOMATION_MODE.OFF;
   const action = evaluatePermissionAutomation({
     mode,
