@@ -25,6 +25,7 @@ function createContext(overrides = {}) {
     getAppMode: () => "automatic",
     getMiniMode: () => false,
     getMiniTransitioning: () => false,
+    hasBringPetToPrimaryDisplay: true,
     petHidden: false,
     openAtLogin: false,
     requestAppMode: () => {},
@@ -103,5 +104,17 @@ describe("tray menu model", () => {
     assert.strictEqual(commands.execute("unknown"), false);
     assert.deepStrictEqual(calls, ["automatic", "update", "quit"]);
     assert.strictEqual(ctx.openAtLogin, true);
+  });
+
+  it("disables the primary-display action when the parent action is unavailable", () => {
+    const { items } = createTrayMenuModel(
+      createContext({ hasBringPetToPrimaryDisplay: false }),
+      (key) => key
+    );
+
+    assert.strictEqual(
+      flatten(items).find((item) => item.id === "pet.primary-display").enabled,
+      false
+    );
   });
 });

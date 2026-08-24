@@ -235,6 +235,7 @@ module.exports = function initMenu(ctx) {
         getAppMode: () => ctx.getAppMode(),
         getMiniMode: () => ctx.getMiniMode(),
         getMiniTransitioning: () => ctx.getMiniTransitioning(),
+        hasBringPetToPrimaryDisplay: typeof ctx.bringPetToPrimaryDisplay === "function",
         get petHidden() { return ctx.petHidden; },
         get openAtLogin() { return ctx.openAtLogin; },
         set openAtLogin(value) { ctx.openAtLogin = value; },

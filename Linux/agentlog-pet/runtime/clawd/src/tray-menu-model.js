@@ -54,7 +54,9 @@ function buildItems(ctx, t, update) {
       id: "pet.primary-display",
       kind: KIND.item,
       label: t("bringPetToPrimaryDisplay"),
-      enabled: !ctx.getMiniMode() && !ctx.getMiniTransitioning(),
+      enabled: ctx.hasBringPetToPrimaryDisplay === true
+        && !ctx.getMiniMode()
+        && !ctx.getMiniTransitioning(),
     },
     {
       id: "startup.toggle",
