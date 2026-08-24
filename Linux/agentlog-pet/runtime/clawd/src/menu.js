@@ -1,10 +1,12 @@
 "use strict";
 
 const { app, BrowserWindow, screen, Menu, Tray, nativeImage, dialog } = require("electron");
+const fs = require("fs");
 const path = require("path");
 const { keepOutOfTaskbar } = require("./taskbar");
-const { loadTrayNormalIcon } = require("./tray-flash-icon");
+const { loadTrayNormalIcon, loadTrayFlashIcon } = require("./tray-flash-icon");
 const { createTrayMenuModel } = require("./tray-menu-model");
+const { createElectronTrayBackend } = require("./tray-electron-backend");
 
 const isMac = process.platform === "darwin";
 const isWin = process.platform === "win32";
@@ -68,6 +70,8 @@ module.exports = function initMenu(ctx) {
   // ── Translation helper (bound to ctx.lang via the shared i18n module) ──
   const t = createTranslator(() => ctx.lang);
   let pendingAutomaticModeRequest = null;
+  let electronTrayBackend = null;
+  let trayCommands = null;
 
   function reportAppModeFailure(reason) {
     const message = reason && reason.message
@@ -197,6 +201,29 @@ module.exports = function initMenu(ctx) {
   // ── System tray ──
   function createTray() {
     if (ctx.tray) return;
+    if (isLinux) {
+      const normalIcon = loadTrayNormalIcon({
+        nativeImage,
+        platform: process.platform,
+        iconPath: path.join(__dirname, "..", "..", "..", "assets", "brand", "icons", "32x32.png"),
+      });
+      const attentionIcon = loadTrayFlashIcon({
+        nativeImage,
+        platform: process.platform,
+        flashPath: path.join(__dirname, "../assets/tray-icon-flash.png"),
+        fileExists: (iconPath) => fs.existsSync(iconPath),
+      }) || normalIcon;
+      electronTrayBackend = createElectronTrayBackend({
+        Tray,
+        Menu,
+        normalIcon,
+        attentionIcon,
+        tooltip: "AgentLog Pet",
+        dispatch: (id) => trayCommands && trayCommands.execute(id),
+      });
+      buildTrayMenu();
+      return;
+    }
     // Shared with the completion flash so both frames keep the same size (#722).
     const icon = loadTrayNormalIcon({
       nativeImage,
@@ -209,6 +236,12 @@ module.exports = function initMenu(ctx) {
   }
 
   function destroyTray() {
+    if (electronTrayBackend) {
+      electronTrayBackend.stop();
+      electronTrayBackend = null;
+      ctx.tray = null;
+      return;
+    }
     if (!ctx.tray) return;
     ctx.tray.destroy();
     ctx.tray = null;
@@ -228,8 +261,6 @@ module.exports = function initMenu(ctx) {
   }
 
   function buildTrayMenu() {
-    if (!ctx.tray) return;
-
     if (isLinux) {
       const modelContext = {
         getAppMode: () => ctx.getAppMode(),
@@ -258,9 +289,21 @@ module.exports = function initMenu(ctx) {
         requestAppQuit,
       };
       const { items, commands } = createTrayMenuModel(modelContext, t);
-      ctx.tray.setContextMenu(Menu.buildFromTemplate(toElectronTemplate(items, commands)));
+      trayCommands = commands;
+      if (electronTrayBackend) {
+        if (electronTrayBackend.isActive()) {
+          electronTrayBackend.replaceMenu({ items });
+        } else {
+          electronTrayBackend.start({ items });
+          ctx.tray = electronTrayBackend.getNativeTray();
+        }
+      } else if (ctx.tray) {
+        ctx.tray.setContextMenu(Menu.buildFromTemplate(toElectronTemplate(items, commands)));
+      }
       return;
     }
+
+    if (!ctx.tray) return;
 
     // Same grouping discipline as the context menu (see joinGroups), adapted
     // for the tray's larger item set: state / work / system / app / quit.

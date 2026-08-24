@@ -112,3 +112,16 @@ test("missing or unreadable flash asset yields no highlight icon", () => {
     null
   );
 });
+
+test("flash images without Electron's isEmpty API yield no highlight icon", () => {
+  const nativeImage = {
+    createFromPath() {
+      return { resize() { return this; } };
+    },
+  };
+
+  assert.strictEqual(
+    loadTrayFlashIcon({ nativeImage, platform: "linux", flashPath: PATHS.flashPath, fileExists: () => true }),
+    null
+  );
+});

@@ -24,7 +24,7 @@ function loadTrayFlashIcon({ nativeImage, platform, flashPath, fileExists }) {
   if (!fileExists(flashPath)) return null;
 
   const src = nativeImage.createFromPath(flashPath);
-  if (!src || src.isEmpty()) return null;
+  if (!src || typeof src.isEmpty !== "function" || src.isEmpty()) return null;
 
   if (platform !== "darwin") {
     return src.resize({ width: TRAY_PIXEL_SIZE, height: TRAY_PIXEL_SIZE });
