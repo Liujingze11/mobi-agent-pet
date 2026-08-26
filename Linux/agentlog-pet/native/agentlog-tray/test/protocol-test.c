@@ -33,6 +33,26 @@ static JsonNode *parse_message(const gchar *message,
                                             error);
 }
 
+static void assert_invalid_data(const gchar *message,
+                                gsize length,
+                                guint64 menu_revision,
+                                guint64 icon_revision,
+                                const gchar *expected_icon_root,
+                                const gchar *expected_code) {
+  GError *error = NULL;
+  JsonNode *root = agentlog_tray_parse_parent_message(message,
+                                                       length,
+                                                       menu_revision,
+                                                       icon_revision,
+                                                       expected_icon_root,
+                                                       &error);
+
+  g_assert_null(root);
+  g_assert_nonnull(error);
+  g_assert_cmpstr(agentlog_tray_protocol_error_code(error), ==, expected_code);
+  g_clear_error(&error);
+}
+
 static void assert_valid(const gchar *message,
                          guint64 menu_revision,
                          guint64 icon_revision,
@@ -54,17 +74,12 @@ static void assert_invalid(const gchar *message,
                            guint64 icon_revision,
                            const gchar *expected_icon_root,
                            const gchar *expected_code) {
-  GError *error = NULL;
-  JsonNode *root = parse_message(message,
-                                 menu_revision,
-                                 icon_revision,
-                                 expected_icon_root,
-                                 &error);
-
-  g_assert_null(root);
-  g_assert_nonnull(error);
-  g_assert_cmpstr(agentlog_tray_protocol_error_code(error), ==, expected_code);
-  g_clear_error(&error);
+  assert_invalid_data(message,
+                      strlen(message),
+                      menu_revision,
+                      icon_revision,
+                      expected_icon_root,
+                      expected_code);
 }
 
 static gchar *init_with_items(const gchar *items) {
@@ -88,6 +103,15 @@ static gchar *nested_items(guint depth) {
     items = parent;
   }
   return items;
+}
+
+static gchar *nested_arrays(guint depth) {
+  GString *value = g_string_sized_new((gsize)depth * 2 + 4);
+
+  for (guint index = 0; index < depth; index += 1) g_string_append_c(value, '[');
+  g_string_append(value, "null");
+  for (guint index = 0; index < depth; index += 1) g_string_append_c(value, ']');
+  return g_string_free(value, FALSE);
 }
 
 static gchar *separator_items(guint count) {
@@ -118,6 +142,96 @@ static void test_protocol_envelope(void) {
       "{\"version\":1,\"type\":\"launch-shell\"}", 0, 0, NULL, "unknown-message-type");
   assert_invalid("[]", 0, 0, NULL, "invalid-message");
   assert_invalid("{not-json}", 0, 0, NULL, "malformed-json");
+}
+
+static void test_strict_json_rejects_comments(void) {
+  assert_invalid(
+      "/* comment */ {\"version\":1,\"type\":\"shutdown\"}",
+      0,
+      0,
+      NULL,
+      "malformed-json");
+}
+
+static void test_strict_json_rejects_single_quotes(void) {
+  assert_invalid(
+      "{'version':1,'type':'shutdown'}", 0, 0, NULL, "malformed-json");
+}
+
+static void test_strict_json_rejects_variable_assignment(void) {
+  assert_invalid(
+      "var message = {\"version\":1,\"type\":\"shutdown\"};",
+      0,
+      0,
+      NULL,
+      "malformed-json");
+}
+
+static void test_strict_json_rejects_hex_numbers(void) {
+  assert_invalid(
+      "{\"version\":0x1,\"type\":\"shutdown\"}",
+      0,
+      0,
+      NULL,
+      "malformed-json");
+}
+
+static void test_strict_json_rejects_non_json_escapes(void) {
+  assert_invalid(
+      "{\"version\":1,\"type\":\"init\",\"revision\":7,"
+      "\"productId\":\"com.agentlog.pet\",\"tooltip\":\"AgentLog Pet\","
+      "\"iconThemeRoot\":\"" EXPECTED_ICON_ROOT "\",\"icon\":\"agentlog-pet\","
+      "\"items\":[{\"kind\":\"command\",\"id\":\"settings\\x2eopen\","
+      "\"label\":\"Settings\"}]}",
+      0,
+      0,
+      EXPECTED_ICON_ROOT,
+      "malformed-json");
+}
+
+static void test_strict_json_rejects_raw_nul(void) {
+  static const gchar message[] = "{\"version\":1,\"type\":\"shutdown\"}\0";
+
+  assert_invalid_data(
+      message, sizeof(message) - 1, 0, 0, NULL, "malformed-json");
+}
+
+static void test_strict_json_rejects_escaped_nul(void) {
+  assert_invalid(
+      "{\"version\":1,\"type\":\"init\",\"revision\":7,"
+      "\"productId\":\"com.agentlog.pet\",\"tooltip\":\"AgentLog Pet\","
+      "\"iconThemeRoot\":\"" EXPECTED_ICON_ROOT "\",\"icon\":\"agentlog-pet\","
+      "\"items\":[{\"kind\":\"command\",\"id\":\"settings.open\\u0000ignored\","
+      "\"label\":\"Settings\"}]}",
+      0,
+      0,
+      EXPECTED_ICON_ROOT,
+      "malformed-json");
+}
+
+static void test_strict_json_rejects_escaped_controls(void) {
+  assert_invalid(
+      "{\"version\":1,\"type\":\"init\",\"revision\":7,"
+      "\"productId\":\"com.agentlog.pet\",\"tooltip\":\"AgentLog Pet\","
+      "\"iconThemeRoot\":\"" EXPECTED_ICON_ROOT "\",\"icon\":\"agentlog-pet\","
+      "\"items\":[{\"kind\":\"command\",\"id\":\"settings.open\\nignored\","
+      "\"label\":\"Settings\"}]}",
+      0,
+      0,
+      EXPECTED_ICON_ROOT,
+      "malformed-json");
+}
+
+static void test_strict_json_allows_standard_escapes(void) {
+  assert_valid(
+      "{\"version\":1,\"type\":\"init\",\"revision\":7,"
+      "\"productId\":\"com.agentlog.pet\",\"tooltip\":\"AgentLog Pet\","
+      "\"iconThemeRoot\":\"" EXPECTED_ICON_ROOT "\",\"icon\":\"agentlog-pet\","
+      "\"items\":[{\"kind\":\"command\",\"id\":\"settings.open\","
+      "\"label\":\"Set\\\"tings \\/ \\\\ \\u2603\"}]}",
+      0,
+      0,
+      EXPECTED_ICON_ROOT);
 }
 
 static void test_icon_allowlist(void) {
@@ -207,6 +321,19 @@ static void test_descriptor_depth_and_count(void) {
   g_free(depth_four);
   g_free(sixty_four);
   g_free(sixty_five);
+}
+
+static void test_structural_depth_is_bounded_before_parsing(void) {
+  gchar *items = nested_arrays(30000);
+  gchar *message = init_with_items(items);
+  gsize length = strlen(message);
+
+  g_assert_cmpuint(length, <, 65536);
+  assert_invalid_data(
+      message, length, 0, 0, EXPECTED_ICON_ROOT, "menu-too-deep");
+
+  g_free(items);
+  g_free(message);
 }
 
 static void test_descriptor_string_limits(void) {
@@ -316,6 +443,29 @@ static void test_line_limit(void) {
 int main(int argc, char **argv) {
   g_test_init(&argc, &argv, NULL);
   g_test_add_func("/protocol/envelope", test_protocol_envelope);
+  g_test_add_func("/protocol/strict-json/comments", test_strict_json_rejects_comments);
+  g_test_add_func(
+      "/protocol/strict-json/single-quotes", test_strict_json_rejects_single_quotes);
+  g_test_add_func(
+      "/protocol/strict-json/variable-assignment",
+      test_strict_json_rejects_variable_assignment);
+  g_test_add_func(
+      "/protocol/strict-json/hex-numbers", test_strict_json_rejects_hex_numbers);
+  g_test_add_func(
+      "/protocol/strict-json/non-json-escapes",
+      test_strict_json_rejects_non_json_escapes);
+  g_test_add_func("/protocol/strict-json/raw-nul", test_strict_json_rejects_raw_nul);
+  g_test_add_func(
+      "/protocol/strict-json/escaped-nul", test_strict_json_rejects_escaped_nul);
+  g_test_add_func(
+      "/protocol/strict-json/escaped-controls",
+      test_strict_json_rejects_escaped_controls);
+  g_test_add_func(
+      "/protocol/strict-json/standard-escapes",
+      test_strict_json_allows_standard_escapes);
+  g_test_add_func(
+      "/protocol/strict-json/structural-depth",
+      test_structural_depth_is_bounded_before_parsing);
   g_test_add_func("/protocol/icon-allowlist", test_icon_allowlist);
   g_test_add_func("/protocol/revision-bounds", test_revision_bounds);
   g_test_add_func("/protocol/descriptors/depth-and-count", test_descriptor_depth_and_count);

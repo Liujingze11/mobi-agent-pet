@@ -119,6 +119,10 @@ if (!messages.some((message) => message.type === "ready" && message.backend === 
 if (!messages.some((message) => message.type === "host-status" && message.watcher && message.registered)) {
   throw new Error("missing registered host-status message");
 }
+const menuOpened = messages.filter((message) => message.type === "menu-opened");
+if (menuOpened.length !== 1) {
+  throw new Error(`expected exactly one menu-opened message, got ${menuOpened.length}`);
+}
 if (!messages.some((message) => message.type === "command" && message.revision === 7 && message.id === "settings.open")) {
   throw new Error("missing settings.open command event");
 }

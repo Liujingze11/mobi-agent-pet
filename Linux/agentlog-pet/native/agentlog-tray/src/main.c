@@ -17,6 +17,7 @@
 
 #define AGENTLOG_TRAY_LINE_BYTES 65536
 #define AGENTLOG_TRAY_MENU_DEPTH 3
+#define AGENTLOG_TRAY_JSON_DEPTH 9
 #define AGENTLOG_TRAY_MENU_ITEMS 64
 #define AGENTLOG_TRAY_LABEL_CHARS 160
 #define AGENTLOG_TRAY_COMMAND_ID_CHARS 80
@@ -392,6 +393,199 @@ static gboolean validate_parent_object(JsonObject *object,
   return check_keys(object, shutdown_keys, error);
 }
 
+static gboolean strict_json_fail(GError **error) {
+  return protocol_fail(error, PROTOCOL_MALFORMED_JSON, "line is not valid JSON");
+}
+
+static gboolean is_json_line_whitespace(guint8 byte) {
+  return byte == ' ' || byte == '\t' || byte == '\r';
+}
+
+static gboolean is_json_value_delimiter(guint8 byte) {
+  return is_json_line_whitespace(byte) || byte == ',' || byte == ']' || byte == '}';
+}
+
+static gboolean scan_json_string(const guint8 *bytes,
+                                 gsize length,
+                                 gsize *offset,
+                                 GError **error) {
+  gsize cursor = *offset + 1;
+
+  while (cursor < length) {
+    guint8 byte = bytes[cursor];
+
+    if (byte == '"') {
+      *offset = cursor + 1;
+      return TRUE;
+    }
+    if (byte == '\\') {
+      guint8 escape;
+
+      if (length - cursor < 2) return strict_json_fail(error);
+      escape = bytes[cursor + 1];
+      if (escape == '"' || escape == '\\' || escape == '/') {
+        cursor += 2;
+        continue;
+      }
+      if (escape != 'u' || length - cursor < 6) return strict_json_fail(error);
+
+      gunichar value = 0;
+      for (gsize index = cursor + 2; index < cursor + 6; index += 1) {
+        gint digit = g_ascii_xdigit_value((gchar)bytes[index]);
+
+        if (digit < 0) return strict_json_fail(error);
+        value = (value << 4) | (gunichar)digit;
+      }
+      if (g_unichar_iscntrl(value)) return strict_json_fail(error);
+      cursor += 6;
+      continue;
+    }
+    if (byte < 0x20 || byte == 0x7f) return strict_json_fail(error);
+    if (byte < 0x80) {
+      cursor += 1;
+      continue;
+    }
+
+    gunichar value = g_utf8_get_char_validated(
+        (const gchar *)bytes + cursor, (gssize)(length - cursor));
+    if (value == (gunichar)-1 || value == (gunichar)-2 ||
+        g_unichar_iscntrl(value)) {
+      return strict_json_fail(error);
+    }
+    cursor += (gsize)g_utf8_skip[byte];
+  }
+  return strict_json_fail(error);
+}
+
+static gboolean scan_json_literal(const guint8 *bytes,
+                                  gsize length,
+                                  gsize *offset,
+                                  const gchar *literal,
+                                  GError **error) {
+  gsize literal_length = strlen(literal);
+  gsize cursor = *offset;
+
+  if (length - cursor < literal_length ||
+      memcmp(bytes + cursor, literal, literal_length) != 0) {
+    return strict_json_fail(error);
+  }
+  cursor += literal_length;
+  if (cursor < length && !is_json_value_delimiter(bytes[cursor])) {
+    return strict_json_fail(error);
+  }
+  *offset = cursor;
+  return TRUE;
+}
+
+static gboolean scan_json_number(const guint8 *bytes,
+                                 gsize length,
+                                 gsize *offset,
+                                 GError **error) {
+  gsize cursor = *offset;
+
+  if (bytes[cursor] == '-') cursor += 1;
+  if (cursor >= length) return strict_json_fail(error);
+  if (bytes[cursor] == '0') {
+    cursor += 1;
+    if (cursor < length && g_ascii_isdigit((gchar)bytes[cursor])) {
+      return strict_json_fail(error);
+    }
+  } else if (bytes[cursor] >= '1' && bytes[cursor] <= '9') {
+    do {
+      cursor += 1;
+    } while (cursor < length && g_ascii_isdigit((gchar)bytes[cursor]));
+  } else {
+    return strict_json_fail(error);
+  }
+
+  if (cursor < length && bytes[cursor] == '.') {
+    cursor += 1;
+    if (cursor >= length || !g_ascii_isdigit((gchar)bytes[cursor])) {
+      return strict_json_fail(error);
+    }
+    do {
+      cursor += 1;
+    } while (cursor < length && g_ascii_isdigit((gchar)bytes[cursor]));
+  }
+  if (cursor < length && (bytes[cursor] == 'e' || bytes[cursor] == 'E')) {
+    cursor += 1;
+    if (cursor < length && (bytes[cursor] == '+' || bytes[cursor] == '-')) {
+      cursor += 1;
+    }
+    if (cursor >= length || !g_ascii_isdigit((gchar)bytes[cursor])) {
+      return strict_json_fail(error);
+    }
+    do {
+      cursor += 1;
+    } while (cursor < length && g_ascii_isdigit((gchar)bytes[cursor]));
+  }
+  if (cursor < length && !is_json_value_delimiter(bytes[cursor])) {
+    return strict_json_fail(error);
+  }
+  *offset = cursor;
+  return TRUE;
+}
+
+static gboolean preflight_strict_json_line(const gchar *line,
+                                           gsize length,
+                                           GError **error) {
+  const guint8 *bytes = (const guint8 *)line;
+  guint8 containers[AGENTLOG_TRAY_JSON_DEPTH];
+  guint depth = 0;
+  gsize offset = 0;
+
+  while (offset < length) {
+    guint8 byte = bytes[offset];
+
+    if (is_json_line_whitespace(byte) || byte == ':' || byte == ',') {
+      offset += 1;
+      continue;
+    }
+    if (byte == '{' || byte == '[') {
+      if (depth >= AGENTLOG_TRAY_JSON_DEPTH) {
+        return protocol_fail(
+            error, PROTOCOL_MENU_TOO_DEEP, "JSON nesting is too deep");
+      }
+      containers[depth] = byte;
+      depth += 1;
+      offset += 1;
+      continue;
+    }
+    if (byte == '}' || byte == ']') {
+      guint8 expected = byte == '}' ? '{' : '[';
+
+      if (depth == 0 || containers[depth - 1] != expected) {
+        return strict_json_fail(error);
+      }
+      depth -= 1;
+      offset += 1;
+      continue;
+    }
+    if (byte == '"') {
+      if (!scan_json_string(bytes, length, &offset, error)) return FALSE;
+      continue;
+    }
+    if (byte == 't') {
+      if (!scan_json_literal(bytes, length, &offset, "true", error)) return FALSE;
+      continue;
+    }
+    if (byte == 'f') {
+      if (!scan_json_literal(bytes, length, &offset, "false", error)) return FALSE;
+      continue;
+    }
+    if (byte == 'n') {
+      if (!scan_json_literal(bytes, length, &offset, "null", error)) return FALSE;
+      continue;
+    }
+    if (byte == '-' || g_ascii_isdigit((gchar)byte)) {
+      if (!scan_json_number(bytes, length, &offset, error)) return FALSE;
+      continue;
+    }
+    return strict_json_fail(error);
+  }
+  return depth == 0 ? TRUE : strict_json_fail(error);
+}
+
 JsonNode *agentlog_tray_parse_parent_message(const gchar *line,
                                              gsize length,
                                              guint64 menu_revision,
@@ -412,6 +606,7 @@ JsonNode *agentlog_tray_parse_parent_message(const gchar *line,
     protocol_fail(error, PROTOCOL_LINE_TOO_LARGE, "line is too large");
     return NULL;
   }
+  if (!preflight_strict_json_line(line, length, error)) return NULL;
 
   parser = json_parser_new();
   if (!json_parser_load_from_data(parser, line, (gssize)length, &parse_error)) {
@@ -445,6 +640,8 @@ JsonNode *agentlog_tray_parse_parent_message(const gchar *line,
 #define WATCHER_NAME "org.kde.StatusNotifierWatcher"
 #define WATCHER_PATH "/StatusNotifierWatcher"
 #define WATCHER_INTERFACE "org.kde.StatusNotifierWatcher"
+#define DBUSMENU_PATH "/org/ayatana/NotificationItem/com_agentlog_pet_tray/Menu"
+#define DBUSMENU_INTERFACE "com.canonical.dbusmenu"
 
 typedef struct {
   guint64 menu_revision;
@@ -460,6 +657,7 @@ typedef struct {
   guint signal_watch_id;
   guint watcher_watch_id;
   guint property_watch_id;
+  guint menu_filter_id;
   guint host_probe_id;
   gboolean initialized;
   gboolean menu_open;
@@ -838,6 +1036,34 @@ static void on_watcher_properties_changed(GDBusConnection *connection,
   schedule_host_probe(state);
 }
 
+static GDBusMessage *on_session_bus_message(GDBusConnection *connection,
+                                            GDBusMessage *message,
+                                            gboolean incoming,
+                                            gpointer user_data) {
+  AgentLogTrayState *state = user_data;
+  GVariant *body;
+  gint item_id;
+
+  (void)connection;
+  if (!incoming || state->terminating ||
+      g_dbus_message_get_message_type(message) != G_DBUS_MESSAGE_TYPE_METHOD_CALL ||
+      g_strcmp0(g_dbus_message_get_path(message), DBUSMENU_PATH) != 0 ||
+      g_strcmp0(g_dbus_message_get_interface(message), DBUSMENU_INTERFACE) != 0 ||
+      g_strcmp0(g_dbus_message_get_member(message), "AboutToShow") != 0) {
+    return message;
+  }
+
+  body = g_dbus_message_get_body(message);
+  if (body == NULL || !g_variant_is_of_type(body, G_VARIANT_TYPE("(i)"))) {
+    return message;
+  }
+  g_variant_get(body, "(i)", &item_id);
+  if (item_id == 0 && !emit_simple("menu-opened")) {
+    terminate_helper(state, EXIT_FAILURE);
+  }
+  return message;
+}
+
 static void start_host_monitor(AgentLogTrayState *state) {
   GError *error = NULL;
 
@@ -847,6 +1073,8 @@ static void start_host_monitor(AgentLogTrayState *state) {
     query_host_status(state);
     return;
   }
+  state->menu_filter_id = g_dbus_connection_add_filter(
+      state->session_bus, on_session_bus_message, state, NULL);
   state->watcher_watch_id = g_bus_watch_name_on_connection(
       state->session_bus,
       WATCHER_NAME,
@@ -1103,6 +1331,9 @@ static void clear_state(AgentLogTrayState *state) {
   if (state->watcher_watch_id != 0) g_bus_unwatch_name(state->watcher_watch_id);
   if (state->session_bus != NULL && state->property_watch_id != 0) {
     g_dbus_connection_signal_unsubscribe(state->session_bus, state->property_watch_id);
+  }
+  if (state->session_bus != NULL && state->menu_filter_id != 0) {
+    g_dbus_connection_remove_filter(state->session_bus, state->menu_filter_id);
   }
   if (state->stdin_watch_id != 0) g_source_remove(state->stdin_watch_id);
   if (state->signal_watch_id != 0) g_source_remove(state->signal_watch_id);

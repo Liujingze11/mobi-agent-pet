@@ -80,6 +80,7 @@ static gboolean activate_registered_item(gpointer data) {
   GVariantBuilder property_names;
   GVariant *layout_result;
   GVariant *layout;
+  GVariant *about_to_show_result;
   gchar *menu_path = NULL;
   guint revision;
   gint item_id;
@@ -123,6 +124,25 @@ static gboolean activate_registered_item(gpointer data) {
   if (layout_result == NULL) goto retry;
 
   g_variant_get(layout_result, "(u@(ia{sv}av))", &revision, &layout);
+  about_to_show_result = g_dbus_connection_call_sync(
+      state->connection,
+      state->item_service,
+      menu_path,
+      "com.canonical.dbusmenu",
+      "AboutToShow",
+      g_variant_new("(i)", 0),
+      G_VARIANT_TYPE("(b)"),
+      G_DBUS_CALL_FLAGS_NONE,
+      500,
+      NULL,
+      &error);
+  if (about_to_show_result == NULL) {
+    g_variant_unref(layout);
+    g_variant_unref(layout_result);
+    goto retry;
+  }
+  g_variant_unref(about_to_show_result);
+  g_print("OPENED %s\n", menu_path);
   item_id = find_menu_item(layout, "Settings");
   g_variant_unref(layout);
   g_variant_unref(layout_result);
