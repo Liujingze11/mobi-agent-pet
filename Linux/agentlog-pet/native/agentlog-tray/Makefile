@@ -14,12 +14,17 @@ build/protocol-test: src/main.c test/protocol-test.c
 	@mkdir -p build
 	$(CC) $(CFLAGS) -DAGENTLOG_TRAY_TEST -o $@ $^ $(LDLIBS)
 
+build/main-context-test: src/main.c test/main-context-test.c
+	@mkdir -p build
+	$(CC) $(CFLAGS) -DAGENTLOG_TRAY_TEST -o $@ $^ $(LDLIBS)
+
 build/status-notifier-host: test/status-notifier-host.c
 	@mkdir -p build
 	$(CC) $(CFLAGS) -o $@ $< $(LDLIBS)
 
-test: build/protocol-test
+test: build/protocol-test build/main-context-test
 	./build/protocol-test
+	./build/main-context-test
 
 integration-test: build/agentlog-tray build/status-notifier-host
 	xvfb-run -a dbus-run-session -- ./test/dbus-integration.sh

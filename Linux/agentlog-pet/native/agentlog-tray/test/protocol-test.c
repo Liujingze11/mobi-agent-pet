@@ -209,17 +209,16 @@ static void test_strict_json_rejects_escaped_nul(void) {
       "malformed-json");
 }
 
-static void test_strict_json_rejects_escaped_controls(void) {
-  assert_invalid(
+static void test_strict_json_allows_escaped_controls(void) {
+  assert_valid(
       "{\"version\":1,\"type\":\"init\",\"revision\":7,"
       "\"productId\":\"com.agentlog.pet\",\"tooltip\":\"AgentLog Pet\","
       "\"iconThemeRoot\":\"" EXPECTED_ICON_ROOT "\",\"icon\":\"agentlog-pet\","
-      "\"items\":[{\"kind\":\"command\",\"id\":\"settings.open\\nignored\","
-      "\"label\":\"Settings\"}]}",
+      "\"items\":[{\"kind\":\"command\",\"id\":\"settings.open\","
+      "\"label\":\"\\b\\f\\n\\r\\t\\u0001\\u001f\"}]}",
       0,
       0,
-      EXPECTED_ICON_ROOT,
-      "malformed-json");
+      EXPECTED_ICON_ROOT);
 }
 
 static void test_strict_json_allows_standard_escapes(void) {
@@ -228,10 +227,48 @@ static void test_strict_json_allows_standard_escapes(void) {
       "\"productId\":\"com.agentlog.pet\",\"tooltip\":\"AgentLog Pet\","
       "\"iconThemeRoot\":\"" EXPECTED_ICON_ROOT "\",\"icon\":\"agentlog-pet\","
       "\"items\":[{\"kind\":\"command\",\"id\":\"settings.open\","
-      "\"label\":\"Set\\\"tings \\/ \\\\ \\u2603\"}]}",
+      "\"label\":\"\\\" \\\\ \\/ \\b \\f \\n \\r \\t \\u2603\"}]}",
       0,
       0,
       EXPECTED_ICON_ROOT);
+}
+
+static void test_strict_json_allows_raw_non_c0_controls(void) {
+  assert_valid(
+      "{\"version\":1,\"type\":\"init\",\"revision\":7,"
+      "\"productId\":\"com.agentlog.pet\",\"tooltip\":\"AgentLog Pet\","
+      "\"iconThemeRoot\":\"" EXPECTED_ICON_ROOT "\",\"icon\":\"agentlog-pet\","
+      "\"items\":[{\"kind\":\"command\",\"id\":\"settings.open\","
+      "\"label\":\"DEL:\x7f C1:\xC2\x85\"}]}",
+      0,
+      0,
+      EXPECTED_ICON_ROOT);
+}
+
+static void test_strict_json_rejects_raw_c0_control(void) {
+  assert_invalid(
+      "{\"version\":1,\"type\":\"init\",\"revision\":7,"
+      "\"productId\":\"com.agentlog.pet\",\"tooltip\":\"AgentLog Pet\","
+      "\"iconThemeRoot\":\"" EXPECTED_ICON_ROOT "\",\"icon\":\"agentlog-pet\","
+      "\"items\":[{\"kind\":\"command\",\"id\":\"settings.open\","
+      "\"label\":\"raw:\x1f\"}]}",
+      0,
+      0,
+      EXPECTED_ICON_ROOT,
+      "malformed-json");
+}
+
+static void test_strict_json_rejects_invalid_utf8(void) {
+  assert_invalid(
+      "{\"version\":1,\"type\":\"init\",\"revision\":7,"
+      "\"productId\":\"com.agentlog.pet\",\"tooltip\":\"AgentLog Pet\","
+      "\"iconThemeRoot\":\"" EXPECTED_ICON_ROOT "\",\"icon\":\"agentlog-pet\","
+      "\"items\":[{\"kind\":\"command\",\"id\":\"settings.open\","
+      "\"label\":\"invalid:\xC3\x28\"}]}",
+      0,
+      0,
+      EXPECTED_ICON_ROOT,
+      "malformed-json");
 }
 
 static void test_icon_allowlist(void) {
@@ -459,10 +496,19 @@ int main(int argc, char **argv) {
       "/protocol/strict-json/escaped-nul", test_strict_json_rejects_escaped_nul);
   g_test_add_func(
       "/protocol/strict-json/escaped-controls",
-      test_strict_json_rejects_escaped_controls);
+      test_strict_json_allows_escaped_controls);
   g_test_add_func(
       "/protocol/strict-json/standard-escapes",
       test_strict_json_allows_standard_escapes);
+  g_test_add_func(
+      "/protocol/strict-json/raw-non-c0-controls",
+      test_strict_json_allows_raw_non_c0_controls);
+  g_test_add_func(
+      "/protocol/strict-json/raw-c0-control",
+      test_strict_json_rejects_raw_c0_control);
+  g_test_add_func(
+      "/protocol/strict-json/invalid-utf8",
+      test_strict_json_rejects_invalid_utf8);
   g_test_add_func(
       "/protocol/strict-json/structural-depth",
       test_structural_depth_is_bounded_before_parsing);

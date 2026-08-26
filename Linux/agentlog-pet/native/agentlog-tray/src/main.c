@@ -1,3 +1,4 @@
+#include <gio/gio.h>
 #include <glib.h>
 #include <json-glib/json-glib.h>
 #include <math.h>
@@ -5,7 +6,6 @@
 
 #ifndef AGENTLOG_TRAY_TEST
 #include <errno.h>
-#include <gio/gio.h>
 #include <glib-unix.h>
 #include <gtk/gtk.h>
 #include <libayatana-appindicator/app-indicator.h>
@@ -22,6 +22,8 @@
 #define AGENTLOG_TRAY_LABEL_CHARS 160
 #define AGENTLOG_TRAY_COMMAND_ID_CHARS 80
 #define AGENTLOG_TRAY_MAX_REVISION G_GUINT64_CONSTANT(9007199254740991)
+#define DBUSMENU_PATH "/org/ayatana/NotificationItem/com_agentlog_pet_tray/Menu"
+#define DBUSMENU_INTERFACE "com.canonical.dbusmenu"
 
 typedef enum {
   PROTOCOL_INVALID_MESSAGE,
@@ -423,7 +425,8 @@ static gboolean scan_json_string(const guint8 *bytes,
 
       if (length - cursor < 2) return strict_json_fail(error);
       escape = bytes[cursor + 1];
-      if (escape == '"' || escape == '\\' || escape == '/') {
+      if (escape == '"' || escape == '\\' || escape == '/' || escape == 'b' ||
+          escape == 'f' || escape == 'n' || escape == 'r' || escape == 't') {
         cursor += 2;
         continue;
       }
@@ -436,11 +439,11 @@ static gboolean scan_json_string(const guint8 *bytes,
         if (digit < 0) return strict_json_fail(error);
         value = (value << 4) | (gunichar)digit;
       }
-      if (g_unichar_iscntrl(value)) return strict_json_fail(error);
+      if (value == 0) return strict_json_fail(error);
       cursor += 6;
       continue;
     }
-    if (byte < 0x20 || byte == 0x7f) return strict_json_fail(error);
+    if (byte < 0x20) return strict_json_fail(error);
     if (byte < 0x80) {
       cursor += 1;
       continue;
@@ -448,8 +451,7 @@ static gboolean scan_json_string(const guint8 *bytes,
 
     gunichar value = g_utf8_get_char_validated(
         (const gchar *)bytes + cursor, (gssize)(length - cursor));
-    if (value == (gunichar)-1 || value == (gunichar)-2 ||
-        g_unichar_iscntrl(value)) {
+    if (value == (gunichar)-1 || value == (gunichar)-2) {
       return strict_json_fail(error);
     }
     cursor += (gsize)g_utf8_skip[byte];
@@ -635,13 +637,143 @@ JsonNode *agentlog_tray_parse_parent_message(const gchar *line,
   return result;
 }
 
+typedef void (*AgentLogTrayMainContextFunc)(gpointer user_data);
+
+typedef struct _AgentLogTrayMainContextDispatch {
+  gint references;
+  GMutex mutex;
+  GMainContext *context;
+  GSource *source;
+  guint pending_count;
+  gboolean active;
+  AgentLogTrayMainContextFunc callback;
+  gpointer user_data;
+} AgentLogTrayMainContextDispatch;
+
+static AgentLogTrayMainContextDispatch *agentlog_tray_main_context_dispatch_ref(
+    AgentLogTrayMainContextDispatch *dispatch) {
+  g_atomic_int_inc(&dispatch->references);
+  return dispatch;
+}
+
+void agentlog_tray_main_context_dispatch_unref(
+    AgentLogTrayMainContextDispatch *dispatch) {
+  if (!g_atomic_int_dec_and_test(&dispatch->references)) return;
+  g_assert_null(dispatch->source);
+  g_main_context_unref(dispatch->context);
+  g_mutex_clear(&dispatch->mutex);
+  g_free(dispatch);
+}
+
+static void destroy_main_context_dispatch(gpointer user_data) {
+  agentlog_tray_main_context_dispatch_unref(user_data);
+}
+
+static gboolean run_main_context_dispatch(gpointer user_data) {
+  AgentLogTrayMainContextDispatch *dispatch = user_data;
+  AgentLogTrayMainContextFunc callback = NULL;
+  gpointer callback_data = NULL;
+  guint pending_count = 0;
+
+  g_mutex_lock(&dispatch->mutex);
+  dispatch->source = NULL;
+  if (dispatch->active) {
+    callback = dispatch->callback;
+    callback_data = dispatch->user_data;
+    pending_count = dispatch->pending_count;
+  }
+  dispatch->pending_count = 0;
+  g_mutex_unlock(&dispatch->mutex);
+
+  for (guint index = 0; index < pending_count; index += 1) {
+    callback(callback_data);
+  }
+  return G_SOURCE_REMOVE;
+}
+
+AgentLogTrayMainContextDispatch *agentlog_tray_main_context_dispatch_new(
+    GMainContext *context,
+    AgentLogTrayMainContextFunc callback,
+    gpointer user_data) {
+  AgentLogTrayMainContextDispatch *dispatch = g_new0(
+      AgentLogTrayMainContextDispatch, 1);
+
+  dispatch->references = 1;
+  g_mutex_init(&dispatch->mutex);
+  dispatch->context = g_main_context_ref(context);
+  dispatch->active = TRUE;
+  dispatch->callback = callback;
+  dispatch->user_data = user_data;
+  return dispatch;
+}
+
+static gboolean schedule_main_context_dispatch(
+    AgentLogTrayMainContextDispatch *dispatch) {
+  gboolean scheduled = FALSE;
+
+  g_mutex_lock(&dispatch->mutex);
+  if (dispatch->active) {
+    dispatch->pending_count += 1;
+    if (dispatch->source == NULL) {
+      GSource *source = g_idle_source_new();
+
+      g_source_set_callback(
+          source,
+          run_main_context_dispatch,
+          agentlog_tray_main_context_dispatch_ref(dispatch),
+          destroy_main_context_dispatch);
+      dispatch->source = source;
+      g_source_attach(source, dispatch->context);
+      g_source_unref(source);
+    }
+    scheduled = TRUE;
+  }
+  g_mutex_unlock(&dispatch->mutex);
+  return scheduled;
+}
+
+void agentlog_tray_main_context_dispatch_deactivate(
+    AgentLogTrayMainContextDispatch *dispatch) {
+  g_mutex_lock(&dispatch->mutex);
+  dispatch->active = FALSE;
+  dispatch->callback = NULL;
+  dispatch->user_data = NULL;
+  dispatch->pending_count = 0;
+  if (dispatch->source != NULL) {
+    g_source_destroy(dispatch->source);
+    dispatch->source = NULL;
+  }
+  g_mutex_unlock(&dispatch->mutex);
+}
+
+gboolean agentlog_tray_dispatch_session_bus_message(
+    AgentLogTrayMainContextDispatch *dispatch,
+    GDBusMessage *message,
+    gboolean incoming) {
+  GVariant *body;
+  gint item_id;
+
+  if (!incoming ||
+      g_dbus_message_get_message_type(message) != G_DBUS_MESSAGE_TYPE_METHOD_CALL ||
+      g_strcmp0(g_dbus_message_get_path(message), DBUSMENU_PATH) != 0 ||
+      g_strcmp0(g_dbus_message_get_interface(message), DBUSMENU_INTERFACE) != 0 ||
+      g_strcmp0(g_dbus_message_get_member(message), "AboutToShow") != 0) {
+    return FALSE;
+  }
+
+  body = g_dbus_message_get_body(message);
+  if (body == NULL || !g_variant_is_of_type(body, G_VARIANT_TYPE("(i)"))) {
+    return FALSE;
+  }
+  g_variant_get(body, "(i)", &item_id);
+  return item_id == 0 && schedule_main_context_dispatch(dispatch);
+}
+
 #ifndef AGENTLOG_TRAY_TEST
 
 #define WATCHER_NAME "org.kde.StatusNotifierWatcher"
 #define WATCHER_PATH "/StatusNotifierWatcher"
 #define WATCHER_INTERFACE "org.kde.StatusNotifierWatcher"
-#define DBUSMENU_PATH "/org/ayatana/NotificationItem/com_agentlog_pet_tray/Menu"
-#define DBUSMENU_INTERFACE "com.canonical.dbusmenu"
 
 typedef struct {
   guint64 menu_revision;
@@ -659,6 +791,7 @@ typedef struct {
   guint property_watch_id;
   guint menu_filter_id;
   guint host_probe_id;
+  AgentLogTrayMainContextDispatch *menu_opened_dispatch;
   gboolean initialized;
   gboolean menu_open;
   gboolean host_status_known;
@@ -1040,28 +1173,23 @@ static GDBusMessage *on_session_bus_message(GDBusConnection *connection,
                                             GDBusMessage *message,
                                             gboolean incoming,
                                             gpointer user_data) {
-  AgentLogTrayState *state = user_data;
-  GVariant *body;
-  gint item_id;
+  AgentLogTrayMainContextDispatch *dispatch = user_data;
 
   (void)connection;
-  if (!incoming || state->terminating ||
-      g_dbus_message_get_message_type(message) != G_DBUS_MESSAGE_TYPE_METHOD_CALL ||
-      g_strcmp0(g_dbus_message_get_path(message), DBUSMENU_PATH) != 0 ||
-      g_strcmp0(g_dbus_message_get_interface(message), DBUSMENU_INTERFACE) != 0 ||
-      g_strcmp0(g_dbus_message_get_member(message), "AboutToShow") != 0) {
-    return message;
-  }
+  agentlog_tray_dispatch_session_bus_message(dispatch, message, incoming);
+  return message;
+}
 
-  body = g_dbus_message_get_body(message);
-  if (body == NULL || !g_variant_is_of_type(body, G_VARIANT_TYPE("(i)"))) {
-    return message;
-  }
-  g_variant_get(body, "(i)", &item_id);
-  if (item_id == 0 && !emit_simple("menu-opened")) {
+static void emit_remote_menu_opened(gpointer user_data) {
+  AgentLogTrayState *state = user_data;
+
+  if (!state->terminating && !emit_simple("menu-opened")) {
     terminate_helper(state, EXIT_FAILURE);
   }
-  return message;
+}
+
+static void unref_main_context_dispatch(gpointer user_data) {
+  agentlog_tray_main_context_dispatch_unref(user_data);
 }
 
 static void start_host_monitor(AgentLogTrayState *state) {
@@ -1073,8 +1201,13 @@ static void start_host_monitor(AgentLogTrayState *state) {
     query_host_status(state);
     return;
   }
+  state->menu_opened_dispatch = agentlog_tray_main_context_dispatch_new(
+      g_main_context_default(), emit_remote_menu_opened, state);
   state->menu_filter_id = g_dbus_connection_add_filter(
-      state->session_bus, on_session_bus_message, state, NULL);
+      state->session_bus,
+      on_session_bus_message,
+      agentlog_tray_main_context_dispatch_ref(state->menu_opened_dispatch),
+      unref_main_context_dispatch);
   state->watcher_watch_id = g_bus_watch_name_on_connection(
       state->session_bus,
       WATCHER_NAME,
@@ -1332,8 +1465,15 @@ static void clear_state(AgentLogTrayState *state) {
   if (state->session_bus != NULL && state->property_watch_id != 0) {
     g_dbus_connection_signal_unsubscribe(state->session_bus, state->property_watch_id);
   }
+  if (state->menu_opened_dispatch != NULL) {
+    agentlog_tray_main_context_dispatch_deactivate(state->menu_opened_dispatch);
+  }
   if (state->session_bus != NULL && state->menu_filter_id != 0) {
     g_dbus_connection_remove_filter(state->session_bus, state->menu_filter_id);
+  }
+  if (state->menu_opened_dispatch != NULL) {
+    agentlog_tray_main_context_dispatch_unref(state->menu_opened_dispatch);
+    state->menu_opened_dispatch = NULL;
   }
   if (state->stdin_watch_id != 0) g_source_remove(state->stdin_watch_id);
   if (state->signal_watch_id != 0) g_source_remove(state->signal_watch_id);
