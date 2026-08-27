@@ -1,16 +1,11 @@
 "use strict";
 
-const { app, BrowserWindow, screen, Menu, Tray, nativeImage, dialog } = require("electron");
-const fs = require("fs");
-const path = require("path");
+const { app, BrowserWindow, screen, Menu, dialog } = require("electron");
 const { keepOutOfTaskbar } = require("./taskbar");
-const { loadTrayNormalIcon, loadTrayFlashIcon } = require("./tray-flash-icon");
 const { createTrayMenuModel } = require("./tray-menu-model");
-const { createElectronTrayBackend } = require("./tray-electron-backend");
 
 const isMac = process.platform === "darwin";
 const isWin = process.platform === "win32";
-const isLinux = process.platform === "linux";
 
 // Login-item / autostart helpers and the openAtLogin write path live in
 // src/login-item.js + main.js's settings-actions effect. menu.js used to
@@ -46,32 +41,10 @@ function joinGroups(groups) {
   return template;
 }
 
-function toElectronTemplate(items, commands) {
-  return items.map((item) => {
-    if (item.kind === "separator") return { type: "separator" };
-    const rendered = {
-      label: item.label,
-      enabled: item.enabled !== false,
-    };
-    if (item.kind === "checkbox" || item.kind === "radio") {
-      rendered.type = item.kind;
-      rendered.checked = item.checked === true;
-    }
-    if (item.kind === "submenu") {
-      rendered.submenu = toElectronTemplate(item.items, commands);
-    } else if (item.id) {
-      rendered.click = () => commands.execute(item.id);
-    }
-    return rendered;
-  });
-}
-
 module.exports = function initMenu(ctx) {
   // ── Translation helper (bound to ctx.lang via the shared i18n module) ──
   const t = createTranslator(() => ctx.lang);
   let pendingAutomaticModeRequest = null;
-  let electronTrayBackend = null;
-  let trayCommands = null;
 
   function reportAppModeFailure(reason) {
     const message = reason && reason.message
@@ -200,51 +173,13 @@ module.exports = function initMenu(ctx) {
 
   // ── System tray ──
   function createTray() {
-    if (ctx.tray) return;
-    if (isLinux) {
-      const normalIcon = loadTrayNormalIcon({
-        nativeImage,
-        platform: process.platform,
-        iconPath: path.join(__dirname, "..", "..", "..", "assets", "brand", "icons", "32x32.png"),
-      });
-      const attentionIcon = loadTrayFlashIcon({
-        nativeImage,
-        platform: process.platform,
-        flashPath: path.join(__dirname, "../assets/tray-icon-flash.png"),
-        fileExists: (iconPath) => fs.existsSync(iconPath),
-      }) || normalIcon;
-      electronTrayBackend = createElectronTrayBackend({
-        Tray,
-        Menu,
-        normalIcon,
-        attentionIcon,
-        tooltip: "AgentLog Pet",
-        dispatch: (id) => trayCommands && trayCommands.execute(id),
-      });
-      buildTrayMenu();
-      return;
-    }
-    // Shared with the completion flash so both frames keep the same size (#722).
-    const icon = loadTrayNormalIcon({
-      nativeImage,
-      platform: process.platform,
-      iconPath: path.join(__dirname, "..", "..", "..", "assets", "brand", "icons", "32x32.png"),
-    });
-    ctx.tray = new Tray(icon);
-    ctx.tray.setToolTip("AgentLog Pet");
-    buildTrayMenu();
+    if (!ctx.trayRuntime) return Promise.resolve();
+    return ctx.trayRuntime.start(buildTraySnapshot());
   }
 
   function destroyTray() {
-    if (electronTrayBackend) {
-      electronTrayBackend.stop();
-      electronTrayBackend = null;
-      ctx.tray = null;
-      return;
-    }
-    if (!ctx.tray) return;
-    ctx.tray.destroy();
-    ctx.tray = null;
+    if (!ctx.trayRuntime) return Promise.resolve();
+    return ctx.trayRuntime.stop();
   }
 
   function applyDockVisibility() {
@@ -260,9 +195,9 @@ module.exports = function initMenu(ctx) {
     ctx.reapplyMacVisibility();
   }
 
-  function buildTrayMenu() {
-    if (isLinux) {
-      const modelContext = {
+  function buildTraySnapshot() {
+    const modelContext = {
+        platform: process.platform,
         getAppMode: () => ctx.getAppMode(),
         getMiniMode: () => ctx.getMiniMode(),
         getMiniTransitioning: () => ctx.getMiniTransitioning(),
@@ -270,6 +205,10 @@ module.exports = function initMenu(ctx) {
         get petHidden() { return ctx.petHidden; },
         get openAtLogin() { return ctx.openAtLogin; },
         set openAtLogin(value) { ctx.openAtLogin = value; },
+        get showTray() { return ctx.showTray; },
+        set showTray(value) { ctx.showTray = value; },
+        get showDock() { return ctx.showDock; },
+        set showDock(value) { ctx.showDock = value; },
         requestAppMode,
         openAgentLogManager: () => {
           if (typeof ctx.openAgentLogManager === "function") ctx.openAgentLogManager();
@@ -287,110 +226,19 @@ module.exports = function initMenu(ctx) {
         ),
         togglePetVisibility: () => ctx.togglePetVisibility(),
         requestAppQuit,
-      };
-      const { items, commands } = createTrayMenuModel(modelContext, t);
-      trayCommands = commands;
-      if (electronTrayBackend) {
-        if (electronTrayBackend.isActive()) {
-          electronTrayBackend.replaceMenu({ items });
-        } else {
-          electronTrayBackend.start({ items });
-          ctx.tray = electronTrayBackend.getNativeTray();
-        }
-      } else if (ctx.tray) {
-        ctx.tray.setContextMenu(Menu.buildFromTemplate(toElectronTemplate(items, commands)));
-      }
-      return;
-    }
+    };
+    return createTrayMenuModel(modelContext, t);
+  }
 
-    if (!ctx.tray) return;
+  function buildTrayMenu() {
+    const snapshot = buildTraySnapshot();
+    if (ctx.trayRuntime) return ctx.trayRuntime.replaceMenu(snapshot);
+    return snapshot;
+  }
 
-    // Same grouping discipline as the context menu (see joinGroups), adapted
-    // for the tray's larger item set: state / work / system / app / quit.
-    // Persistent sound and bubble preferences live in Settings with the other
-    // detailed controls; modes provide the tray's quick quiet-state switch.
-    const stateGroup = [
-      buildAppModeMenuItem(),
-    ];
-
-    // Project surfaces stay quick to reach; persistent permission handling
-    // lives in Settings alongside the other detailed controls.
-    const workGroup = [
-      {
-        label: t("openAgentLog"),
-        click: () => {
-          if (typeof ctx.openAgentLogManager === "function") ctx.openAgentLogManager();
-        },
-      },
-      {
-        label: t("openDashboard"),
-        click: () => {
-          if (typeof ctx.openDashboard === "function") ctx.openDashboard();
-        },
-      },
-    ];
-
-    // OS-integration / placement group: bring-to-primary, mac dock/menu-bar,
-    // start-on-login.
-    const systemGroup = [
-      buildBringToPrimaryDisplayMenuItem(),
-    ];
-    if (isMac) {
-      systemGroup.push(
-        {
-          label: t("showInMenuBar"),
-          type: "checkbox",
-          checked: ctx.showTray,
-          enabled: ctx.showTray ? ctx.showDock : true, // can't uncheck if Dock is already hidden
-          click: (menuItem) => { ctx.showTray = menuItem.checked; },
-        },
-        {
-          label: t("showInDock"),
-          type: "checkbox",
-          checked: ctx.showDock,
-          enabled: ctx.showDock ? ctx.showTray : true, // can't uncheck if Menu Bar is already hidden
-          click: (menuItem) => { ctx.showDock = menuItem.checked; },
-        },
-      );
-    }
-    systemGroup.push({
-      label: t("startOnLogin"),
-      type: "checkbox",
-      // Bound to prefs via ctx.openAtLogin. The setter routes to
-      // settings-controller → openAtLogin pre-commit gate, which calls the
-      // OS API. Subscriber in main.js rebuilds the menu on commit, so the
-      // checkbox updates without explicit buildTrayMenu/buildContextMenu().
-      checked: ctx.openAtLogin,
-      click: (menuItem) => { ctx.openAtLogin = menuItem.checked; },
-    });
-
-    const appGroup = [
-      {
-        label: t("settings"),
-        click: () => ctx.openSettingsWindow(),
-      },
-      {
-        label: t("openAgentIntegrations"),
-        click: () => ctx.openSettingsTab("agents"),
-      },
-    ];
-    // #329: surface the update item alongside the app actions. The label
-    // switches to "Update available · vX" / "Update Ready" when applicable.
-    if (typeof ctx.getUpdateMenuItem === "function") {
-      const updateItem = ctx.getUpdateMenuItem();
-      if (updateItem) appGroup.push(updateItem);
-    }
-    appGroup.push({
-      label: ctx.petHidden ? t("showPet") : t("hidePet"),
-      click: () => ctx.togglePetVisibility(),
-    });
-
-    const quitGroup = [
-      { label: t("quit"), click: () => requestAppQuit() },
-    ];
-
-    const items = joinGroups([stateGroup, workGroup, systemGroup, appGroup, quitGroup]);
-    ctx.tray.setContextMenu(Menu.buildFromTemplate(items));
+  function setTrayAttention(active) {
+    if (!ctx.trayRuntime) return Promise.resolve();
+    return ctx.trayRuntime.setAttention(active === true);
   }
 
   function rebuildAllMenus() {
@@ -647,7 +495,8 @@ module.exports = function initMenu(ctx) {
     rebuildAllMenus,
     createTray,
     destroyTray,
-    getTray: () => ctx.tray,
+    getTray: () => (ctx.trayRuntime ? ctx.trayRuntime.getNativeTray() : null),
+    setTrayAttention,
     applyDockVisibility,
     ensureContextMenuOwner,
     popupMenuAt,

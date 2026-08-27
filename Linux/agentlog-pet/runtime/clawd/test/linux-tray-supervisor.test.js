@@ -55,7 +55,7 @@ class FakeClock {
 }
 
 class FakeChild extends EventEmitter {
-  constructor({ exitOnShutdown = true, exitOnKill = true } = {}) {
+  constructor({ exitOnShutdown = true, exitOnKill = true, killReturnsFalse = false } = {}) {
     super();
     this.stdout = new EventEmitter();
     this.stderr = new EventEmitter();
@@ -65,6 +65,7 @@ class FakeChild extends EventEmitter {
     this.stdinEnded = false;
     this.exitOnShutdown = exitOnShutdown;
     this.exitOnKill = exitOnKill;
+    this.killReturnsFalse = killReturnsFalse;
     this.stdin = new EventEmitter();
     this.stdin.write = (chunk) => {
       const message = JSON.parse(Buffer.from(chunk).toString("utf8"));
@@ -100,7 +101,7 @@ class FakeChild extends EventEmitter {
   kill(signal) {
     this.kills.push(signal);
     if (this.exitOnKill) queueMicrotask(() => this.exit(null, signal));
-    return true;
+    return !this.killReturnsFalse;
   }
 }
 
@@ -132,7 +133,7 @@ function createHarness(options = {}) {
   let currentSnapshot = options.snapshot || makeSnapshot("Settings");
 
   function nativeRunning() {
-    return children.some((child) => !child.exited);
+    return children.some((child) => !child.exited && !child.killReturnsFalse);
   }
 
   function assertOneBackend() {
@@ -595,4 +596,24 @@ test("shuts down gracefully and sends SIGTERM only after the 750 ms deadline", a
   assert.deepStrictEqual(forced.children[0].kills, ["SIGTERM"]);
   assert.strictEqual(forced.fallback.isActive(), false);
   forced.assertOneBackend();
+});
+
+test("falls back when a failed helper spawn cannot emit an exit event", async () => {
+  const harness = createHarness({
+    childOptions: { exitOnShutdown: false, exitOnKill: false, killReturnsFalse: true },
+  });
+  const starting = harness.supervisor.start(makeSnapshot("Settings"));
+  await settle();
+
+  harness.children[0].emit("error", new Error("spawn ENOENT"));
+  await settle();
+  await harness.clock.tick(750);
+  await starting;
+
+  assert.deepStrictEqual(harness.supervisor.getHealth(), {
+    status: "electron-fallback",
+    code: "native-helper-error",
+  });
+  assert.deepStrictEqual(harness.children[0].kills, ["SIGTERM"]);
+  await harness.supervisor.stop();
 });

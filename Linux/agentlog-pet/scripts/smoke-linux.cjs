@@ -68,6 +68,31 @@ function waitForExit(child, timeoutMs = 8_000) {
   });
 }
 
+function waitForMarker(child, marker, timeoutMs = 8_000) {
+  return new Promise((resolve, reject) => {
+    let output = "";
+    const timeout = setTimeout(
+      () => reject(new Error(`timed out waiting for ${marker}:\n${output}`)),
+      timeoutMs
+    );
+    const inspect = (chunk) => {
+      output += chunk.toString();
+      if (!output.includes(marker)) return;
+      clearTimeout(timeout);
+      child.stdout.removeListener("data", inspect);
+      resolve();
+    };
+    child.stdout.on("data", inspect);
+    child.stderr.on("data", (chunk) => {
+      output += chunk.toString();
+    });
+    child.once("exit", (code) => {
+      clearTimeout(timeout);
+      reject(new Error(`application exited before ${marker} with code ${code}:\n${output}`));
+    });
+  });
+}
+
 (async () => {
   let first;
   let firstPid;
@@ -82,12 +107,14 @@ function waitForExit(child, timeoutMs = 8_000) {
     assert.equal(ready.productName, "AgentLog Pet");
     assert.ok(ready.windowCount >= 1, "pet runtime must create at least one window");
 
+    const managerActivated = waitForMarker(first, "AGENTLOG_SMOKE_MANAGER_ACTIVATED");
     const second = spawn(executable, appArgs, {
       cwd: root,
       env,
       stdio: ["ignore", "pipe", "pipe"],
     });
     assert.equal(await waitForExit(second), 0);
+    await managerActivated;
 
     process.stdout.write(`${JSON.stringify({ status: "ok", ...ready })}\n`);
   } finally {

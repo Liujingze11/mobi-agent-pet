@@ -94,6 +94,19 @@ function buildBaseCtx(overrides = {}) {
   };
 }
 
+function toTrayTemplate(snapshot) {
+  return snapshot.items.map((item) => {
+    if (item.kind === "separator") return { type: "separator" };
+    return {
+      label: item.label,
+      type: item.kind,
+      checked: item.checked,
+      enabled: item.enabled,
+      submenu: item.items ? toTrayTemplate({ items: item.items }) : undefined,
+    };
+  });
+}
+
 describe("context menu hide pet action (#460)", () => {
   it("exposes a Hide Pet item right before Quit that toggles visibility", () => {
     const initMenu = loadMenuWithElectron(fakeElectron());
@@ -195,7 +208,9 @@ describe("menu grouping invariants", () => {
     const initMenu = loadMenuWithElectron(fakeElectron());
     let trayTemplate = null;
     const ctx = buildBaseCtx({
-      tray: { setContextMenu(menuObj) { trayTemplate = menuObj.template; } },
+      trayRuntime: {
+        replaceMenu(snapshot) { trayTemplate = snapshot.items; },
+      },
     });
     const menu = initMenu(ctx);
     menu.buildTrayMenu();
@@ -206,7 +221,14 @@ describe("menu grouping invariants", () => {
     const initMenu = loadMenuWithElectron(fakeElectron());
     let trayTemplate = null;
     const ctx = buildBaseCtx({
-      tray: { setContextMenu(menuObj) { trayTemplate = menuObj.template; } },
+      trayRuntime: {
+        replaceMenu(snapshot) {
+          trayTemplate = snapshot.items.map((item) => ({
+            ...item,
+            click: item.id ? () => snapshot.commands.execute(item.id) : undefined,
+          }));
+        },
+      },
     });
 
     initMenu(ctx).buildTrayMenu();
@@ -214,6 +236,30 @@ describe("menu grouping invariants", () => {
     startup.click();
 
     assert.strictEqual(ctx.openAtLogin, true);
+  });
+
+  it("supplies current descriptor snapshots and attention to the tray runtime", async () => {
+    const initMenu = loadMenuWithElectron(fakeElectron());
+    const events = [];
+    const ctx = buildBaseCtx({
+      trayRuntime: {
+        start: async (snapshot) => events.push(["start", snapshot]),
+        replaceMenu: async (snapshot) => events.push(["replace", snapshot]),
+        setAttention: async (active) => events.push(["attention", active]),
+        getNativeTray: () => null,
+      },
+    });
+    const menu = initMenu(ctx);
+
+    await menu.createTray();
+    ctx.petHidden = true;
+    await menu.buildTrayMenu();
+    await menu.setTrayAttention(true);
+
+    assert.deepStrictEqual(events.map(([event]) => event), ["start", "replace", "attention"]);
+    assert.ok(events[0][1].items.some((item) => item.label === "Hide Pet"));
+    assert.ok(events[1][1].items.some((item) => item.label === "Show Pet"));
+    assert.deepStrictEqual(events[2], ["attention", true]);
   });
 });
 
@@ -238,7 +284,7 @@ describe("mode menu module", () => {
       doNotDisturb: true,
       getMiniMode: () => true,
       getAppMode: () => "automatic",
-      tray: { setContextMenu(menuObj) { trayTemplate = menuObj.template; } },
+      trayRuntime: { replaceMenu(snapshot) { trayTemplate = toTrayTemplate(snapshot); } },
     });
     const menu = initMenu(ctx);
 
@@ -420,8 +466,10 @@ describe("mode menu module", () => {
     assert.strictEqual(activeMode, "automatic");
   });
 
-  it("rebuilds the menu and reports a localized error when a transition fails", async () => {
+  it("rebuilds the menu and reports a localized error when a transition fails", async (t) => {
     const dialogs = [];
+    const warnings = [];
+    t.mock.method(console, "warn", (...args) => warnings.push(args));
     const initMenu = loadMenuWithElectron(fakeElectron({
       showMessageBox: async (options) => {
         dialogs.push(options);
@@ -443,6 +491,7 @@ describe("mode menu module", () => {
     assert.strictEqual(dialogs[0].title, "模式切换失败");
     assert.strictEqual(dialogs[0].detail, "AgentLog 无法切换模式：transition failed");
     assert.strictEqual(getModeItem(ctx.contextMenu.template).submenu[0].checked, true);
+    assert.deepStrictEqual(warnings, [["Clawd: app mode change failed:", "transition failed"]]);
   });
 });
 
@@ -451,7 +500,7 @@ describe("pet color menu placement", () => {
     const initMenu = loadMenuWithElectron(fakeElectron());
     let trayTemplate = null;
     const ctx = buildBaseCtx({
-      tray: { setContextMenu(menuObj) { trayTemplate = menuObj.template; } },
+      trayRuntime: { replaceMenu(snapshot) { trayTemplate = toTrayTemplate(snapshot); } },
     });
     const menu = initMenu(ctx);
 
@@ -467,7 +516,7 @@ describe("persistent noise settings placement", () => {
     const initMenu = loadMenuWithElectron(fakeElectron());
     let trayTemplate = null;
     const ctx = buildBaseCtx({
-      tray: { setContextMenu(menuObj) { trayTemplate = menuObj.template; } },
+      trayRuntime: { replaceMenu(snapshot) { trayTemplate = toTrayTemplate(snapshot); } },
     });
     const menu = initMenu(ctx);
 
@@ -484,7 +533,7 @@ describe("permission settings placement", () => {
     const initMenu = loadMenuWithElectron(fakeElectron());
     let trayTemplate = null;
     const ctx = buildBaseCtx({
-      tray: { setContextMenu(menuObj) { trayTemplate = menuObj.template; } },
+      trayRuntime: { replaceMenu(snapshot) { trayTemplate = toTrayTemplate(snapshot); } },
     });
     const menu = initMenu(ctx);
 
@@ -505,7 +554,7 @@ describe("macOS visibility toggles live in the tray, not the right-click menu", 
     const initMenu = loadMenuWithElectron(fakeElectron());
     let trayTemplate = null;
     const ctx = buildBaseCtx({
-      tray: { setContextMenu(menuObj) { trayTemplate = menuObj.template; } },
+      trayRuntime: { replaceMenu(snapshot) { trayTemplate = toTrayTemplate(snapshot); } },
     });
     const menu = initMenu(ctx);
     menu.buildContextMenu();

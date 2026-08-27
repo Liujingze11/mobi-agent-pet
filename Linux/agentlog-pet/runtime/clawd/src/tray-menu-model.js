@@ -65,6 +65,24 @@ function buildItems(ctx, t, update) {
       checked: ctx.openAtLogin === true,
     },
   ];
+  if (ctx.platform === "darwin") {
+    systemGroup.splice(1, 0,
+      {
+        id: "tray.visibility",
+        kind: KIND.checkbox,
+        label: t("showInMenuBar"),
+        checked: ctx.showTray === true,
+        enabled: ctx.showTray ? ctx.showDock : true,
+      },
+      {
+        id: "dock.visibility",
+        kind: KIND.checkbox,
+        label: t("showInDock"),
+        checked: ctx.showDock === true,
+        enabled: ctx.showDock ? ctx.showTray : true,
+      },
+    );
+  }
   const appGroup = [
     { id: "settings.open", kind: KIND.item, label: t("settings") },
     { id: "settings.agents", kind: KIND.item, label: t("openAgentIntegrations") },
@@ -103,6 +121,8 @@ function createTrayMenuModel(ctx, t) {
     ["agentlog.open", () => ctx.openAgentLogManager()],
     ["dashboard.open", () => ctx.openDashboard()],
     ["pet.primary-display", () => ctx.bringPetToPrimaryDisplay()],
+    ["tray.visibility", () => { ctx.showTray = !ctx.showTray; }],
+    ["dock.visibility", () => { ctx.showDock = !ctx.showDock; }],
     ["startup.toggle", () => { ctx.openAtLogin = !ctx.openAtLogin; }],
     ["settings.open", () => ctx.openSettingsWindow()],
     ["settings.agents", () => ctx.openSettingsTab("agents")],

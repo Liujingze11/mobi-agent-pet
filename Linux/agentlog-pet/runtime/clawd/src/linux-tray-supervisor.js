@@ -154,7 +154,7 @@ function createLinuxTraySupervisor(deps) {
 
     const killTimer = timers.setTimeout(() => {
       try {
-        stoppingChild.kill("SIGTERM");
+        if (stoppingChild.kill("SIGTERM") === false) resolveExit();
       } catch (_error) {
         resolveExit();
       }

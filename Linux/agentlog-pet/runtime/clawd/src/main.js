@@ -1,4 +1,4 @@
-const { app, BrowserWindow, screen, ipcMain, globalShortcut, nativeTheme, dialog, shell, nativeImage, powerSaveBlocker, powerMonitor, clipboard, safeStorage } = require("electron");
+const { app, BrowserWindow, screen, ipcMain, globalShortcut, nativeTheme, dialog, shell, nativeImage, powerSaveBlocker, powerMonitor, clipboard, safeStorage, Tray, Menu } = require("electron");
 // ── Linux/Wayland: relaunch under XWayland so the pet is draggable (issue #441) ──
 // Native Wayland ignores client-side window positioning and blocks global cursor
 // queries, so the pet spawns centered, can't be dragged, and has no tracking;
@@ -131,7 +131,7 @@ const {
   getProportionalPixelSize,
 } = require("./size-utils");
 const { keepOutOfTaskbar } = require("./taskbar");
-const { loadTrayNormalIcon, loadTrayFlashIcon } = require("./tray-flash-icon");
+const { createTrayRuntime } = require("./tray-runtime");
 const createTopmostRuntime = require("./topmost-runtime");
 const { WIN_TOPMOST_LEVEL } = createTopmostRuntime;
 const createThemeFadeSequencer = require("./theme-fade-sequencer");
@@ -892,8 +892,6 @@ let hitWin;  // input window — small opaque rect over hitbox, receives all poi
 // Tray icon flash state
 let trayFlashTimer = null;
 let trayFlashStopTimer = null;
-let trayFlashNormalIcon = null;
-let trayFlashHighlightIcon = null;
 let tray = null;
 let contextMenuOwner = null;
 // Mirror of _settingsController.get("size") — initialized from disk, kept in
@@ -1277,6 +1275,11 @@ function resetSoundCooldown() {
 }
 
 function stopTrayFlash() {
+  clearTrayFlashTimers();
+  if (_menu && _menu.setTrayAttention) _menu.setTrayAttention(false);
+}
+
+function clearTrayFlashTimers() {
   if (trayFlashTimer) {
     clearInterval(trayFlashTimer);
     trayFlashTimer = null;
@@ -1285,48 +1288,16 @@ function stopTrayFlash() {
     clearTimeout(trayFlashStopTimer);
     trayFlashStopTimer = null;
   }
-  const t = _menu.getTray ? _menu.getTray() : null;
-  if (t && trayFlashNormalIcon) {
-    t.setImage(trayFlashNormalIcon);
-  }
 }
 
 function flashTaskbar() {
   if (!resolveEffectiveTrayFlashEnabled(_settingsController.get("flashTaskbarOnComplete"), getEffectiveAppModePolicy())) return;
   if (doNotDisturb) return;
+  startTrayFlashTimer((active) => _menu.setTrayAttention(active));
+}
 
-  const tray = _menu.getTray ? _menu.getTray() : null;
-  if (!tray) return;
-
-  // Cache the normal icon on first call
-  if (!trayFlashNormalIcon) {
-    trayFlashNormalIcon = loadTrayNormalIcon({
-      nativeImage,
-      platform: process.platform,
-      iconPath: path.join(__dirname, "..", "..", "..", "assets", "brand", "icons", "32x32.png"),
-    });
-  }
-
-  // Cache the highlight icon (orange dot) on first call. #722: it has to come
-  // back at the same point size as the normal icon, otherwise each blink
-  // resizes the tray icon and reflows the menu bar.
-  if (!trayFlashHighlightIcon) {
-    trayFlashHighlightIcon = loadTrayFlashIcon({
-      nativeImage,
-      platform: process.platform,
-      flashPath: path.join(__dirname, "../assets/tray-icon-flash.png"),
-      fileExists: (p) => fs.existsSync(p),
-    });
-  }
-
-  if (!trayFlashHighlightIcon) return;
-
-  // Clear any existing flash timers
-  if (trayFlashTimer) clearInterval(trayFlashTimer);
-  if (trayFlashStopTimer) {
-    clearTimeout(trayFlashStopTimer);
-    trayFlashStopTimer = null;
-  }
+function startTrayFlashTimer(setAttention) {
+  clearTrayFlashTimers();
 
   const intervalMs = _settingsController.get("flashIntervalMs") || 500;
   const durationMs = _settingsController.get("flashDurationMs");
@@ -1334,12 +1305,7 @@ function flashTaskbar() {
 
   let useHighlight = true;
   trayFlashTimer = setInterval(() => {
-    if (!_menu.getTray || !_menu.getTray()) {
-      stopTrayFlash();
-      return;
-    }
-    const t = _menu.getTray();
-    t.setImage(useHighlight ? trayFlashHighlightIcon : trayFlashNormalIcon);
+    setAttention(useHighlight);
     useHighlight = !useHighlight;
   }, intervalMs);
 
@@ -1350,12 +1316,6 @@ function flashTaskbar() {
     }, durationMs || 5000);
   }
 
-  // Stop on tray click
-  tray.removeAllListeners("click");
-  tray.on("click", () => {
-    stopTrayFlash();
-    tray.removeAllListeners("click");
-  });
 }
 
 function syncHitWin() { return petWindowRuntime.syncHitWin(); }
@@ -3379,6 +3339,15 @@ const _menuCtx = {
   openSettingsWindow: () => settingsWindowRuntime.open(),
   showTutorial: () => _tutorial.open(),
 };
+const trayRuntime = createTrayRuntime({
+  app,
+  Tray,
+  Menu,
+  nativeImage,
+  path,
+  fs,
+});
+_menuCtx.trayRuntime = trayRuntime;
 const _menu = require("./menu")(_menuCtx);
 const { t, buildContextMenu, buildTrayMenu, rebuildAllMenus, createTray,
         destroyTray, showPetContextMenu, ensureContextMenuOwner,
@@ -4189,10 +4158,18 @@ if (!gotTheLock) {
       // the cloak recovery path too.
       petWindowRuntime.recoverIfCloaked();
     }
-    if (shouldOpenSettingsWindowFromArgv(commandLine)) {
+    const opensSettings = shouldOpenSettingsWindowFromArgv(commandLine);
+    const importUrls = codexPetMain.extractClawdProtocolUrls(commandLine);
+    if (opensSettings) {
       settingsWindowRuntime.openWhenReady();
     }
     codexPetMain.enqueueImportUrlsFromArgv(commandLine);
+    if (!opensSettings && importUrls.length === 0) {
+      agentLogApp.openManager();
+      if (process.env.AGENTLOG_SMOKE_MODE === "1") {
+        process.stdout.write("AGENTLOG_SMOKE_MANAGER_ACTIVATED\n");
+      }
+    }
     reapplyMacVisibility();
   });
 
@@ -4373,7 +4350,16 @@ if (!gotTheLock) {
     if (codexHookNudgeTimer && typeof codexHookNudgeTimer.unref === "function") codexHookNudgeTimer.unref();
   });
 
-  app.on("before-quit", () => {
+  let trayRuntimeStopping = false;
+  app.on("before-quit", (event) => {
+    if (!trayRuntimeStopping) {
+      event.preventDefault();
+      trayRuntimeStopping = true;
+      void trayRuntime.stop().catch((err) => {
+        console.warn("Clawd: tray runtime shutdown failed:", err && err.message);
+      }).finally(() => app.quit());
+      return;
+    }
     isQuitting = true;
     if (systemWakeRecovery) systemWakeRecovery.dispose();
     // #525: release the IVirtualDesktopManager COM ref and pay back our own
