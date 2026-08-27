@@ -203,6 +203,10 @@ function createLinuxTraySupervisor(deps) {
       }
       void enqueue(() => handleNativeFailure(childGeneration, nextChild, "native-helper-eof"));
     });
+    nextChild.stdin.on("error", () => {
+      if (!isCurrent(childGeneration, nextChild)) return;
+      void enqueue(() => handleNativeFailure(childGeneration, nextChild, "native-helper-error"));
+    });
     nextChild.on("error", () => {
       void enqueue(() => handleNativeFailure(childGeneration, nextChild, "native-helper-error"));
     });
@@ -425,6 +429,9 @@ function createLinuxTraySupervisor(deps) {
     },
 
     getHealth() {
+      if (health.status === STATES.STOPPED) {
+        return { status: STATES.STARTING, code: null };
+      }
       return { ...health };
     },
 

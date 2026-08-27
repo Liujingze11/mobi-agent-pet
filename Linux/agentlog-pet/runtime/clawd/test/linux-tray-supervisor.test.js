@@ -65,18 +65,17 @@ class FakeChild extends EventEmitter {
     this.stdinEnded = false;
     this.exitOnShutdown = exitOnShutdown;
     this.exitOnKill = exitOnKill;
-    this.stdin = {
-      write: (chunk) => {
-        const message = JSON.parse(Buffer.from(chunk).toString("utf8"));
-        this.writes.push(message);
-        if (message.type === "shutdown" && this.exitOnShutdown) {
-          queueMicrotask(() => this.exit(0, null));
-        }
-        return true;
-      },
-      end: () => {
-        this.stdinEnded = true;
-      },
+    this.stdin = new EventEmitter();
+    this.stdin.write = (chunk) => {
+      const message = JSON.parse(Buffer.from(chunk).toString("utf8"));
+      this.writes.push(message);
+      if (message.type === "shutdown" && this.exitOnShutdown) {
+        queueMicrotask(() => this.exit(0, null));
+      }
+      return true;
+    };
+    this.stdin.end = () => {
+      this.stdinEnded = true;
     };
   }
 
@@ -228,6 +227,17 @@ async function becomeNative(harness, child = harness.children.at(-1)) {
   });
   assert.deepStrictEqual(harness.supervisor.getHealth(), { status: "native", code: null });
 }
+
+test("maps inactive lifecycle health to the public starting status", async () => {
+  const harness = createHarness();
+
+  assert.deepStrictEqual(harness.supervisor.getHealth(), { status: "starting", code: null });
+  await harness.supervisor.start(makeSnapshot("Settings"));
+  await becomeNative(harness);
+  await harness.supervisor.stop();
+
+  assert.deepStrictEqual(harness.supervisor.getHealth(), { status: "starting", code: null });
+});
 
 test("starts native only after separate ready and registered messages and owns revisions", async () => {
   const harness = createHarness();
@@ -466,6 +476,31 @@ test("debounces host loss, cancels it on recovery, and ignores stale child event
     status: "no-host",
     code: "status-notifier-host-missing",
   });
+  await harness.supervisor.stop();
+});
+
+test("handles current stdin EPIPE and ignores stale stdin errors", async () => {
+  const harness = createHarness();
+  await harness.supervisor.start(makeSnapshot("Settings"));
+  const first = harness.children[0];
+  await becomeNative(harness, first);
+
+  const epipe = Object.assign(new Error("write EPIPE"), { code: "EPIPE" });
+  assert.doesNotThrow(() => first.stdin.emit("error", epipe));
+  await settle();
+  harness.assertOneBackend();
+  assert.deepStrictEqual(harness.supervisor.getHealth(), {
+    status: "electron-fallback",
+    code: "native-helper-error",
+  });
+
+  await harness.clock.tick(250);
+  const second = harness.children[1];
+  await becomeNative(harness, second);
+  assert.doesNotThrow(() => first.stdin.emit("error", epipe));
+  await settle();
+  harness.assertOneBackend();
+  assert.deepStrictEqual(harness.supervisor.getHealth(), { status: "native", code: null });
   await harness.supervisor.stop();
 });
 
