@@ -159,6 +159,22 @@ function createHarness(t) {
   return { bridge, electron, runtime, userData };
 }
 
+test("health reports default and injected tray diagnostics without starting storage", (t) => {
+  const { electron, runtime } = createHarness(t);
+
+  assert.deepEqual(runtime.getHealth(), {
+    storage: "starting",
+    databaseName: "agentlog.db",
+    errorMessage: null,
+    tray: { status: "starting", code: null },
+  });
+
+  runtime.setTrayHealthProvider(() => ({ status: "native", code: null }));
+
+  assert.deepEqual(runtime.getHealth().tray, { status: "native", code: null });
+  assert.equal(electron.app.listenerCount("before-quit"), 0);
+});
+
 test("events received before database readiness flush once in publication order and later events write directly", async (t) => {
   const { bridge, electron, runtime } = createHarness(t);
 
@@ -180,6 +196,7 @@ test("events received before database readiness flush once in publication order 
     storage: "ready",
     databaseName: "agentlog.db",
     errorMessage: null,
+    tray: { status: "starting", code: null },
   });
   assert.equal(bridge.getAgentEventStats().subscribers, 1);
 });
@@ -292,6 +309,7 @@ test("rejected readiness becomes a safe storage error and cleans up lifecycle ho
     storage: "error",
     databaseName: "agentlog.db",
     errorMessage: "Unable to open AgentLog storage",
+    tray: { status: "starting", code: null },
   });
   assert.doesNotMatch(JSON.stringify(runtime.getHealth()), new RegExp(userData.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.equal(bridge.getAgentEventStats().subscribers, 0);
@@ -320,6 +338,7 @@ test("synchronous whenReady failure subscribes first then becomes a cleaned-up s
     storage: "error",
     databaseName: "agentlog.db",
     errorMessage: "Unable to open AgentLog storage",
+    tray: { status: "starting", code: null },
   });
   assert.doesNotMatch(JSON.stringify(runtime.getHealth()), new RegExp(userData.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   assert.equal(bridge.getAgentEventStats().subscribers, 0);

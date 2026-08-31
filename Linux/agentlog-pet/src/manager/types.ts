@@ -2,11 +2,14 @@ export type RouteId = "overview" | "projects" | "sessions" | "agents" | "pet" | 
 
 export type InternalRouteId = Exclude<RouteId, "agents" | "pet">;
 export type StorageStatus = "starting" | "ready" | "error";
+export type TrayStatus = "starting" | "native" | "electron-fallback" | "no-host" | "failed";
+export type TrayDiagnostics = { status: TrayStatus; code: string | null };
 
 export type DiagnosticsHealth = {
   storage: StorageStatus;
   databaseName: string;
   errorMessage: string | null;
+  tray: TrayDiagnostics;
 };
 
 export type ProjectPath = {

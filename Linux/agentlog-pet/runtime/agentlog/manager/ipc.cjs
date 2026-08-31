@@ -29,6 +29,22 @@ const EVENT_CATEGORIES = [
   "tool_activity",
   "state_changed",
 ];
+const TRAY_STATUSES = new Set([
+  "starting",
+  "native",
+  "electron-fallback",
+  "no-host",
+  "failed",
+]);
+const TRAY_CODES = new Set([
+  "native-start-timeout",
+  "native-protocol-error",
+  "native-helper-missing",
+  "native-helper-exited",
+  "status-notifier-host-missing",
+  "electron-fallback-failed",
+  "tray-backends-unavailable",
+]);
 const EXPECTED_DOMAIN_ERRORS = Object.freeze({
   PRIMARY_PATH_CANNOT_BE_REMOVED: Object.freeze({
     code: "INVALID_OPERATION",
@@ -62,7 +78,15 @@ function redactedHealth(runtime) {
     ? health.storage
     : "error";
   const errorMessage = health && health.errorMessage ? "Unable to open AgentLog storage" : null;
-  return { storage, databaseName: "agentlog.db", errorMessage };
+  const tray = health && health.tray;
+  const trayStatus = tray && TRAY_STATUSES.has(tray.status) ? tray.status : "failed";
+  const trayCode = tray && TRAY_CODES.has(tray.code) ? tray.code : null;
+  return {
+    storage,
+    databaseName: "agentlog.db",
+    errorMessage,
+    tray: { status: trayStatus, code: trayCode },
+  };
 }
 
 function registerManagerIpc({

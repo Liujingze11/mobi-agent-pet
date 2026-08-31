@@ -390,24 +390,77 @@ test("unexpected service errors retain a structured code without leaking their m
   );
 });
 
-test("diagnostics returns redacted runtime health only", async (t) => {
+test("diagnostics emits only allowlisted tray health", async (t) => {
+  let runtimeHealth = {
+    storage: "error",
+    databaseName: "agentlog.db",
+    errorMessage: "Unable to open AgentLog storage at /home/user/.config",
+    databasePath: "/home/user/.config/data/agentlog.db",
+    stack: "Error: secret stack",
+    tray: {
+      status: "native",
+      code: "native-start-timeout",
+      helperText: "agentlog-tray --dbus-name=org.example.Private",
+      socketPath: "/run/user/1000/agentlog-tray.sock",
+    },
+  };
   const api = createHarness(t, {
     runtime: {
-      getHealth: () => ({
-        storage: "error",
-        databaseName: "agentlog.db",
-        errorMessage: "Unable to open AgentLog storage at /home/user/.config",
-        databasePath: "/home/user/.config/data/agentlog.db",
-        stack: "Error: secret stack",
-      }),
+      getHealth: () => runtimeHealth,
     },
   });
 
-  const health = await api.invoke("agentlog:diagnostics:get");
-  assert.deepEqual(health, {
+  assert.deepEqual(await api.invoke("agentlog:diagnostics:get"), {
     storage: "error",
     databaseName: "agentlog.db",
     errorMessage: "Unable to open AgentLog storage",
+    tray: { status: "native", code: "native-start-timeout" },
+  });
+
+  for (const status of ["starting", "native", "electron-fallback", "no-host", "failed"]) {
+    runtimeHealth = {
+      storage: "ready",
+      databaseName: "agentlog.db",
+      errorMessage: null,
+      tray: { status, code: null },
+    };
+    assert.deepEqual((await api.invoke("agentlog:diagnostics:get")).tray, { status, code: null });
+  }
+
+  for (const code of [
+    "native-start-timeout",
+    "native-protocol-error",
+    "native-helper-missing",
+    "native-helper-exited",
+    "status-notifier-host-missing",
+    "electron-fallback-failed",
+    "tray-backends-unavailable",
+  ]) {
+    runtimeHealth = {
+      storage: "ready",
+      databaseName: "agentlog.db",
+      errorMessage: null,
+      tray: { status: "native", code },
+    };
+    assert.deepEqual((await api.invoke("agentlog:diagnostics:get")).tray, { status: "native", code });
+  }
+
+  runtimeHealth = {
+    storage: "ready",
+    databaseName: "agentlog.db",
+    errorMessage: null,
+    tray: {
+      status: "private-backend",
+      code: "private-helper-message",
+      stderr: "could not connect to /home/user/.config",
+    },
+  };
+
+  assert.deepEqual(await api.invoke("agentlog:diagnostics:get"), {
+    storage: "ready",
+    databaseName: "agentlog.db",
+    errorMessage: null,
+    tray: { status: "failed", code: null },
   });
 });
 

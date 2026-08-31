@@ -33,9 +33,16 @@ let health = {
   databaseName: DATABASE_NAME,
   errorMessage: null,
 };
+let trayHealthProvider = () => ({ status: "starting", code: null });
 
 function getHealth() {
-  return { ...health };
+  return { ...health, tray: trayHealthProvider() };
+}
+
+function setTrayHealthProvider(provider) {
+  trayHealthProvider = typeof provider === "function"
+    ? provider
+    : () => ({ status: "starting", code: null });
 }
 
 function getServices() {
@@ -197,6 +204,7 @@ const api = Object.freeze({
   openManager,
   showManager,
   registerHostActions,
+  setTrayHealthProvider,
   shutdown,
 });
 

@@ -3372,6 +3372,7 @@ const { t, buildContextMenu, buildTrayMenu, rebuildAllMenus, createTray,
         destroyTray, showPetContextMenu, ensureContextMenuOwner,
         requestAppQuit, applyDockVisibility } = _menu;
 trayRuntime.onMenuOpened(stopTrayFlash);
+agentLogApp.setTrayHealthProvider(() => trayRuntime.getHealth());
 
 agentLogApp.registerHostActions({
   openAgentLogManager: () => agentLogApp.openManager(),

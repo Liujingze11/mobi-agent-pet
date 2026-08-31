@@ -14,6 +14,14 @@ const storageLabels = {
   error: "Error",
 } as const;
 
+const trayLabels = {
+  starting: "Tray is starting",
+  native: "Native tray active",
+  "electron-fallback": "Electron tray fallback active",
+  "no-host": "No tray host detected",
+  failed: "Tray backend failed",
+} as const;
+
 export function SettingsPage({ health, onOpenSettings }: SettingsPageProps) {
   const [commandState, setCommandState] = useState<"idle" | "pending" | "error">("idle");
   const mountedRef = useRef(true);
@@ -51,6 +59,10 @@ export function SettingsPage({ health, onOpenSettings }: SettingsPageProps) {
         <div>
           <dt>Database</dt>
           <dd>{health.databaseName}</dd>
+        </div>
+        <div>
+          <dt>Tray</dt>
+          <dd>{trayLabels[health.tray.status]}{health.tray.status === "failed" && health.tray.code ? ` (${health.tray.code})` : ""}</dd>
         </div>
       </dl>
       {health.errorMessage ? <p className="inline-alert inline-alert--error">{health.errorMessage}</p> : null}

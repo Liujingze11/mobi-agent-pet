@@ -55,6 +55,7 @@ function createApi(options: {
     storage: "ready",
     databaseName: "agentlog.db",
     errorMessage: null,
+    tray: { status: "starting", code: null },
   };
   const overview = options.overview ?? emptyOverview;
   const projects = options.projects ?? [];
@@ -161,7 +162,12 @@ describe("App", () => {
 
     expect(screen.getByText("Loading AgentLog")).toBeVisible();
     await act(async () => {
-      health.resolve({ storage: "starting", databaseName: "agentlog.db", errorMessage: null });
+      health.resolve({
+        storage: "starting",
+        databaseName: "agentlog.db",
+        errorMessage: null,
+        tray: { status: "starting", code: null },
+      });
     });
 
     expect(await screen.findByText("Storage is starting")).toBeVisible();
@@ -174,6 +180,7 @@ describe("App", () => {
         storage: "error",
         databaseName: "agentlog.db",
         errorMessage: "Unable to open AgentLog storage",
+        tray: { status: "starting", code: null },
       },
     });
     const storageRender = render(<App api={storageApi} />);
@@ -196,6 +203,7 @@ describe("App", () => {
         databaseName: "agentlog.db",
         errorMessage: null,
         databasePath: "/home/dev/.config/agentlog.db",
+        tray: { status: "starting", code: null },
       },
     });
     render(<App api={api} />);
@@ -207,6 +215,33 @@ describe("App", () => {
     expect(screen.queryByText(/\/home\/dev/)).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Open App Settings" }));
     expect(api.settings.open).toHaveBeenCalledWith("general");
+  });
+
+  it.each([
+    ["starting", null, "Tray is starting"],
+    ["native", "native-start-timeout", "Native tray active"],
+    ["electron-fallback", null, "Electron tray fallback active"],
+    ["no-host", null, "No tray host detected"],
+    ["failed", "tray-backends-unavailable", "Tray backend failed (tray-backends-unavailable)"],
+  ] as const)("shows the typed %s tray diagnostic", async (status, code, trayCopy) => {
+    const user = userEvent.setup();
+    const { api } = createApi({
+      diagnostics: {
+        storage: "ready",
+        databaseName: "agentlog.db",
+        errorMessage: null,
+        tray: { status, code },
+      },
+    });
+    render(<App api={api} />);
+    await screen.findByRole("heading", { name: "Live work" });
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+
+    expect(await screen.findByText(trayCopy)).toBeVisible();
+    expect(screen.getByText("Storage")).toBeVisible();
+    expect(screen.getByText("Database")).toBeVisible();
+    if (status !== "failed" && code) expect(screen.queryByText(code)).not.toBeInTheDocument();
   });
 
   it("announces an Open App Settings failure", async () => {
