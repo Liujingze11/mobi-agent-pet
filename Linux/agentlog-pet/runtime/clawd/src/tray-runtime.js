@@ -17,6 +17,38 @@ function resolveLinuxTrayResources({ app, path = nodePath, process = globalThis.
   };
 }
 
+function createTrayShutdownGate({ stop, requestQuit, reportError = () => {} }) {
+  let state = "idle";
+
+  function onBeforeQuit(event) {
+    if (state === "ready-to-quit") return true;
+
+    event.preventDefault();
+    if (state === "stopping") return false;
+
+    state = "stopping";
+    let stopping;
+    try {
+      stopping = stop();
+    } catch (err) {
+      reportError(err);
+      state = "ready-to-quit";
+      requestQuit();
+      return false;
+    }
+
+    Promise.resolve(stopping)
+      .catch((err) => reportError(err))
+      .finally(() => {
+        state = "ready-to-quit";
+        requestQuit();
+      });
+    return false;
+  }
+
+  return { onBeforeQuit };
+}
+
 function createTrayRuntime(deps) {
   const {
     app,
@@ -92,9 +124,18 @@ function createTrayRuntime(deps) {
           await backend.replaceMenu(snapshot);
           return;
         }
-        backend = createBackend();
-        attachMenuOpenedHandler(backend);
-        await backend.start(snapshot);
+        const startingBackend = createBackend();
+        backend = startingBackend;
+        attachMenuOpenedHandler(startingBackend);
+        try {
+          await startingBackend.start(snapshot);
+        } catch (err) {
+          if (backend === startingBackend) {
+            backend = null;
+            fallback = null;
+          }
+          throw err;
+        }
       });
     },
 
@@ -145,4 +186,4 @@ function createTrayRuntime(deps) {
   };
 }
 
-module.exports = { createTrayRuntime, resolveLinuxTrayResources };
+module.exports = { createTrayRuntime, createTrayShutdownGate, resolveLinuxTrayResources };

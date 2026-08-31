@@ -232,7 +232,20 @@ module.exports = function initMenu(ctx) {
 
   function buildTrayMenu() {
     const snapshot = buildTraySnapshot();
-    if (ctx.trayRuntime) return ctx.trayRuntime.replaceMenu(snapshot);
+    if (ctx.trayRuntime) {
+      try {
+        const replacement = ctx.trayRuntime.replaceMenu(snapshot);
+        if (replacement && typeof replacement.then === "function") {
+          return replacement.catch((err) => {
+            console.warn("Clawd: tray menu rebuild failed:", err && err.message);
+          });
+        }
+        return replacement;
+      } catch (err) {
+        console.warn("Clawd: tray menu rebuild failed:", err && err.message);
+        return undefined;
+      }
+    }
     return snapshot;
   }
 
@@ -242,8 +255,9 @@ module.exports = function initMenu(ctx) {
   }
 
   function rebuildAllMenus() {
-    buildTrayMenu();
+    const rebuiltTray = buildTrayMenu();
     buildContextMenu();
+    return rebuiltTray;
   }
 
   function requestAppQuit() {

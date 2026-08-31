@@ -44,7 +44,13 @@ function warn(logWarn, message, err) {
 function safeCall(logWarn, message, fn, ...args) {
   if (typeof fn !== "function") return undefined;
   try {
-    return fn(...args);
+    const result = fn(...args);
+    if (result && typeof result.then === "function") {
+      return result.catch((err) => {
+        warn(logWarn, message, err);
+      });
+    }
+    return result;
   } catch (err) {
     warn(logWarn, message, err);
     return undefined;

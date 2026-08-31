@@ -547,6 +547,25 @@ describe("settings-effect-router", () => {
     ]);
   });
 
+  it("logs rejected tray lifecycle effects without leaving a rejected promise", async () => {
+    const { logs, emit } = createHarness({
+      routerOptions: {
+        createTray: () => Promise.reject(new Error("start failed")),
+        destroyTray: () => Promise.reject(new Error("stop failed")),
+      },
+    });
+
+    emit({ showTray: true });
+    await new Promise((resolve) => setImmediate(resolve));
+    emit({ showTray: false });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.deepStrictEqual(logs, [
+      ["Clawd: tray toggle failed:", "start failed"],
+      ["Clawd: tray toggle failed:", "stop failed"],
+    ]);
+  });
+
   it("triggers a cleanup sweep + forced snapshot when any stale-cleanup config key changes", () => {
     for (const key of ["sessionStaleMs", "workingStaleMs", "detachedIdleStaleMs"]) {
       const { calls, emit } = createHarness();

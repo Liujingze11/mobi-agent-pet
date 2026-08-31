@@ -261,6 +261,27 @@ describe("menu grouping invariants", () => {
     assert.ok(events[1][1].items.some((item) => item.label === "Show Pet"));
     assert.deepStrictEqual(events[2], ["attention", true]);
   });
+
+  it("reports a rejected tray rebuild instead of leaving an unhandled rejection", async (t) => {
+    const warnings = [];
+    const unhandled = [];
+    t.mock.method(console, "warn", (...args) => warnings.push(args));
+    const onUnhandled = (reason) => unhandled.push(reason);
+    process.once("unhandledRejection", onUnhandled);
+    t.after(() => process.removeListener("unhandledRejection", onUnhandled));
+    const initMenu = loadMenuWithElectron(fakeElectron());
+    const menu = initMenu(buildBaseCtx({
+      trayRuntime: {
+        replaceMenu: () => Promise.reject(new Error("menu unavailable")),
+      },
+    }));
+
+    menu.rebuildAllMenus();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    assert.deepStrictEqual(warnings, [["Clawd: tray menu rebuild failed:", "menu unavailable"]]);
+    assert.deepStrictEqual(unhandled, []);
+  });
 });
 
 describe("mode menu module", () => {

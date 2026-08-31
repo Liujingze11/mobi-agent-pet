@@ -7,6 +7,7 @@ const test = require("node:test");
 
 const {
   createTrayRuntime,
+  createTrayShutdownGate,
   resolveLinuxTrayResources,
 } = require("../src/tray-runtime");
 
@@ -50,7 +51,7 @@ function createBackend(kind) {
   };
 }
 
-function createHarness(platform) {
+function createHarness(platform, options = {}) {
   const created = [];
   const runtime = createTrayRuntime({
     platform,
@@ -62,9 +63,12 @@ function createHarness(platform) {
       created.push({ kind: "linux", backend, options });
       return backend;
     },
-    createElectronTrayBackend(options) {
+    createElectronTrayBackend(backendOptions) {
       const backend = createBackend("electron");
-      created.push({ kind: "electron", backend, options });
+      if (typeof options.configureElectronBackend === "function") {
+        options.configureElectronBackend(backend, created.length);
+      }
+      created.push({ kind: "electron", backend, options: backendOptions });
       return backend;
     },
     Tray: function Tray() {},
@@ -136,6 +140,49 @@ test("uses the Electron backend outside Linux and clears it on stop", async () =
   assert.equal(runtime.getNativeTray(), null);
 });
 
+test("retries a fresh backend after its initial start rejects", async () => {
+  let first = true;
+  const { runtime, created } = createHarness("win32", {
+    configureElectronBackend(backend) {
+      if (!first) return;
+      first = false;
+      backend.start = async () => { throw new Error("Tray construction failed"); };
+    },
+  });
+
+  await assert.rejects(runtime.start(snapshot("Initial")), /Tray construction failed/);
+  await runtime.start(snapshot("Retry"));
+
+  const electronBackends = created.filter((entry) => entry.kind === "electron");
+  assert.equal(electronBackends.length, 2);
+  assert.deepEqual(electronBackends[1].backend.events.map(([event]) => event), ["start"]);
+});
+
+test("holds overlapping before-quit events until the post-stop quit", async () => {
+  let resolveStop;
+  const calls = [];
+  const gate = createTrayShutdownGate({
+    stop: () => new Promise((resolve) => { resolveStop = resolve; }),
+    requestQuit: () => calls.push("quit"),
+    reportError: (error) => calls.push(error.message),
+  });
+  const first = { prevented: false, preventDefault() { this.prevented = true; } };
+  const overlapping = { prevented: false, preventDefault() { this.prevented = true; } };
+  const postStop = { prevented: false, preventDefault() { this.prevented = true; } };
+
+  assert.equal(gate.onBeforeQuit(first), false);
+  assert.equal(gate.onBeforeQuit(overlapping), false);
+  assert.equal(first.prevented, true);
+  assert.equal(overlapping.prevented, true);
+  assert.deepEqual(calls, []);
+
+  resolveStop();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls, ["quit"]);
+  assert.equal(gate.onBeforeQuit(postStop), true);
+  assert.equal(postStop.prevented, false);
+});
+
 test("waits for a backend to stop before creating a replacement", async () => {
   const { runtime, created } = createHarness("linux");
   await runtime.start(snapshot("Initial"));
@@ -188,4 +235,24 @@ test("main delegates tray attention without directly mutating a tray icon", () =
 
   assert.doesNotMatch(source, /\btray\.setImage\(/);
   assert.match(source, /_menu\.setTrayAttention\(active\)/);
+});
+
+test("main registers one tray menu-open handler that stops attention", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../src/main.js"), "utf8");
+  const menuInitialization = source.indexOf('const _menu = require("./menu")(_menuCtx);');
+  const registration = source.indexOf("trayRuntime.onMenuOpened(stopTrayFlash);");
+  const registrations = source.match(/trayRuntime\.onMenuOpened\(stopTrayFlash\)/g) || [];
+
+  assert.notEqual(menuInitialization, -1, "menu startup remains present");
+  assert.equal(registrations.length, 1);
+  assert.ok(registration > menuInitialization, "menu-open reset is wired after menu startup");
+});
+
+test("main reports a rejected tray startup instead of dropping the promise", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../src/main.js"), "utf8");
+
+  assert.match(
+    source,
+    /reportTrayOperationFailure\("Clawd: tray startup failed:", \(\) => createTray\(\)\);/
+  );
 });

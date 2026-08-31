@@ -131,7 +131,7 @@ const {
   getProportionalPixelSize,
 } = require("./size-utils");
 const { keepOutOfTaskbar } = require("./taskbar");
-const { createTrayRuntime } = require("./tray-runtime");
+const { createTrayRuntime, createTrayShutdownGate } = require("./tray-runtime");
 const createTopmostRuntime = require("./topmost-runtime");
 const { WIN_TOPMOST_LEVEL } = createTopmostRuntime;
 const createThemeFadeSequencer = require("./theme-fade-sequencer");
@@ -1276,7 +1276,24 @@ function resetSoundCooldown() {
 
 function stopTrayFlash() {
   clearTrayFlashTimers();
-  if (_menu && _menu.setTrayAttention) _menu.setTrayAttention(false);
+  if (_menu && _menu.setTrayAttention) {
+    reportTrayOperationFailure("Clawd: tray attention reset failed:", () => _menu.setTrayAttention(false));
+  }
+}
+
+function reportTrayOperationFailure(message, operation) {
+  try {
+    const result = operation();
+    if (result && typeof result.then === "function") {
+      return result.catch((err) => {
+        console.warn(message, err && err.message);
+      });
+    }
+    return result;
+  } catch (err) {
+    console.warn(message, err && err.message);
+    return undefined;
+  }
 }
 
 function clearTrayFlashTimers() {
@@ -1293,7 +1310,9 @@ function clearTrayFlashTimers() {
 function flashTaskbar() {
   if (!resolveEffectiveTrayFlashEnabled(_settingsController.get("flashTaskbarOnComplete"), getEffectiveAppModePolicy())) return;
   if (doNotDisturb) return;
-  startTrayFlashTimer((active) => _menu.setTrayAttention(active));
+  startTrayFlashTimer((active) => {
+    reportTrayOperationFailure("Clawd: tray attention update failed:", () => _menu.setTrayAttention(active));
+  });
 }
 
 function startTrayFlashTimer(setAttention) {
@@ -3352,6 +3371,7 @@ const _menu = require("./menu")(_menuCtx);
 const { t, buildContextMenu, buildTrayMenu, rebuildAllMenus, createTray,
         destroyTray, showPetContextMenu, ensureContextMenuOwner,
         requestAppQuit, applyDockVisibility } = _menu;
+trayRuntime.onMenuOpened(stopTrayFlash);
 
 agentLogApp.registerHostActions({
   openAgentLogManager: () => agentLogApp.openManager(),
@@ -3769,7 +3789,9 @@ function createWindow() {
   });
 
   buildContextMenu();
-  if (!isMac || showTray) createTray();
+  if (!isMac || showTray) {
+    reportTrayOperationFailure("Clawd: tray startup failed:", () => createTray());
+  }
   ensureContextMenuOwner();
 
   // ── Create input window (hitWin) — small rect over hitbox, receives all pointer events ──
@@ -4350,16 +4372,15 @@ if (!gotTheLock) {
     if (codexHookNudgeTimer && typeof codexHookNudgeTimer.unref === "function") codexHookNudgeTimer.unref();
   });
 
-  let trayRuntimeStopping = false;
+  const trayShutdownGate = createTrayShutdownGate({
+    stop: () => trayRuntime.stop(),
+    requestQuit: () => app.quit(),
+    reportError: (err) => {
+      console.warn("Clawd: tray runtime shutdown failed:", err && err.message);
+    },
+  });
   app.on("before-quit", (event) => {
-    if (!trayRuntimeStopping) {
-      event.preventDefault();
-      trayRuntimeStopping = true;
-      void trayRuntime.stop().catch((err) => {
-        console.warn("Clawd: tray runtime shutdown failed:", err && err.message);
-      }).finally(() => app.quit());
-      return;
-    }
+    if (!trayShutdownGate.onBeforeQuit(event)) return;
     isQuitting = true;
     if (systemWakeRecovery) systemWakeRecovery.dispose();
     // #525: release the IVirtualDesktopManager COM ref and pay back our own
