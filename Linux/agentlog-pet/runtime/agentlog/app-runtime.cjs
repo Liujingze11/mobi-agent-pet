@@ -35,8 +35,22 @@ let health = {
 };
 let trayHealthProvider = () => ({ status: "starting", code: null });
 
+function getTrayHealth() {
+  try {
+    const tray = trayHealthProvider();
+    const status = tray && tray.status;
+    const code = tray && tray.code;
+    if (typeof status === "string" && (code === null || typeof code === "string")) {
+      return { status, code };
+    }
+  } catch {
+    // Tray diagnostics must not make AgentLog storage diagnostics unavailable.
+  }
+  return { status: "starting", code: null };
+}
+
 function getHealth() {
-  return { ...health, tray: trayHealthProvider() };
+  return { ...health, tray: getTrayHealth() };
 }
 
 function setTrayHealthProvider(provider) {

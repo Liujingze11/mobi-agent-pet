@@ -25,6 +25,7 @@ const trayLabels = {
 export function SettingsPage({ health, onOpenSettings }: SettingsPageProps) {
   const [commandState, setCommandState] = useState<"idle" | "pending" | "error">("idle");
   const mountedRef = useRef(true);
+  const tray = health.tray ?? { status: "starting", code: null };
 
   useEffect(() => {
     mountedRef.current = true;
@@ -62,7 +63,7 @@ export function SettingsPage({ health, onOpenSettings }: SettingsPageProps) {
         </div>
         <div>
           <dt>Tray</dt>
-          <dd>{trayLabels[health.tray.status]}{health.tray.status === "failed" && health.tray.code ? ` (${health.tray.code})` : ""}</dd>
+          <dd>{trayLabels[tray.status]}{tray.status === "failed" && tray.code ? ` (${tray.code})` : ""}</dd>
         </div>
       </dl>
       {health.errorMessage ? <p className="inline-alert inline-alert--error">{health.errorMessage}</p> : null}

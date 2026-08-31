@@ -464,6 +464,40 @@ test("diagnostics emits only allowlisted tray health", async (t) => {
   });
 });
 
+test("diagnostics snapshots stateful tray accessors before redaction", async (t) => {
+  let statusReads = 0;
+  let codeReads = 0;
+  const tray = Object.create({
+    get status() {
+      statusReads += 1;
+      return statusReads === 1 ? "native" : "secret-status:/home/user/.config";
+    },
+    get code() {
+      codeReads += 1;
+      return codeReads === 1 ? "native-start-timeout" : "secret-code:/run/user/1000";
+    },
+  });
+  const api = createHarness(t, {
+    runtime: {
+      getHealth: () => ({
+        storage: "ready",
+        databaseName: "agentlog.db",
+        errorMessage: null,
+        tray,
+      }),
+    },
+  });
+
+  assert.deepEqual(await api.invoke("agentlog:diagnostics:get"), {
+    storage: "ready",
+    databaseName: "agentlog.db",
+    errorMessage: null,
+    tray: { status: "native", code: "native-start-timeout" },
+  });
+  assert.equal(statusReads, 1);
+  assert.equal(codeReads, 1);
+});
+
 test("host settings and manager hide are scoped through trusted main-process objects", async (t) => {
   const api = createHarness(t);
 

@@ -217,6 +217,24 @@ describe("App", () => {
     expect(api.settings.open).toHaveBeenCalledWith("general");
   });
 
+  it("falls back to starting tray diagnostics for an older payload without tray", async () => {
+    const user = userEvent.setup();
+    const { api } = createApi({
+      diagnostics: {
+        storage: "ready",
+        databaseName: "agentlog.db",
+        errorMessage: null,
+      } as unknown as DiagnosticsHealth & Record<string, unknown>,
+    });
+    render(<App api={api} />);
+    await screen.findByRole("heading", { name: "Live work" });
+
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+
+    expect(await screen.findByText("Tray is starting")).toBeVisible();
+    expect(screen.queryByText("Manager encountered an unexpected error")).not.toBeInTheDocument();
+  });
+
   it.each([
     ["starting", null, "Tray is starting"],
     ["native", "native-start-timeout", "Native tray active"],

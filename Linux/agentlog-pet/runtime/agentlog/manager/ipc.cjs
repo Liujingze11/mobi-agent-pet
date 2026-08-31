@@ -79,8 +79,10 @@ function redactedHealth(runtime) {
     : "error";
   const errorMessage = health && health.errorMessage ? "Unable to open AgentLog storage" : null;
   const tray = health && health.tray;
-  const trayStatus = tray && TRAY_STATUSES.has(tray.status) ? tray.status : "failed";
-  const trayCode = tray && TRAY_CODES.has(tray.code) ? tray.code : null;
+  const trayStatusInput = tray && tray.status;
+  const trayCodeInput = tray && tray.code;
+  const trayStatus = TRAY_STATUSES.has(trayStatusInput) ? trayStatusInput : "failed";
+  const trayCode = TRAY_CODES.has(trayCodeInput) ? trayCodeInput : null;
   return {
     storage,
     databaseName: "agentlog.db",

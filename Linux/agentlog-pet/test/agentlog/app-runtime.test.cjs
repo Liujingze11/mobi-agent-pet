@@ -175,6 +175,36 @@ test("health reports default and injected tray diagnostics without starting stor
   assert.equal(electron.app.listenerCount("before-quit"), 0);
 });
 
+test("health keeps storage diagnostics when the tray provider throws", (t) => {
+  const { electron, runtime } = createHarness(t);
+
+  runtime.setTrayHealthProvider(() => {
+    throw new Error("tray runtime unavailable");
+  });
+
+  assert.deepEqual(runtime.getHealth(), {
+    storage: "starting",
+    databaseName: "agentlog.db",
+    errorMessage: null,
+    tray: { status: "starting", code: null },
+  });
+  assert.equal(electron.app.listenerCount("before-quit"), 0);
+});
+
+test("health falls back to starting tray diagnostics for malformed provider data", (t) => {
+  const { electron, runtime } = createHarness(t);
+
+  runtime.setTrayHealthProvider(() => ({ status: null, code: "/home/user/private-tray.log" }));
+
+  assert.deepEqual(runtime.getHealth(), {
+    storage: "starting",
+    databaseName: "agentlog.db",
+    errorMessage: null,
+    tray: { status: "starting", code: null },
+  });
+  assert.equal(electron.app.listenerCount("before-quit"), 0);
+});
+
 test("events received before database readiness flush once in publication order and later events write directly", async (t) => {
   const { bridge, electron, runtime } = createHarness(t);
 
