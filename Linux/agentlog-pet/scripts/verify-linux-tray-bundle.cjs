@@ -9,13 +9,14 @@ const zlib = require("node:zlib");
 
 const projectRoot = path.resolve(__dirname, "..");
 const PROTOCOL_MARKER = "agentlog-tray-protocol-v1";
-const BUNDLED_SONAME_PREFIXES = [
-  "libayatana-appindicator3.so",
-  "libayatana-indicator3.so",
-  "libdbusmenu-glib.so",
-  "libdbusmenu-gtk3.so",
-  "libjson-glib-1.0.so",
+const BUNDLED_LIBRARIES = [
+  { family: "libayatana-appindicator3.so", soname: "libayatana-appindicator3.so.1" },
+  { family: "libayatana-indicator3.so", soname: "libayatana-indicator3.so.7" },
+  { family: "libdbusmenu-glib.so", soname: "libdbusmenu-glib.so.4" },
+  { family: "libdbusmenu-gtk3.so", soname: "libdbusmenu-gtk3.so.4" },
+  { family: "libjson-glib-1.0.so", soname: "libjson-glib-1.0.so.0" },
 ];
+const BUNDLED_SONAME_PREFIXES = BUNDLED_LIBRARIES.map(({ family }) => family);
 const ICON_NAMES = ["agentlog-pet.png", "agentlog-pet-attention.png"];
 const ICON_SIZES = [16, 22, 32, 48];
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
@@ -113,6 +114,23 @@ function inspectPng(file, expectedSize) {
   assert.equal(pixels.length, expectedSize * (1 + expectedSize * channels), `${file} pixel data`);
 }
 
+function assertRealDirectory(file, label) {
+  assert.ok(fs.lstatSync(file).isDirectory(), `${label} must be a real directory`);
+}
+
+function assertRealFile(file, label) {
+  assert.ok(fs.lstatSync(file).isFile(), `${label} must be a real regular file`);
+}
+
+function assertNoSymlinks(directory, relative = "") {
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const child = path.join(relative, entry.name);
+    const absolute = path.join(directory, entry.name);
+    assert.equal(entry.isSymbolicLink(), false, `${child} must not be a symlink`);
+    if (entry.isDirectory()) assertNoSymlinks(absolute, child);
+  }
+}
+
 function regularFileInventory(root) {
   const files = [];
   function visit(relative) {
@@ -121,7 +139,14 @@ function regularFileInventory(root) {
       const child = path.join(relative, entry.name);
       if (child === "SHA256SUMS") continue;
       if (entry.isDirectory()) visit(child);
+      else if (entry.isSymbolicLink()) {
+        assert.ok(
+          relative === "lib" && BUNDLED_LIBRARIES.some(({ soname }) => entry.name === soname),
+          `${child} must not be a symlink`,
+        );
+      }
       else if (entry.isFile()) files.push(child.split(path.sep).join("/"));
+      else assert.fail(`${child} has an unsupported payload type`);
     }
   }
   visit("");
@@ -129,18 +154,21 @@ function regularFileInventory(root) {
 }
 
 function verifyTopLevel(stagingRoot) {
+  assertRealDirectory(stagingRoot, "staging root");
   const actual = fs.readdirSync(stagingRoot).sort();
   assert.deepEqual(actual, ["NOTICE", "SHA256SUMS", "bin", "icons", "lib"]);
-  for (const directory of ["bin", "lib", path.join("icons", "hicolor")]) {
-    assert.ok(fs.statSync(path.join(stagingRoot, directory)).isDirectory(), `${directory} must be a directory`);
+  for (const directory of ["bin", "lib", "icons", path.join("icons", "hicolor")]) {
+    assertRealDirectory(path.join(stagingRoot, directory), directory);
   }
+  assertRealFile(path.join(stagingRoot, "NOTICE"), "NOTICE");
+  assertRealFile(path.join(stagingRoot, "SHA256SUMS"), "SHA256SUMS");
 }
 
 function verifyHelper(stagingRoot) {
   const helper = path.join(stagingRoot, "bin", "agentlog-tray");
-  const stat = fs.statSync(helper);
-  assert.ok(stat.isFile(), "bin/agentlog-tray must be a regular file");
-  assert.ok((stat.mode & 0o111) !== 0, "bin/agentlog-tray must have executable permission");
+  const stat = fs.lstatSync(helper);
+  assertRealFile(helper, "bin/agentlog-tray");
+  assert.equal(stat.mode & 0o7777, 0o755, "bin/agentlog-tray must have mode 0755");
 
   const elf = fs.readFileSync(helper);
   assert.deepEqual(elf.subarray(0, 6), Buffer.from([0x7f, 0x45, 0x4c, 0x46, 2, 1]), "helper must be ELF64 little-endian");
@@ -153,11 +181,14 @@ function verifyHelper(stagingRoot) {
 }
 
 function verifyIcons(stagingRoot) {
+  const iconRoot = path.join(stagingRoot, "icons");
+  assertNoSymlinks(iconRoot, "icons");
   for (const size of ICON_SIZES) {
     for (const name of ICON_NAMES) {
       const relative = path.join(`${size}x${size}`, "status", name);
       const staged = path.join(stagingRoot, "icons", "hicolor", relative);
       const source = path.join(projectRoot, "assets", "tray-icons", "hicolor", relative);
+      assertRealFile(staged, path.join("icons", "hicolor", relative));
       inspectPng(staged, size);
       assert.ok(fs.readFileSync(staged).equals(fs.readFileSync(source)), `${relative} differs from its stable source asset`);
     }
@@ -168,31 +199,34 @@ function verifyLibraries(stagingRoot, helper) {
   const libraryRoot = path.join(stagingRoot, "lib");
   const realLibraryRoot = fs.realpathSync(libraryRoot);
   const entries = fs.readdirSync(libraryRoot, { withFileTypes: true });
-  assert.ok(entries.length > 0, "lib must not be empty");
+  assert.equal(entries.length, BUNDLED_LIBRARIES.length * 2, "lib must contain exactly five real files and five SONAME links");
   for (const entry of entries) {
     assert.ok(entry.isFile() || entry.isSymbolicLink(), `${entry.name} must be a file or symlink`);
-    if (entry.isSymbolicLink()) {
-      assert.equal(
-        path.isAbsolute(fs.readlinkSync(path.join(libraryRoot, entry.name))),
-        false,
-        `${entry.name} must use a relative symlink`,
-      );
-    }
-    assert.ok(
-      BUNDLED_SONAME_PREFIXES.some((prefix) => entry.name.startsWith(prefix)),
-      `${entry.name} is outside the allowed SONAME families`,
-    );
-    const real = fs.realpathSync(path.join(libraryRoot, entry.name));
-    assert.ok(real.startsWith(`${realLibraryRoot}${path.sep}`), `${entry.name} resolves outside lib`);
   }
 
-  for (const prefix of BUNDLED_SONAME_PREFIXES) {
-    assert.ok(entries.some((entry) => entry.name.startsWith(prefix)), `${prefix} is missing`);
-  }
-  for (const entry of entries.filter((candidate) => candidate.isFile())) {
-    const sonames = dynamicValues(path.join(libraryRoot, entry.name), "SONAME");
-    assert.equal(sonames.length, 1, `${entry.name} must contain one SONAME`);
-    assert.ok(fs.existsSync(path.join(libraryRoot, sonames[0])), `${sonames[0]} is missing`);
+  const realEntries = entries.filter((entry) => entry.isFile());
+  const linkEntries = entries.filter((entry) => entry.isSymbolicLink());
+  assert.equal(realEntries.length, BUNDLED_LIBRARIES.length, "lib must contain exactly five real library files");
+  assert.deepEqual(
+    linkEntries.map((entry) => entry.name).sort(),
+    BUNDLED_LIBRARIES.map(({ soname }) => soname).sort(),
+    "lib must contain exactly the required SONAME links",
+  );
+
+  for (const { family, soname } of BUNDLED_LIBRARIES) {
+    const matchingReal = realEntries.filter((entry) => entry.name.startsWith(family));
+    assert.equal(matchingReal.length, 1, `${family} must have exactly one real library`);
+    const real = matchingReal[0];
+    const realFile = path.join(libraryRoot, real.name);
+    assert.deepEqual(dynamicValues(realFile, "SONAME"), [soname], `${real.name} must declare ${soname}`);
+
+    const linkFile = path.join(libraryRoot, soname);
+    const target = fs.readlinkSync(linkFile);
+    assert.equal(path.isAbsolute(target), false, `${soname} must use a relative symlink`);
+    assert.equal(target, real.name, `${soname} must target ${real.name}`);
+    const resolved = fs.realpathSync(linkFile);
+    assert.ok(resolved.startsWith(`${realLibraryRoot}${path.sep}`), `${soname} resolves outside lib`);
+    assert.equal(resolved, fs.realpathSync(realFile), `${soname} must target ${real.name}`);
   }
 
   const output = run("ldd", [helper], {
@@ -204,15 +238,17 @@ function verifyLibraries(stagingRoot, helper) {
     const match = line.match(/^\s*(\S+)\s+=>\s+(\S+)/);
     if (match) resolutions.set(match[1], match[2]);
   }
-  for (const prefix of BUNDLED_SONAME_PREFIXES) {
-    const match = [...resolutions].find(([soname]) => soname.startsWith(prefix));
-    assert.ok(match, `${prefix} is absent from ldd output`);
-    assert.ok(fs.realpathSync(match[1]).startsWith(`${realLibraryRoot}${path.sep}`), `${match[0]} did not resolve from staging`);
+  for (const { soname } of BUNDLED_LIBRARIES) {
+    const resolved = resolutions.get(soname);
+    assert.ok(resolved, `${soname} is absent from ldd output`);
+    assert.ok(fs.realpathSync(resolved).startsWith(`${realLibraryRoot}${path.sep}`), `${soname} did not resolve from staging`);
   }
 }
 
 function verifyNotice(stagingRoot) {
-  const notice = fs.readFileSync(path.join(stagingRoot, "NOTICE"), "utf8");
+  const noticeFile = path.join(stagingRoot, "NOTICE");
+  assertRealFile(noticeFile, "NOTICE");
+  const notice = fs.readFileSync(noticeFile, "utf8");
   for (const required of [
     "AgentLog Native Linux Tray Helper",
     "libayatana-appindicator",
@@ -229,6 +265,7 @@ function verifyNotice(stagingRoot) {
 
 function verifyChecksums(stagingRoot) {
   const checksumPath = path.join(stagingRoot, "SHA256SUMS");
+  assertRealFile(checksumPath, "SHA256SUMS");
   const lines = fs.readFileSync(checksumPath, "utf8").trimEnd().split("\n");
   const listed = new Map();
   for (const line of lines) {
@@ -252,22 +289,17 @@ function verifyChecksums(stagingRoot) {
 }
 
 function verifyNoBuildPaths(stagingRoot) {
-  const files = [path.join(stagingRoot, "bin", "agentlog-tray")];
-  const libraryRoot = path.join(stagingRoot, "lib");
-  for (const entry of fs.readdirSync(libraryRoot, { withFileTypes: true })) {
-    if (entry.isFile()) files.push(path.join(libraryRoot, entry.name));
-  }
   const forbiddenPrefixes = [
     projectRoot,
     stagingRoot,
     process.env.HOME,
     process.env.SYSROOT,
   ].filter(Boolean);
-  for (const file of files) {
-    const strings = run("strings", ["--all", file]);
-    assert.doesNotMatch(strings, /\/home\//, `${file} contains an absolute home path`);
+  for (const relative of regularFileInventory(stagingRoot)) {
+    const payload = fs.readFileSync(path.join(stagingRoot, relative));
+    assert.equal(payload.includes(Buffer.from("/home/")), false, `${relative} contains an absolute home path`);
     for (const prefix of forbiddenPrefixes) {
-      assert.equal(strings.includes(prefix), false, `${file} contains build path ${prefix}`);
+      assert.equal(payload.includes(Buffer.from(prefix)), false, `${relative} contains build path ${prefix}`);
     }
   }
 }

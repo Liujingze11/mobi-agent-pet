@@ -2,6 +2,7 @@
 
 const assert = require("node:assert/strict");
 const { spawnSync } = require("node:child_process");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -14,6 +15,7 @@ const PACKAGE_JSON = path.join(ROOT, "package.json");
 const STAGING_ROOT = path.join(ROOT, "build", "tray");
 const HELPER = path.join(STAGING_ROOT, "bin", "agentlog-tray");
 const LIB_ROOT = path.join(STAGING_ROOT, "lib");
+const STAGING_AVAILABLE = fs.existsSync(STAGING_ROOT);
 const VERIFIER = path.join(ROOT, "scripts", "verify-linux-tray-bundle.cjs");
 const ICON_NAMES = ["agentlog-pet.png", "agentlog-pet-attention.png"];
 const ICON_SIZES = [16, 22, 32, 48];
@@ -154,6 +156,44 @@ function checksumInventory(root) {
   return inventory.sort();
 }
 
+function copyStaging(prefix) {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const copied = path.join(temporary, "tray");
+  fs.cpSync(STAGING_ROOT, copied, {
+    recursive: true,
+    preserveTimestamps: true,
+    verbatimSymlinks: true,
+  });
+  return { temporary, copied };
+}
+
+function removeChecksumEntries(root, entries) {
+  const checksum = path.join(root, "SHA256SUMS");
+  const retained = fs.readFileSync(checksum, "utf8")
+    .trimEnd()
+    .split("\n")
+    .filter((line) => !entries.some((entry) => line.endsWith(`  ${entry}`)));
+  fs.writeFileSync(checksum, `${retained.join("\n")}\n`);
+}
+
+function writeChecksums(root) {
+  const lines = checksumInventory(root).map((relative) => {
+    const digest = crypto
+      .createHash("sha256")
+      .update(fs.readFileSync(path.join(root, relative)))
+      .digest("hex");
+    return `${digest}  ${relative}`;
+  });
+  fs.writeFileSync(path.join(root, "SHA256SUMS"), `${lines.join("\n")}\n`);
+}
+
+function parseTopLevelTapOutcomes(output) {
+  return output.split(/\r?\n/).flatMap((line) => {
+    const match = line.match(/^ok \d+ - (.+?)( # SKIP(?: .*)?)?$/);
+    return match ? [{ name: match[1], skipped: Boolean(match[2]) }] : [];
+  });
+}
+
 test("electron-builder has the complete Linux tray package configuration", async () => {
   const pkg = JSON.parse(fs.readFileSync(PACKAGE_JSON, "utf8"));
   await validateConfiguration(pkg.build, { isEnabled: false, add() {} });
@@ -186,13 +226,13 @@ test("the repository contains eight structurally valid stable tray icons", () =>
   }
 });
 
-test("the staged bundle passes the production verifier", () => {
+test("the staged bundle passes the production verifier", { skip: !STAGING_AVAILABLE }, () => {
   const result = run(process.execPath, [VERIFIER, STAGING_ROOT]);
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /Verified Linux tray bundle/);
 });
 
-test("the staged helper is executable x86-64 ELF with protocol v1 and a relative RUNPATH", () => {
+test("the staged helper is executable x86-64 ELF with protocol v1 and a relative RUNPATH", { skip: !STAGING_AVAILABLE }, () => {
   const mode = fs.statSync(HELPER).mode & 0o777;
   assert.equal(mode, 0o755, "staging must normalize the helper mode to 0755");
   const elf = fs.readFileSync(HELPER);
@@ -213,7 +253,7 @@ test("the staged helper is executable x86-64 ELF with protocol v1 and a relative
   assert.equal(dynamic.some((entry) => entry.tag === "RPATH"), false);
 });
 
-test("the staged library closure is complete, bounded, and resolves from staging", () => {
+test("the staged library closure is complete, bounded, and resolves from staging", { skip: !STAGING_AVAILABLE }, () => {
   const entries = fs.readdirSync(LIB_ROOT, { withFileTypes: true });
   assert.ok(entries.length > 0, "build/tray/lib must not be empty");
   for (const entry of entries) {
@@ -258,7 +298,7 @@ test("the staged library closure is complete, bounded, and resolves from staging
   assert.doesNotMatch(output, /not found/);
 });
 
-test("SHA256SUMS covers every required staged regular file and verifies", () => {
+test("SHA256SUMS covers every required staged regular file and verifies", { skip: !STAGING_AVAILABLE }, () => {
   const checksumFile = path.join(STAGING_ROOT, "SHA256SUMS");
   const listed = fs.readFileSync(checksumFile, "utf8")
     .trimEnd()
@@ -275,7 +315,67 @@ test("SHA256SUMS covers every required staged regular file and verifies", () => 
   runChecked("sha256sum", ["--check", "SHA256SUMS"], { cwd: STAGING_ROOT });
 });
 
-test("the verifier rejects a staged helper without executable permission", () => {
+test("the verifier rejects incomplete, extra, duplicate, and stale checksums", { skip: !STAGING_AVAILABLE }, () => {
+  const cases = [
+    {
+      name: "missing entry",
+      mutate(root) {
+        removeChecksumEntries(root, ["NOTICE"]);
+      },
+      message: /SHA256SUMS must cover every staged regular file/,
+    },
+    {
+      name: "extra entry",
+      mutate(root) {
+        fs.appendFileSync(path.join(root, "SHA256SUMS"), `${"0".repeat(64)}  unlisted-payload\n`);
+      },
+      message: /SHA256SUMS must cover every staged regular file/,
+    },
+    {
+      name: "duplicate entry",
+      mutate(root) {
+        const checksum = path.join(root, "SHA256SUMS");
+        const first = fs.readFileSync(checksum, "utf8").split("\n")[0];
+        fs.appendFileSync(checksum, `${first}\n`);
+      },
+      message: /duplicate checksum entry/,
+    },
+    {
+      name: "stale digest",
+      mutate(root) {
+        fs.appendFileSync(path.join(root, "NOTICE"), "\nchecksum mutation\n");
+      },
+      message: /checksum mismatch/,
+    },
+  ];
+
+  for (const mutation of cases) {
+    const { temporary, copied } = copyStaging("agentlog-tray-checksum-test-");
+    try {
+      mutation.mutate(copied);
+      const result = run(process.execPath, [VERIFIER, copied]);
+      assert.notEqual(result.status, 0, `${mutation.name} must be rejected`);
+      assert.match(result.stderr, mutation.message);
+    } finally {
+      fs.rmSync(temporary, { recursive: true, force: true });
+    }
+  }
+});
+
+test("the verifier scans every checksummed payload for environment-specific paths", { skip: !STAGING_AVAILABLE }, () => {
+  const { temporary, copied } = copyStaging("agentlog-tray-path-scan-test-");
+  try {
+    fs.appendFileSync(path.join(copied, "NOTICE"), `\n${process.env.HOME}/tray-path-mutation\n`);
+    writeChecksums(copied);
+    const result = run(process.execPath, [VERIFIER, copied]);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /absolute home path/);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("the verifier rejects a staged helper without executable permission", { skip: !STAGING_AVAILABLE }, () => {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentlog-tray-mode-test-"));
   const copied = path.join(temporary, "tray");
   try {
@@ -283,13 +383,27 @@ test("the verifier rejects a staged helper without executable permission", () =>
     fs.chmodSync(path.join(copied, "bin", "agentlog-tray"), 0o644);
     const result = run(process.execPath, [VERIFIER, copied]);
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /executable permission/);
+    assert.match(result.stderr, /mode 0755/);
   } finally {
     fs.rmSync(temporary, { recursive: true, force: true });
   }
 });
 
-test("the verifier rejects an absolute staged library symlink", () => {
+test("the verifier requires helper mode exactly 0755", { skip: !STAGING_AVAILABLE }, () => {
+  for (const mode of [0o700, 0o001, 0o4755]) {
+    const { temporary, copied } = copyStaging("agentlog-tray-mode-variant-test-");
+    try {
+      fs.chmodSync(path.join(copied, "bin", "agentlog-tray"), mode);
+      const result = run(process.execPath, [VERIFIER, copied]);
+      assert.notEqual(result.status, 0, `mode ${mode.toString(8)} must be rejected`);
+      assert.match(result.stderr, /mode 0755/);
+    } finally {
+      fs.rmSync(temporary, { recursive: true, force: true });
+    }
+  }
+});
+
+test("the verifier rejects an absolute staged library symlink", { skip: !STAGING_AVAILABLE }, () => {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentlog-tray-link-test-"));
   const copied = path.join(temporary, "tray");
   try {
@@ -309,3 +423,125 @@ test("the verifier rejects an absolute staged library symlink", () => {
     fs.rmSync(temporary, { recursive: true, force: true });
   }
 });
+
+test("the verifier rejects a relative SONAME link that escapes lib", { skip: !STAGING_AVAILABLE }, () => {
+  const { temporary, copied } = copyStaging("agentlog-tray-relative-link-test-");
+  try {
+    const link = path.join(copied, "lib", "libayatana-appindicator3.so.1");
+    const real = path.basename(fs.realpathSync(link));
+    fs.unlinkSync(link);
+    fs.symlinkSync(path.join("..", "lib", real), link);
+    const result = run(process.execPath, [VERIFIER, copied]);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /must target/);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("the verifier rejects top-level and payload symlink escapes", { skip: !STAGING_AVAILABLE }, () => {
+  const icon = path.join("icons", "hicolor", "16x16", "status", "agentlog-pet.png");
+  const cases = [
+    {
+      name: "bin directory",
+      relative: "bin",
+      source: path.join(STAGING_ROOT, "bin"),
+      checksumEntries: ["bin/agentlog-tray"],
+      type: "dir",
+    },
+    {
+      name: "helper payload",
+      relative: path.join("bin", "agentlog-tray"),
+      source: HELPER,
+      checksumEntries: ["bin/agentlog-tray"],
+      type: "file",
+    },
+    {
+      name: "icon payload",
+      relative: icon,
+      source: path.join(STAGING_ROOT, icon),
+      checksumEntries: [icon],
+      type: "file",
+    },
+  ];
+
+  for (const mutation of cases) {
+    const { temporary, copied } = copyStaging("agentlog-tray-boundary-link-test-");
+    try {
+      const destination = path.join(copied, mutation.relative);
+      fs.rmSync(destination, { recursive: mutation.type === "dir", force: true });
+      fs.symlinkSync(mutation.source, destination, mutation.type);
+      removeChecksumEntries(copied, mutation.checksumEntries);
+      const result = run(process.execPath, [VERIFIER, copied]);
+      assert.notEqual(result.status, 0, `${mutation.name} symlink must be rejected`);
+      assert.match(result.stderr, /real (directory|regular file)|symlink/);
+    } finally {
+      fs.rmSync(temporary, { recursive: true, force: true });
+    }
+  }
+});
+
+test("the verifier rejects an extra real library in an allowed family", { skip: !STAGING_AVAILABLE }, () => {
+  const { temporary, copied } = copyStaging("agentlog-tray-extra-library-test-");
+  try {
+    const libraryRoot = path.join(copied, "lib");
+    fs.copyFileSync(
+      path.join(libraryRoot, "libjson-glib-1.0.so.0.600.6"),
+      path.join(libraryRoot, "libjson-glib-1.0.so.0.600.6.extra"),
+    );
+    writeChecksums(copied);
+    const result = run(process.execPath, [VERIFIER, copied]);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /exactly five real files|exactly one real library/);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test("the verifier rejects a SONAME link mapped to the wrong real library", { skip: !STAGING_AVAILABLE }, () => {
+  const { temporary, copied } = copyStaging("agentlog-tray-soname-link-test-");
+  try {
+    const link = path.join(copied, "lib", "libayatana-appindicator3.so.1");
+    fs.unlinkSync(link);
+    fs.symlinkSync("libjson-glib-1.0.so.0.600.6", link);
+    const result = run(process.execPath, [VERIFIER, copied]);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /must target/);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
+});
+
+test(
+  "the package test suite succeeds without ignored tray staging",
+  { skip: !STAGING_AVAILABLE || process.env.AGENTLOG_TRAY_TEST_STAGING_ABSENT === "1" },
+  () => {
+    const withheld = path.join(ROOT, "build", `.tray-clean-checkout-${process.pid}`);
+    assert.ok(fs.existsSync(STAGING_ROOT), "this regression requires an existing staging bundle");
+    try {
+      fs.renameSync(STAGING_ROOT, withheld);
+      const environment = { ...process.env, AGENTLOG_TRAY_TEST_STAGING_ABSENT: "1" };
+      delete environment.NODE_TEST_CONTEXT;
+      const result = run(process.execPath, ["--test", __filename], {
+        env: environment,
+      });
+      assert.equal(result.status, 0, result.stderr || result.stdout);
+      const outcomes = parseTopLevelTapOutcomes(result.stdout);
+      assert.deepEqual(
+        outcomes.filter(({ skipped }) => !skipped).map(({ name }) => name),
+        [
+          "electron-builder has the complete Linux tray package configuration",
+          "the repository contains eight structurally valid stable tray icons",
+        ],
+      );
+      assert.equal(outcomes.length, 16, "the child must report every package test");
+      assert.equal(
+        outcomes.filter(({ skipped }) => skipped).length,
+        14,
+        "only staging-dependent tests and this regression may skip",
+      );
+    } finally {
+      fs.renameSync(withheld, STAGING_ROOT);
+    }
+  },
+);
