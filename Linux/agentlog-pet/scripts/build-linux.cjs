@@ -13,6 +13,19 @@ const backup = path.join(tmp, "better_sqlite3.node");
 fs.copyFileSync(binding, backup);
 try {
   fs.copyFileSync(ensureElectronBinding(), binding);
+  const verification = spawnSync(
+    process.execPath,
+    [path.join(root, "scripts", "verify-linux-tray-bundle.cjs"), path.join(root, "build", "tray")],
+    {
+      cwd: root,
+      encoding: "utf8",
+      stdio: "inherit",
+    },
+  );
+  if (verification.status !== 0) {
+    process.exitCode = verification.status || 1;
+    return;
+  }
   const executable = process.platform === "win32" ? "electron-builder.cmd" : "electron-builder";
   const result = spawnSync(path.join(root, "node_modules", ".bin", executable), ["--linux"], {
     cwd: root,

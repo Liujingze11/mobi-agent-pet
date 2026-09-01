@@ -22,7 +22,7 @@
     "test:phase1": "npm test && npm run test:upstream",
     "test:phase2": "npm test && npm run test:manager && npm run typecheck:manager && npm run build:manager && npm run test:upstream",
     "build:manager": "vite build --config vite.manager.config.ts",
-    "prebuild:linux": "npm run build:manager && node runtime/clawd/scripts/verify-sidecar-binaries.js build:linux",
+    "prebuild:linux": "npm run build:manager && node runtime/clawd/scripts/verify-sidecar-binaries.js build:linux && node scripts/build-linux-tray-helper.cjs && node scripts/verify-linux-tray-bundle.cjs build/tray",
     "build:linux": "node scripts/build-linux.cjs",
     "smoke:linux": "node scripts/smoke-linux.cjs",
     "smoke:manager": "node scripts/smoke-manager.cjs",
@@ -117,7 +117,26 @@
         {
           "from": "runtime/clawd/bin/cc-connect-clawd/linux-${arch}",
           "to": "sidecars/cc-connect-clawd/linux-${arch}"
+        },
+        {
+          "from": "build/tray",
+          "to": "tray"
         }
+      ]
+    },
+    "deb": {
+      "depends": [
+        "libgtk-3-0 | libgtk-3-0t64",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1",
+        "libsecret-1-0",
+        "libayatana-appindicator3-1",
+        "libjson-glib-1.0-0"
       ]
     },
     "extraResources": [

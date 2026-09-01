@@ -15,3 +15,5 @@ release/
 linux-unpacked/
 builder-effective-config.yaml
 latest-linux.yml
+build/tray/
+native/agentlog-tray/build/

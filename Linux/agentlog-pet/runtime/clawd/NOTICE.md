@@ -30,3 +30,61 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## AgentLog Native Linux Tray Helper
+
+`tray/bin/agentlog-tray` is original AgentLog Pet native helper code.
+
+Copyright (c) 2026 Jingze Liu
+
+The helper is distributed under the same repository terms as AgentLog Pet.
+
+## Bundled Linux Tray Libraries
+
+Linux packages may include the following unmodified shared libraries in
+`tray/lib`. The source locations, copyright notices, and license choices below
+are retained for attribution and redistribution.
+
+### libayatana-appindicator
+
+Source: https://github.com/AyatanaIndicators/libayatana-appindicator
+
+Copyright (c) 2009-2011 Canonical Ltd. and other contributors.
+
+The library files are licensed under LGPL-2.1 or LGPL-3. Some upstream files
+are GPL-3; see the upstream source distribution for file-level details.
+
+### libayatana-indicator
+
+Source: https://github.com/AyatanaIndicators/libayatana-indicator
+
+Copyright (c) 2009-2013 Canonical Ltd., 2021 Robert Tari, and other
+contributors.
+
+Licensed under GPL-3.
+
+### libdbusmenu
+
+Source: https://launchpad.net/dbusmenu
+
+Copyright (c) 2009-2010 Ted Gould, Aurelien Gateau, Canonical Ltd., and other
+contributors.
+
+The bundled `libdbusmenu-glib` and `libdbusmenu-gtk3` library files are
+licensed under LGPL-2.1 or LGPL-3. Other upstream files are GPL-3; see the
+upstream source distribution for file-level details.
+
+### JSON-GLib
+
+Source: https://download.gnome.org/sources/json-glib/
+
+Copyright (c) 2007-2008 OpenedHand Ltd., 2009-2012 Intel Corp., 2013
+Emmanuele Bassi, and other contributors.
+
+Licensed under LGPL-2.1 or any later version.
+
+The complete license texts are available from the licensors:
+
+- GPL-3: https://www.gnu.org/licenses/gpl-3.0.txt
+- LGPL-2.1: https://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt
+- LGPL-3: https://www.gnu.org/licenses/lgpl-3.0.txt
