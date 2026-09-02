@@ -2,18 +2,19 @@
 
 ## Status
 
-`DONE_WITH_CONCERNS`: all feasible automated, package, and Ubuntu 22.04 GNOME
-42 X11 checks were run. The explicit desktop matrix gate remains open because
-four required desktop/session environments are unavailable, and the host lacks
-`libfuse.so.2` for a direct AppImage launch.
+`DONE_WITH_CONCERNS`: development, extracted-deb, and AppImage
+extract-and-run smoke evidence was observed on Ubuntu 22.04 GNOME 42 X11. The
+explicit desktop matrix gate remains open because four required desktop/session
+environments are unavailable. Direct FUSE-based AppImage launch also remains
+unavailable on this host because it lacks `libfuse.so.2`.
 
 ## Host and profile
 
 - Ubuntu 22.04.5 LTS, GNOME 42, X11; `DISPLAY=:1`.
 - `gsettings get org.gnome.shell.extensions.appindicator custom-icons` returned
   `@a(sss) []` before verification. No AgentLog override was installed.
-- All smoke/live launches used a newly created `HOME` plus XDG config/cache/data
-  directories. The deb was extracted under `/tmp`; it was not installed.
+- All smoke/live launches used a newly created `HOME` plus an isolated XDG
+  config directory. The deb was extracted under `/tmp`; it was not installed.
 
 ## Commands and results
 
@@ -29,7 +30,19 @@ npm run smoke:linux
 
 node scripts/smoke-linux.cjs /tmp/.../opt/AgentLog\ Pet/agentlog-pet
 {"status":"ok","productName":"AgentLog Pet","windowCount":4,...}; exit 0
+
+APPIMAGE_EXTRACT_AND_RUN=1 npm run smoke:linux -- Linux/AgentLog-Pet-0.1.0-x64.AppImage
+{"status":"ok","productName":"AgentLog Pet","windowCount":4,...}; exit 0
+
+APPIMAGE_EXTRACT_AND_RUN=1 npm run smoke:manager -- Linux/AgentLog-Pet-0.1.0-x64.AppImage
+{"status":"ok","pid":...,"productName":"AgentLog Pet","managerTitle":"AgentLog Pet","databaseName":"agentlog.db","managerShell":true}; exit 0
 ```
+
+After each development, extracted-deb, AppImage smoke, and AppImage manager
+smoke, `pgrep -af 'AgentLog|agentlog-tray'` returned no process. The AppImage
+smokes exercised the extracted runtime, its real Electron process lifecycle,
+the second-instance manager activation path, and manager-shell metadata. They
+did not observe a tray host, native diagnostic state, or native UI interaction.
 
 The rootless build used `/tmp/agentlog-native-tray-task8-takeover/sysroot` with
 `PKG_CONFIG_PATH` pointing first at its `usr/lib/x86_64-linux-gnu/pkgconfig` and
@@ -76,9 +89,11 @@ automatically observable; Electron emitted duplicate StatusNotifier export
 messages and no helper remained at the observation point. They are not claimed
 as live native success.
 
-Direct AppImage execution was blocked before app startup by `dlopen(): error
-loading libfuse.so.2`; `--appimage-extract` succeeded and the extracted content
-passed the inventory/checksum/ELF checks.
+Direct FUSE-based AppImage execution was blocked before app startup by
+`dlopen(): error loading libfuse.so.2`. With `APPIMAGE_EXTRACT_AND_RUN=1`, the
+same AppImage completed the packaged smoke and manager smoke above. This is
+runtime evidence for AppImage extraction mode, not evidence of direct FUSE
+mounting or of unobserved native tray UI.
 
 Deterministic supervisor tests cover timeout, malformed output, process exit,
 X11 no-host fallback, Wayland no-host diagnostics, three restart delays/cap,
@@ -89,7 +104,7 @@ graceful helper shutdown. These are unit/harness results, not desktop clicks.
 
 | Desktop/session | AppImage | Extracted deb | Result |
 | --- | --- | --- | --- |
-| Ubuntu 22.04 GNOME 42 X11 | BLOCKED: host lacks libfuse.so.2 | PARTIAL: isolated smoke/StatusNotifier registration; native UI state not observed | not a completed row |
+| Ubuntu 22.04 GNOME 42 X11 | PARTIAL: extract-and-run application and manager smokes; direct FUSE unavailable and native UI state not observed | PARTIAL: isolated smoke/StatusNotifier registration; native UI state not observed | not a completed row |
 | Ubuntu 22.04 GNOME 42 Wayland | NOT RUN | NOT RUN | environment unavailable |
 | Ubuntu 24.04 GNOME 46 Wayland | NOT RUN | NOT RUN | environment unavailable |
 | KDE Plasma 6 Wayland | NOT RUN | NOT RUN | environment unavailable |
@@ -98,12 +113,15 @@ graceful helper shutdown. These are unit/harness results, not desktop clicks.
 ## Cleanliness and self-review
 
 `rg` found no production `custom-icons`, `org.chromium.*status_icon`, or
-`/tmp/org.chromium` dependency. The two inherited test-anchor edits were
-audited: reverting them reproduced the stale failures after Task 6 moved tray
-ownership from `menu.js` to `tray-runtime.js`; restored anchors pass. A missing
-but tested ignored sidecar-preflight module was restored as tracked source, and
-stale menu tests now exercise the single tray runtime owner.
+`/tmp/org.chromium` dependency. In Task 9 fix round 1, the reviewed-head
+smoke shape reproduced the inherited explicit-second-launch anchor failure.
+The replacement fixture starts two disposable packaged-process stand-ins,
+records the argument arrays, drives first-instance manager activation, and
+checks that both processes are gone for successful and failing second launches.
 
-Blockers: direct AppImage launch needs host `libfuse.so.2`; the four external
-matrix environments remain unavailable; live native UI/menu/attention evidence
-was not observable without fabricating interaction.
+A missing but tested ignored sidecar-preflight module was restored as tracked
+source, and stale menu tests now exercise the single tray runtime owner.
+
+Blockers: direct FUSE AppImage launch needs host `libfuse.so.2`; the four
+external matrix environments remain unavailable; live native UI/menu/attention
+evidence was not observable without fabricating interaction.

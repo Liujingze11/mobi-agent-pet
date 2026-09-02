@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const childProcess = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
@@ -259,10 +260,88 @@ test("manager smoke stops the real packaged Electron process", () => {
   assert.match(smokeManager, /await stopPid\(managerPid\)/);
 });
 
-test("packaged Linux smoke does not pass Electron development-only arguments", () => {
-  const smokeLinux = fs.readFileSync(path.join(root, "scripts", "smoke-linux.cjs"), "utf8");
+function runPackagedSmokeFixture(secondExitCode) {
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentlog-packaged-smoke-test-"));
+  const fixture = path.join(temporary, "fake-packaged-app.cjs");
+  const log = path.join(temporary, "launches.jsonl");
+  const smokeLinux = path.join(root, "scripts", "smoke-linux.cjs");
+  fs.writeFileSync(fixture, `#!/usr/bin/env node
+"use strict";
+const fs = require("node:fs");
+const net = require("node:net");
+const log = process.env.AGENTLOG_SMOKE_FIXTURE_LOG;
+const socketPath = log + ".sock";
+const args = process.argv.slice(2);
+fs.appendFileSync(log, JSON.stringify({ pid: process.pid, args }) + "\\n");
+if (args.includes("--ozone-platform=x11")) {
+  const client = net.createConnection(socketPath);
+  client.once("connect", () => {
+    client.end();
+    process.exit(Number(process.env.AGENTLOG_SMOKE_FIXTURE_SECOND_EXIT_CODE || 0));
+  });
+  client.once("error", () => process.exit(3));
+} else {
+  fs.rmSync(socketPath, { force: true });
+  const server = net.createServer(() => {
+    process.stdout.write("AGENTLOG_SMOKE_MANAGER_ACTIVATED\\n");
+  });
+  const stop = () => {
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(0), 100).unref();
+  };
+  process.once("SIGTERM", stop);
+  server.once("error", () => process.exit(2));
+  server.listen(socketPath, () => {
+    process.stdout.write("AGENTLOG_SMOKE_READY " + JSON.stringify({ productName: "AgentLog Pet", windowCount: 1, pid: process.pid }) + "\\n");
+  });
+}
+`);
+  fs.chmodSync(fixture, 0o755);
+  const result = childProcess.spawnSync(process.execPath, [smokeLinux, fixture], {
+    cwd: root,
+    encoding: "utf8",
+    timeout: 20_000,
+    env: {
+      ...process.env,
+      AGENTLOG_SMOKE_FIXTURE_LOG: log,
+      AGENTLOG_SMOKE_FIXTURE_SECOND_EXIT_CODE: String(secondExitCode),
+    },
+  });
+  const launches = fs.existsSync(log)
+    ? fs.readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map(JSON.parse)
+    : [];
+  return { launches, result, temporary };
+}
 
-  assert.match(smokeLinux, /const appArgs = packagedBinary\s*\?\s*\[\]\s*:/);
+function assertFixtureProcessesStopped(launches) {
+  for (const { pid } of launches) {
+    assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
+  }
+}
+
+test("packaged Linux smoke runs an explicit X11 second Electron process and stops both processes", () => {
+  const run = runPackagedSmokeFixture(0);
+  try {
+    assert.equal(run.result.error, undefined, run.result.stderr);
+    assert.equal(run.result.status, 0, run.result.stderr);
+    assert.match(run.result.stdout, /"status":"ok"/);
+    assert.deepEqual(run.launches.map(({ args }) => args), [[], ["--ozone-platform=x11"]]);
+    assertFixtureProcessesStopped(run.launches);
+  } finally {
+    fs.rmSync(run.temporary, { recursive: true, force: true });
+  }
+});
+
+test("packaged Linux smoke stops its first process when the explicit second process fails", () => {
+  const run = runPackagedSmokeFixture(1);
+  try {
+    assert.equal(run.result.error, undefined, run.result.stderr);
+    assert.equal(run.result.status, 1, run.result.stderr);
+    assert.deepEqual(run.launches.map(({ args }) => args), [[], ["--ozone-platform=x11"]]);
+    assertFixtureProcessesStopped(run.launches);
+  } finally {
+    fs.rmSync(run.temporary, { recursive: true, force: true });
+  }
 });
 
 test("Linux smoke waits through the packaged X11 relaunch handoff", () => {

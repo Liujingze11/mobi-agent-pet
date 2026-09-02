@@ -11,9 +11,12 @@ const { ensureElectronBinding } = require("./prepare-electron-native.cjs");
 const root = path.resolve(__dirname, "..");
 const packagedBinary = process.argv[2] ? path.resolve(process.argv[2]) : null;
 const executable = packagedBinary || require("electron");
-const appArgs = packagedBinary
+const firstLaunchArgs = packagedBinary
   ? []
   : ["--ozone-platform=x11", root];
+const secondLaunchArgs = packagedBinary
+  ? ["--ozone-platform=x11"]
+  : firstLaunchArgs;
 const isolatedHome = fs.mkdtempSync(path.join(os.tmpdir(), "agentlog-pet-smoke-"));
 const env = {
   ...process.env,
@@ -97,8 +100,9 @@ function waitForMarker(child, marker, timeoutMs = 8_000) {
 (async () => {
   let first;
   let firstPid;
+  let second;
   try {
-    first = spawn(executable, appArgs, {
+    first = spawn(executable, firstLaunchArgs, {
       cwd: root,
       env,
       stdio: ["ignore", "pipe", "pipe"],
@@ -109,7 +113,7 @@ function waitForMarker(child, marker, timeoutMs = 8_000) {
     assert.ok(ready.windowCount >= 1, "pet runtime must create at least one window");
 
     const managerActivated = waitForMarker(first, "AGENTLOG_SMOKE_MANAGER_ACTIVATED");
-    const second = spawn(executable, appArgs, {
+    second = spawn(executable, secondLaunchArgs, {
       cwd: root,
       env,
       stdio: ["ignore", "pipe", "pipe"],
@@ -119,6 +123,7 @@ function waitForMarker(child, marker, timeoutMs = 8_000) {
 
     process.stdout.write(`${JSON.stringify({ status: "ok", ...ready })}\n`);
   } finally {
+    await stopChild(second);
     if (firstPid) await stopPid(firstPid);
     await stopChild(first);
     fs.rmSync(isolatedHome, { recursive: true, force: true });
