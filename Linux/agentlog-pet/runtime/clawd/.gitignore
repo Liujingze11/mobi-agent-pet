@@ -113,6 +113,7 @@ scripts/*
 !scripts/fetch-sidecar-binaries.js
 !scripts/audit-repository-assets.js
 !scripts/assert-packaged-sidecar.js
+!scripts/ensure-sidecar-binaries.js
 
 # oh-my-cursor state
 .omc/

@@ -108,7 +108,7 @@ test("the product wrapper delegates lifecycle ownership to one pinned runtime", 
 
 test("the pinned main passes the AgentLog manager action into the real menu context", () => {
   const contextStart = upstreamMain.indexOf("const _menuCtx = {");
-  const contextEnd = upstreamMain.indexOf("};\nconst _menu = require(\"./menu\")", contextStart);
+  const contextEnd = upstreamMain.indexOf("\nconst trayRuntime = createTrayRuntime(", contextStart);
   assert.ok(contextStart >= 0 && contextEnd > contextStart, "main should construct the menu context");
   const menuContext = upstreamMain.slice(contextStart, contextEnd);
 
@@ -257,6 +257,18 @@ test("manager smoke stops the real packaged Electron process", () => {
   assert.match(smokeManager, /\{ stopChild, stopPid \}/);
   assert.match(smokeManager, /ready\.pid/);
   assert.match(smokeManager, /await stopPid\(managerPid\)/);
+});
+
+test("packaged Linux smoke does not pass Electron development-only arguments", () => {
+  const smokeLinux = fs.readFileSync(path.join(root, "scripts", "smoke-linux.cjs"), "utf8");
+
+  assert.match(smokeLinux, /const appArgs = packagedBinary\s*\?\s*\[\]\s*:/);
+});
+
+test("Linux smoke waits through the packaged X11 relaunch handoff", () => {
+  const smokeLinux = fs.readFileSync(path.join(root, "scripts", "smoke-linux.cjs"), "utf8");
+
+  assert.match(smokeLinux, /code === 0 && output\.includes\("relaunching under XWayland"\)/);
 });
 
 test("development launcher removes Electron's Node compatibility mode", () => {

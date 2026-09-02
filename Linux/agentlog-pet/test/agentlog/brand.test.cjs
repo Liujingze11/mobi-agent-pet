@@ -58,7 +58,7 @@ test("primary visible shells contain the AgentLog product name", () => {
     "runtime/clawd/src/settings.html",
     "runtime/clawd/src/settings-window-icon.js",
     "runtime/clawd/src/settings-tab-about.js",
-    "runtime/clawd/src/menu.js",
+    "runtime/clawd/src/tray-runtime.js",
     "runtime/clawd/src/login-item.js",
   ];
 

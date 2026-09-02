@@ -57,6 +57,11 @@ APPIMAGE_EXTRACT_AND_RUN=1 npm run smoke:linux -- Linux/AgentLog-Pet-0.1.0-x64.A
 APPIMAGE_EXTRACT_AND_RUN=1 npm run smoke:manager -- Linux/AgentLog-Pet-0.1.0-x64.AppImage
 ```
 
+On Linux, AgentLog uses the desktop's StatusNotifier/AppIndicator tray host
+when one is available. If a desktop intentionally has no compatible tray host,
+the launcher and second-instance activation remain available for opening the
+Manager; no GNOME settings override is required.
+
 Phase 3 will add summaries, reports, trusted project restore scripts, execution
 logs, health checks, and Agent session continuation. Those features are not
 part of the current release.

@@ -12,7 +12,7 @@ const root = path.resolve(__dirname, "..");
 const packagedBinary = process.argv[2] ? path.resolve(process.argv[2]) : null;
 const executable = packagedBinary || require("electron");
 const appArgs = packagedBinary
-  ? ["--ozone-platform=x11"]
+  ? []
   : ["--ozone-platform=x11", root];
 const isolatedHome = fs.mkdtempSync(path.join(os.tmpdir(), "agentlog-pet-smoke-"));
 const env = {
@@ -47,6 +47,7 @@ function waitForReady(child, timeoutMs = 15_000) {
       output += chunk.toString();
     });
     child.once("exit", (code) => {
+      if (code === 0 && output.includes("relaunching under XWayland")) return;
       clearTimeout(timeout);
       reject(
         new Error(`application exited before ready with code ${code}:\n${output}`)

@@ -4,6 +4,29 @@ const { describe, it } = require("node:test");
 
 const MENU_MODULE_PATH = require.resolve("../src/menu");
 
+function createTrayRuntimeHarness() {
+  const runtime = {
+    snapshot: null,
+    start(snapshot) {
+      runtime.snapshot = snapshot;
+    },
+    replaceMenu(snapshot) {
+      runtime.snapshot = snapshot;
+    },
+    stop() {},
+    setAttention() {},
+    getNativeTray() {
+      return null;
+    },
+  };
+  return runtime;
+}
+
+function traySnapshot(ctx) {
+  assert.ok(ctx.trayRuntime.snapshot, "tray runtime should receive a menu snapshot");
+  return ctx.trayRuntime.snapshot;
+}
+
 function loadMenuWithElectron(fakeElectron, fakeTaskbar = null) {
   delete require.cache[MENU_MODULE_PATH];
   const originalLoad = Module._load;
@@ -34,6 +57,7 @@ function buildBaseCtx(overrides = {}) {
     soundMuted: false,
     menuOpen: false,
     tray: null,
+    trayRuntime: createTrayRuntimeHarness(),
     contextMenuOwner: null,
     contextMenu: null,
     isQuitting: false,
@@ -98,16 +122,17 @@ describe("menu send-to-display", () => {
     const calls = [];
 
     const ctx = buildBaseCtx({
-      tray: { setContextMenu(menuObj) { this.contextMenu = menuObj; } },
       setAppMode: async (mode, options) => { calls.push([mode, options]); },
     });
     const menu = initMenu(ctx);
 
-    menu.buildTrayMenu();
-    const modeItem = ctx.tray.contextMenu.template[0];
+    menu.createTray();
+    const snapshot = traySnapshot(ctx);
+    const modeItem = snapshot.items[0];
     assert.strictEqual(modeItem.label, "Mode");
-    const backgroundItem = modeItem.submenu.find((item) => item.label === "Background Mode");
-    await backgroundItem.click();
+    assert.ok(modeItem.items.find((item) => item.label === "Background Mode"));
+    assert.strictEqual(snapshot.commands.execute("mode.background"), true);
+    await new Promise((resolve) => setImmediate(resolve));
     assert.deepStrictEqual(calls, [["background", undefined]]);
   });
 
@@ -287,10 +312,11 @@ describe("menu recovery action", () => {
     const menu = initMenu(ctx);
     menu.createTray();
 
-    const recover = ctx.tray.contextMenu.template.find((item) => item.label === "Bring Pet to Primary Display");
+    const snapshot = traySnapshot(ctx);
+    const recover = snapshot.items.find((item) => item.label === "Bring Pet to Primary Display");
     assert.ok(recover, "tray menu should expose the recovery action");
 
-    recover.click();
+    assert.strictEqual(snapshot.commands.execute("pet.primary-display"), true);
 
     assert.strictEqual(called, 1);
   });
@@ -332,7 +358,7 @@ describe("menu recovery action", () => {
     const menu = initMenu(ctx);
     menu.createTray();
 
-    const recover = ctx.tray.contextMenu.template.find((item) => item.label === "Bring Pet to Primary Display");
+    const recover = traySnapshot(ctx).items.find((item) => item.label === "Bring Pet to Primary Display");
     assert.ok(recover, "tray menu should expose the recovery action");
     assert.strictEqual(recover.enabled, false);
   });
@@ -376,7 +402,8 @@ describe("Agent integrations menu entry", () => {
     menu.buildContextMenu();
     menu.createTray();
 
-    for (const template of [ctx.contextMenu.template, ctx.tray.contextMenu.template]) {
+    const tray = traySnapshot(ctx);
+    for (const template of [ctx.contextMenu.template, tray.items]) {
       const managerIndex = template.findIndex((item) => item.label === "Open AgentLog");
       const dashboardIndex = template.findIndex((item) => item.label === "Open Dashboard");
       const settingsIndex = template.findIndex((item) => item.label === "Settings…");
@@ -385,8 +412,13 @@ describe("Agent integrations menu entry", () => {
       assert.ok(managerIndex < dashboardIndex, "Open AgentLog should precede Open Dashboard");
       assert.ok(managerIndex < settingsIndex, "Open AgentLog should precede Settings");
       assert.ok(managerIndex < agentsIndex, "Open AgentLog should precede Agent Integrations");
-      template[managerIndex].click();
-      template[agentsIndex].click();
+      if (template === tray.items) {
+        tray.commands.execute("agentlog.open");
+        tray.commands.execute("settings.agents");
+      } else {
+        template[managerIndex].click();
+        template[agentsIndex].click();
+      }
     }
 
     assert.equal(managerCalls, 2);
@@ -435,9 +467,10 @@ describe("Agent integrations menu entry", () => {
     contextItem.click();
 
     menu.createTray();
-    const trayItem = ctx.tray.contextMenu.template.find((item) => item.label === "Agent Integrations");
+    const tray = traySnapshot(ctx);
+    const trayItem = tray.items.find((item) => item.label === "Agent Integrations");
     assert.ok(trayItem, "tray menu should expose Agent Integrations");
-    trayItem.click();
+    assert.strictEqual(tray.commands.execute("settings.agents"), true);
 
     assert.deepStrictEqual(openedTabs, ["agents", "agents"]);
   });
@@ -584,9 +617,10 @@ describe("menu dashboard action", () => {
     const menu = initMenu(ctx);
     menu.createTray();
 
-    const openDashboard = ctx.tray.contextMenu.template.find((item) => item.label === "Open Dashboard");
+    const tray = traySnapshot(ctx);
+    const openDashboard = tray.items.find((item) => item.label === "Open Dashboard");
     assert.ok(openDashboard, "tray menu should expose dashboard entry");
-    openDashboard.click();
+    assert.strictEqual(tray.commands.execute("dashboard.open"), true);
     assert.strictEqual(called, 1);
   });
 });
