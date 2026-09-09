@@ -411,6 +411,10 @@ static void test_descriptor_string_limits(void) {
 static void test_descriptor_schema(void) {
   gchar *valid_kinds = init_with_items(
       "[{\"kind\":\"separator\"},"
+      "{\"kind\":\"radio\",\"label\":\"Custom\","
+      "\"enabled\":false,\"checked\":false},"
+      "{\"kind\":\"command\",\"label\":\"Edit custom...\","
+      "\"enabled\":false},"
       "{\"kind\":\"checkbox\",\"id\":\"pet.visible\",\"label\":\"Show Pet\","
       "\"enabled\":true,\"checked\":false},"
       "{\"kind\":\"radio\",\"id\":\"mode.auto\",\"label\":\"Auto\","
@@ -428,11 +432,17 @@ static void test_descriptor_schema(void) {
   gchar *unknown = init_with_items(
       "[{\"kind\":\"command\",\"id\":\"settings.open\",\"label\":\"Settings\","
       "\"color\":\"red\"}]");
+  gchar *missing_action_id = init_with_items(
+      "[{\"kind\":\"command\",\"label\":\"Missing action\"}]");
+  gchar *enabled_action_without_id = init_with_items(
+      "[{\"kind\":\"command\",\"label\":\"Enabled action\",\"enabled\":true}]");
 
   assert_valid(valid_kinds, 0, 0, EXPECTED_ICON_ROOT);
   assert_invalid(duplicates, 0, 0, EXPECTED_ICON_ROOT, "duplicate-command-id");
   assert_invalid(forbidden, 0, 0, EXPECTED_ICON_ROOT, "forbidden-key");
   assert_invalid(unknown, 0, 0, EXPECTED_ICON_ROOT, "unknown-field");
+  assert_invalid(missing_action_id, 0, 0, EXPECTED_ICON_ROOT, "invalid-field");
+  assert_invalid(enabled_action_without_id, 0, 0, EXPECTED_ICON_ROOT, "invalid-field");
   assert_invalid(
       "{\"version\":1,\"type\":\"replace-menu\",\"revision\":8,\"items\":[],"
       "\"path\":\"/tmp/menu\"}",
@@ -445,6 +455,8 @@ static void test_descriptor_schema(void) {
   g_free(duplicates);
   g_free(forbidden);
   g_free(unknown);
+  g_free(missing_action_id);
+  g_free(enabled_action_without_id);
 }
 
 static void test_icon_theme_root_is_fail_closed(void) {

@@ -84,7 +84,7 @@ exec 3>"$INPUT_FIFO"
 
 ICON_ROOT=$(realpath -m "$ROOT/icons/hicolor")
 printf '%s\n' \
-  "{\"version\":1,\"type\":\"init\",\"revision\":7,\"productId\":\"com.agentlog.pet\",\"tooltip\":\"AgentLog Pet\",\"iconThemeRoot\":\"$ICON_ROOT\",\"icon\":\"agentlog-pet\",\"items\":[{\"kind\":\"command\",\"id\":\"settings.open\",\"label\":\"Settings\",\"enabled\":true}]}" >&3
+  "{\"version\":1,\"type\":\"init\",\"revision\":7,\"productId\":\"com.agentlog.pet\",\"tooltip\":\"AgentLog Pet\",\"iconThemeRoot\":\"$ICON_ROOT\",\"icon\":\"agentlog-pet\",\"items\":[{\"kind\":\"radio\",\"label\":\"Custom\",\"enabled\":false,\"checked\":false},{\"kind\":\"command\",\"label\":\"Edit custom...\",\"enabled\":false},{\"kind\":\"command\",\"id\":\"settings.open\",\"label\":\"Settings\",\"enabled\":true}]}" >&3
 
 until grep -q '"type":"command"' "$HELPER_OUTPUT" 2>/dev/null; do
   kill -0 "$HELPER_PID"

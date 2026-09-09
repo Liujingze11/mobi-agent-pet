@@ -50,12 +50,15 @@ if (process.env.AGENTLOG_MANAGER_SMOKE_MODE === "1") {
 
 if (process.env.AGENTLOG_SMOKE_MODE === "1") {
   const { BrowserWindow } = require("electron");
+  const { waitForTrayDiagnostics } = require("./smoke-tray-diagnostics.cjs");
   app.whenReady().then(() => {
-    const timer = setTimeout(() => {
+    const timer = setTimeout(async () => {
+      const tray = await waitForTrayDiagnostics(() => agentLogApp.getHealth());
       const payload = {
         productName: app.getName(),
         windowCount: BrowserWindow.getAllWindows().length,
         pid: process.pid,
+        tray,
       };
       process.stdout.write(`AGENTLOG_SMOKE_READY ${JSON.stringify(payload)}\n`);
     }, 1500);

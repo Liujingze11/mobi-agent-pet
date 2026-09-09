@@ -278,22 +278,29 @@ static gboolean validate_items(JsonNode *items_node,
     if (!check_keys(item, allowed, error)) return FALSE;
     if (g_str_equal(kind, "separator")) continue;
 
-    if (!g_str_equal(kind, "submenu")) {
-      id = required_string(item, "id", AGENTLOG_TRAY_COMMAND_ID_CHARS, error);
-      if (id == NULL) return FALSE;
-      if (g_hash_table_contains(state->command_ids, id)) {
-        return protocol_fail(error,
-                             PROTOCOL_DUPLICATE_COMMAND_ID,
-                             "duplicate command ID");
-      }
-      g_hash_table_add(state->command_ids, g_strdup(id));
-    }
     if (required_string(item, "label", AGENTLOG_TRAY_LABEL_CHARS, error) == NULL) {
       return FALSE;
     }
     if (!optional_boolean(item, "enabled", error) ||
         !optional_boolean(item, "checked", error)) {
       return FALSE;
+    }
+    if (!g_str_equal(kind, "submenu")) {
+      if (json_object_has_member(item, "id")) {
+        id = required_string(item, "id", AGENTLOG_TRAY_COMMAND_ID_CHARS, error);
+        if (id == NULL) return FALSE;
+        if (g_hash_table_contains(state->command_ids, id)) {
+          return protocol_fail(error,
+                               PROTOCOL_DUPLICATE_COMMAND_ID,
+                               "duplicate command ID");
+        }
+        g_hash_table_add(state->command_ids, g_strdup(id));
+      } else if (!json_object_has_member(item, "enabled") ||
+                 json_object_get_boolean_member(item, "enabled")) {
+        return protocol_fail(error,
+                             PROTOCOL_INVALID_FIELD,
+                             "id must be a non-empty string");
+      }
     }
     if (g_str_equal(kind, "submenu") &&
         !validate_items(json_object_get_member(item, "items"), state, depth + 1, error)) {
@@ -1019,7 +1026,7 @@ static GtkWidget *build_menu(AgentLogTrayState *state,
         GtkWidget *submenu = build_menu(
             state, json_object_get_array_member(descriptor, "items"), revision);
         gtk_menu_item_set_submenu(GTK_MENU_ITEM(item), submenu);
-      } else {
+      } else if (json_object_has_member(descriptor, "id")) {
         const gchar *id = json_object_get_string_member(descriptor, "id");
         guint64 *item_revision = g_new(guint64, 1);
 

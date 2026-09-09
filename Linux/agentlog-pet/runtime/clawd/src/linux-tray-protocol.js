@@ -111,15 +111,19 @@ function normalizeItems(items, state, depth) {
     }
 
     const result = { kind };
-    if (kind !== "submenu") {
-      const id = requiredString(item.id, "id", LIMITS.commandIdChars);
-      if (state.ids.has(id)) fail("duplicate-command-id", `duplicate command ID: ${id}`);
-      state.ids.add(id);
-      result.id = id;
-    }
     result.label = requiredString(item.label, "label", LIMITS.labelChars);
     if (own(item, "enabled")) result.enabled = requiredBoolean(item.enabled, "enabled");
     if (own(item, "checked")) result.checked = requiredBoolean(item.checked, "checked");
+    if (kind !== "submenu") {
+      if (own(item, "id")) {
+        const id = requiredString(item.id, "id", LIMITS.commandIdChars);
+        if (state.ids.has(id)) fail("duplicate-command-id", `duplicate command ID: ${id}`);
+        state.ids.add(id);
+        result.id = id;
+      } else if (result.enabled !== false) {
+        fail("invalid-field", "id must be a non-empty string");
+      }
+    }
     if (kind === "submenu") result.items = normalizeItems(item.items, state, depth + 1);
     normalized.push(result);
   }

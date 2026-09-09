@@ -179,6 +179,21 @@ test("rejects duplicate command IDs and executable or path-bearing descriptor ke
   }));
 });
 
+test("allows missing command IDs only for explicitly disabled label-only entries", () => {
+  assert.doesNotThrow(() => validateParentInit({
+    items: [
+      { kind: "radio", label: "Custom", enabled: false, checked: false },
+      { kind: "command", label: "Edit custom...", enabled: false },
+    ],
+  }));
+  expectCode("invalid-field", () => validateParentInit({
+    items: [{ kind: "command", label: "Missing action" }],
+  }));
+  expectCode("invalid-field", () => validateParentInit({
+    items: [{ kind: "command", label: "Enabled action", enabled: true }],
+  }));
+});
+
 test("validates helper messages and copies only their approved primitive fields", () => {
   const cases = [
     { version: 1, type: "ready", backend: "ayatana" },

@@ -119,7 +119,7 @@ test("the pinned main passes the AgentLog manager action into the real menu cont
   );
 });
 
-test("smoke mode reports the ready AgentLog Pet window without owning its lifecycle", () => {
+test("smoke mode reports only ready AgentLog Pet and tray diagnostics", async () => {
   const writes = [];
   let readyCallback;
   let timerUnrefCalled = false;
@@ -166,7 +166,23 @@ test("smoke mode reports the ready AgentLog Pet window without owning its lifecy
         return { BRAND: { productName: "AgentLog Pet" } };
       }
       if (request === "./app-runtime.cjs") {
-        return { install() { agentLogInstallCalls += 1; } };
+        return {
+          install() { agentLogInstallCalls += 1; },
+          getHealth() {
+            return {
+              storage: "ready",
+              databaseName: "/private/user/data/agentlog.db",
+              tray: {
+                status: "native",
+                code: null,
+                helperPath: "/private/package/resources/tray/bin/agentlog-tray",
+              },
+            };
+          },
+        };
+      }
+      if (request === "./smoke-tray-diagnostics.cjs") {
+        return require(path.join(root, "runtime/agentlog/smoke-tray-diagnostics.cjs"));
       }
       if (request === "../clawd/src/main.js") return {};
       throw new Error(`Unexpected require: ${request}`);
@@ -185,11 +201,13 @@ test("smoke mode reports the ready AgentLog Pet window without owning its lifecy
   assert.equal(agentLogInstallCalls, 1);
   assert.equal(typeof readyCallback, "function");
   readyCallback();
+  await new Promise((resolve) => setImmediate(resolve));
 
   assert.equal(timerUnrefCalled, true);
   assert.deepEqual(writes, [
-    'AGENTLOG_SMOKE_READY {"productName":"AgentLog Pet","windowCount":1,"pid":4242}\n',
+    'AGENTLOG_SMOKE_READY {"productName":"AgentLog Pet","windowCount":1,"pid":4242,"tray":{"status":"native","code":null}}\n',
   ]);
+  assert.doesNotMatch(writes[0], /private|helperPath|databaseName|storage/);
 });
 
 test("manager smoke mode opens the real manager and reports only safe rendered metadata", async () => {
@@ -260,7 +278,7 @@ test("manager smoke stops the real packaged Electron process", () => {
   assert.match(smokeManager, /await stopPid\(managerPid\)/);
 });
 
-function runPackagedSmokeFixture(secondExitCode) {
+function runPackagedSmokeFixture(secondExitCode, tray = { status: "native", code: null }) {
   const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "agentlog-packaged-smoke-test-"));
   const fixture = path.join(temporary, "fake-packaged-app.cjs");
   const log = path.join(temporary, "launches.jsonl");
@@ -292,7 +310,7 @@ if (args.includes("--ozone-platform=x11")) {
   process.once("SIGTERM", stop);
   server.once("error", () => process.exit(2));
   server.listen(socketPath, () => {
-    process.stdout.write("AGENTLOG_SMOKE_READY " + JSON.stringify({ productName: "AgentLog Pet", windowCount: 1, pid: process.pid }) + "\\n");
+    process.stdout.write("AGENTLOG_SMOKE_READY " + JSON.stringify({ productName: "AgentLog Pet", windowCount: 1, pid: process.pid, tray: JSON.parse(process.env.AGENTLOG_SMOKE_FIXTURE_TRAY) }) + "\\n");
   });
 }
 `);
@@ -305,6 +323,7 @@ if (args.includes("--ozone-platform=x11")) {
       ...process.env,
       AGENTLOG_SMOKE_FIXTURE_LOG: log,
       AGENTLOG_SMOKE_FIXTURE_SECOND_EXIT_CODE: String(secondExitCode),
+      AGENTLOG_SMOKE_FIXTURE_TRAY: JSON.stringify(tray),
     },
   });
   const launches = fs.existsSync(log)
@@ -338,6 +357,47 @@ test("packaged Linux smoke stops its first process when the explicit second proc
     assert.equal(run.result.error, undefined, run.result.stderr);
     assert.equal(run.result.status, 1, run.result.stderr);
     assert.deepEqual(run.launches.map(({ args }) => args), [[], ["--ozone-platform=x11"]]);
+    assertFixtureProcessesStopped(run.launches);
+  } finally {
+    fs.rmSync(run.temporary, { recursive: true, force: true });
+  }
+});
+
+test("packaged Linux smoke rejects an undocumented tray status and stops the process", () => {
+  const run = runPackagedSmokeFixture(0, { status: "private-helper-state", code: null });
+  try {
+    assert.equal(run.result.error, undefined, run.result.stderr);
+    assert.equal(run.result.status, 1, run.result.stdout);
+    assert.match(run.result.stderr, /tray status/);
+    assertFixtureProcessesStopped(run.launches);
+  } finally {
+    fs.rmSync(run.temporary, { recursive: true, force: true });
+  }
+});
+
+test("packaged Linux smoke accepts every documented public tray status", () => {
+  for (const status of ["starting", "native", "electron-fallback", "no-host", "failed"]) {
+    const run = runPackagedSmokeFixture(0, { status, code: null });
+    try {
+      assert.equal(run.result.error, undefined, run.result.stderr);
+      assert.equal(run.result.status, 0, `${status}: ${run.result.stderr}`);
+      assert.match(run.result.stdout, new RegExp(`"status":"${status}"`));
+      assertFixtureProcessesStopped(run.launches);
+    } finally {
+      fs.rmSync(run.temporary, { recursive: true, force: true });
+    }
+  }
+});
+
+test("packaged Linux smoke rejects path text in a tray code and stops the process", () => {
+  const run = runPackagedSmokeFixture(0, {
+    status: "failed",
+    code: "/home/user/.config/agentlog/helper stderr: private",
+  });
+  try {
+    assert.equal(run.result.error, undefined, run.result.stderr);
+    assert.equal(run.result.status, 1, run.result.stdout);
+    assert.match(run.result.stderr, /tray code/);
     assertFixtureProcessesStopped(run.launches);
   } finally {
     fs.rmSync(run.temporary, { recursive: true, force: true });

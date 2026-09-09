@@ -5,6 +5,10 @@ const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const {
+  TRAY_CODES,
+  TRAY_STATUSES,
+} = require("../runtime/agentlog/smoke-tray-diagnostics.cjs");
 const { stopChild, stopPid } = require("./smoke-process.cjs");
 const { ensureElectronBinding } = require("./prepare-electron-native.cjs");
 
@@ -111,6 +115,19 @@ function waitForMarker(child, marker, timeoutMs = 8_000) {
     firstPid = ready.pid;
     assert.equal(ready.productName, "AgentLog Pet");
     assert.ok(ready.windowCount >= 1, "pet runtime must create at least one window");
+    assert.deepEqual(
+      Object.keys(ready.tray || {}).sort(),
+      ["code", "status"],
+      "ready tray diagnostics must expose only status and code"
+    );
+    assert.ok(
+      TRAY_STATUSES.includes(ready.tray.status),
+      `ready tray status must be documented: ${String(ready.tray.status)}`
+    );
+    assert.ok(
+      ready.tray.code === null || TRAY_CODES.includes(ready.tray.code),
+      `ready tray code must be documented: ${String(ready.tray.code)}`
+    );
 
     const managerActivated = waitForMarker(first, "AGENTLOG_SMOKE_MANAGER_ACTIVATED");
     second = spawn(executable, secondLaunchArgs, {

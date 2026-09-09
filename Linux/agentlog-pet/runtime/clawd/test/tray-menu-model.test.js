@@ -4,6 +4,7 @@ const assert = require("node:assert");
 const { describe, it } = require("node:test");
 
 const { createTrayMenuModel } = require("../src/tray-menu-model");
+const { validateParentMessage } = require("../src/linux-tray-protocol");
 
 const EXPECTED_COMMAND_IDS = [
   "mode.normal",
@@ -85,6 +86,24 @@ describe("tray menu model", () => {
     assert.strictEqual(editCustomMode.enabled, false);
     assert.doesNotThrow(() => JSON.stringify(items));
     assert.strictEqual(commands.has("mode.automatic"), true);
+  });
+
+  it("produces a complete menu accepted by the native tray protocol", () => {
+    const iconThemeRoot = "/opt/agentlog/tray/icons/hicolor";
+    const { items } = createTrayMenuModel(createContext(), (key) => key);
+
+    const init = validateParentMessage({
+      version: 1,
+      type: "init",
+      revision: 0,
+      productId: "com.agentlog.pet",
+      tooltip: "AgentLog Pet",
+      iconThemeRoot,
+      icon: "agentlog-pet",
+      items,
+    }, { expectedIconThemeRoot: iconThemeRoot });
+
+    assert.deepStrictEqual(init.items, items);
   });
 
   it("routes known actions once and rejects unknown commands", () => {

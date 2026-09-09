@@ -13,7 +13,7 @@ const {
 
 function snapshot(label) {
   return {
-    items: [{ kind: "item", id: label, label }],
+    items: [{ kind: "command", id: label, label }],
     commands: { has: () => true, execute: () => true },
   };
 }

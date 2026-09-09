@@ -1,7 +1,7 @@
 "use strict";
 
 const KIND = Object.freeze({
-  item: "item",
+  command: "command",
   checkbox: "checkbox",
   radio: "radio",
   separator: "separator",
@@ -42,17 +42,17 @@ function buildItems(ctx, t, update) {
       { id: "mode.automatic", kind: KIND.radio, label: t("appModeAutomatic"), checked: currentMode === "automatic" },
       { kind: KIND.radio, label: t("appModeCustom"), enabled: false, checked: false },
       { kind: KIND.separator },
-      { kind: KIND.item, label: t("appModeEditCustom"), enabled: false },
+      { kind: KIND.command, label: t("appModeEditCustom"), enabled: false },
     ],
   }];
   const workGroup = [
-    { id: "agentlog.open", kind: KIND.item, label: t("openAgentLog") },
-    { id: "dashboard.open", kind: KIND.item, label: t("openDashboard") },
+    { id: "agentlog.open", kind: KIND.command, label: t("openAgentLog") },
+    { id: "dashboard.open", kind: KIND.command, label: t("openDashboard") },
   ];
   const systemGroup = [
     {
       id: "pet.primary-display",
-      kind: KIND.item,
+      kind: KIND.command,
       label: t("bringPetToPrimaryDisplay"),
       enabled: ctx.hasBringPetToPrimaryDisplay === true
         && !ctx.getMiniMode()
@@ -84,20 +84,20 @@ function buildItems(ctx, t, update) {
     );
   }
   const appGroup = [
-    { id: "settings.open", kind: KIND.item, label: t("settings") },
-    { id: "settings.agents", kind: KIND.item, label: t("openAgentIntegrations") },
+    { id: "settings.open", kind: KIND.command, label: t("settings") },
+    { id: "settings.agents", kind: KIND.command, label: t("openAgentIntegrations") },
   ];
   if (update) {
     appGroup.push({
       id: "updates.action",
-      kind: KIND.item,
+      kind: KIND.command,
       label: update.label,
       enabled: update.enabled !== false,
     });
   }
   appGroup.push({
     id: "pet.toggle",
-    kind: KIND.item,
+    kind: KIND.command,
     label: ctx.petHidden ? t("showPet") : t("hidePet"),
   });
 
@@ -106,7 +106,7 @@ function buildItems(ctx, t, update) {
     workGroup,
     systemGroup,
     appGroup,
-    [{ id: "app.quit", kind: KIND.item, label: t("quit") }],
+    [{ id: "app.quit", kind: KIND.command, label: t("quit") }],
   ]);
 }
 

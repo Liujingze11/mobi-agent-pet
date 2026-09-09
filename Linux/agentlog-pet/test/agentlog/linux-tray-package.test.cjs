@@ -522,7 +522,7 @@ test(
       fs.renameSync(STAGING_ROOT, withheld);
       const environment = { ...process.env, AGENTLOG_TRAY_TEST_STAGING_ABSENT: "1" };
       delete environment.NODE_TEST_CONTEXT;
-      const result = run(process.execPath, ["--test", __filename], {
+      const result = run(process.execPath, ["--test", "--test-reporter=tap", __filename], {
         env: environment,
       });
       assert.equal(result.status, 0, result.stderr || result.stdout);
