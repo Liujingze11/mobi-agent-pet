@@ -33,6 +33,21 @@ The Node wrapper stages the packaged executable at
 `build/tray/SHA256SUMS`. In a packaged application the helper is available at
 `process.resourcesPath/tray/bin/agentlog-tray`.
 
+On an X11 desktop with a StatusNotifier host and `busctl`, verify a built
+package using a disposable user profile:
+
+```bash
+node native/agentlog-tray/test/packaged-session.cjs /path/to/extracted-deb/opt/AgentLog\ Pet/agentlog-pet
+APPIMAGE_EXTRACT_AND_RUN=1 node native/agentlog-tray/test/packaged-session.cjs Linux/AgentLog-Pet-0.1.0-x64.AppImage
+```
+
+This launches test windows and checks the native item, packaged icon paths,
+normal/background mode switching, pet visibility menu state, recovery after
+killing only the test app's helper, and menu-driven quit. It does not change
+the system tray configuration or the normal user profile. It verifies the
+D-Bus menu contract, not visual rendering, attention effects, or panel restart.
+Do not run other tray-registration tests concurrently on the same session bus.
+
 ## Protocol
 
 Each input message is one UTF-8 JSON object followed by a newline. Protocol v1

@@ -10,6 +10,15 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-24-linux-native-tray-design.md`
 
+## Development Handoff Scope - 2026-09-14
+
+The user approved deferring the external desktop matrix to pre-release work.
+Task 9 is now tracked as local development acceptance plus remaining release
+validation. The local fixes and package probes may be handed off without
+claiming that untested desktop rows passed or blocking unrelated feature work.
+See `docs/verification/2026-09-14-linux-tray-local-handoff.md` for current
+evidence and remaining checks. Original release requirements below are retained.
+
 ## Global Constraints
 
 - Linux x64 is the only new native build target in this plan.

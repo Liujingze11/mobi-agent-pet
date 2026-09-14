@@ -2,6 +2,10 @@
 
 ## Status
 
+Historical verification record. Current local acceptance and the user-approved
+pre-release deferral are recorded in
+[the September handoff](2026-09-14-linux-tray-local-handoff.md).
+
 `DONE_WITH_CONCERNS`: development, extracted-deb, and AppImage
 extract-and-run smoke evidence was observed on Ubuntu 22.04 GNOME 42 X11. The
 explicit desktop matrix gate remains open because four required desktop/session
@@ -20,7 +24,7 @@ unavailable on this host because it lacks `libfuse.so.2`.
 
 ```text
 npm run test:phase2
-6333 tests, 6311 pass, 0 fail, 22 skipped; exit 0
+AgentLog: 179 pass; Manager: 34 pass; upstream: 6311 pass, 22 skipped, 0 fail; exit 0
 
 node --test test/agentlog/smoke-tray-diagnostics.test.cjs test/agentlog/product-entry.test.cjs test/agentlog/manager-ipc.test.cjs runtime/clawd/test/tray-menu-model.test.js runtime/clawd/test/linux-tray-protocol.test.js runtime/clawd/test/tray-runtime.test.js
 74 pass, 0 fail; exit 0
@@ -130,7 +134,7 @@ graceful helper shutdown. These are unit/harness results, not desktop clicks.
 
 | Desktop/session | AppImage | Extracted deb | Result |
 | --- | --- | --- | --- |
-| Ubuntu 22.04 GNOME 42 X11 | PARTIAL: extract-and-run application/manager smoke reports native; stable item properties and menu layout observed; direct FUSE unavailable | PARTIAL: isolated smoke reports native; stable item properties and menu layout observed | manual attention/all-command/panel-restart checks remain |
+| Ubuntu 22.04 GNOME 42 X11 | PARTIAL: extract-and-run application smoke reports native; manager smoke passed; direct FUSE unavailable | PARTIAL: isolated application smoke reports native | stable properties/menu were observed in development here; packaged object/menu evidence is in the September handoff; manual attention/all-command/panel-restart checks remain |
 | Ubuntu 22.04 GNOME 42 Wayland | NOT RUN | NOT RUN | environment unavailable |
 | Ubuntu 24.04 GNOME 46 Wayland | NOT RUN | NOT RUN | environment unavailable |
 | KDE Plasma 6 Wayland | NOT RUN | NOT RUN | environment unavailable |

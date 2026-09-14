@@ -84,9 +84,9 @@ exec 3>"$INPUT_FIFO"
 
 ICON_ROOT=$(realpath -m "$ROOT/icons/hicolor")
 printf '%s\n' \
-  "{\"version\":1,\"type\":\"init\",\"revision\":7,\"productId\":\"com.agentlog.pet\",\"tooltip\":\"AgentLog Pet\",\"iconThemeRoot\":\"$ICON_ROOT\",\"icon\":\"agentlog-pet\",\"items\":[{\"kind\":\"radio\",\"label\":\"Custom\",\"enabled\":false,\"checked\":false},{\"kind\":\"command\",\"label\":\"Edit custom...\",\"enabled\":false},{\"kind\":\"command\",\"id\":\"settings.open\",\"label\":\"Settings\",\"enabled\":true}]}" >&3
+  "{\"version\":1,\"type\":\"init\",\"revision\":7,\"productId\":\"com.agentlog.pet\",\"tooltip\":\"AgentLog Pet\",\"iconThemeRoot\":\"$ICON_ROOT\",\"icon\":\"agentlog-pet\",\"items\":[{\"kind\":\"radio\",\"id\":\"mode.normal\",\"label\":\"Normal\",\"checked\":true},{\"kind\":\"radio\",\"id\":\"mode.background\",\"label\":\"Background\",\"checked\":false},{\"kind\":\"radio\",\"label\":\"Custom\",\"enabled\":false,\"checked\":false},{\"kind\":\"command\",\"label\":\"Edit custom...\",\"enabled\":false},{\"kind\":\"command\",\"id\":\"settings.open\",\"label\":\"Settings\",\"enabled\":true}]}" >&3
 
-until grep -q '"type":"command"' "$HELPER_OUTPUT" 2>/dev/null; do
+until grep -q '"id":"settings.open"' "$HELPER_OUTPUT" 2>/dev/null; do
   kill -0 "$HELPER_PID"
   kill -0 "$HOST_PID"
   sleep 0.05
@@ -105,6 +105,7 @@ node - "$HELPER_OUTPUT" "$ROOT" <<'NODE'
 "use strict";
 
 const fs = require("node:fs");
+const assert = require("node:assert/strict");
 const path = require("node:path");
 const outputPath = process.argv[2];
 const root = process.argv[3];
@@ -126,6 +127,10 @@ if (menuOpened.length !== 1) {
 if (!messages.some((message) => message.type === "command" && message.revision === 7 && message.id === "settings.open")) {
   throw new Error("missing settings.open command event");
 }
+assert.deepEqual(messages.filter((message) => message.type === "command"), [
+  { version: 1, type: "command", revision: 7, id: "mode.background" },
+  { version: 1, type: "command", revision: 7, id: "settings.open" },
+], "radio activation must not emit a command for the deselected mode");
 if (!messages.some((message) => message.type === "stopped")) {
   throw new Error("missing stopped message");
 }

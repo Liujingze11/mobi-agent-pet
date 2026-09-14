@@ -289,7 +289,7 @@ test("falls back after the two-second startup timeout and malformed helper outpu
   timeoutHarness.assertOneBackend();
   assert.deepStrictEqual(timeoutHarness.supervisor.getHealth(), {
     status: "electron-fallback",
-    code: "native-startup-timeout",
+    code: "native-start-timeout",
   });
   assert.strictEqual(timeoutHarness.fallback.isActive(), true);
   assert.deepStrictEqual(timeoutHarness.clock.pendingDelays(), [250]);
@@ -347,6 +347,34 @@ test("restarts unexpected exits after 250, 1000, and 3000 ms then keeps fallback
   );
   await harness.supervisor.stop();
 });
+
+for (const advancedStream of ["menu", "icon"]) {
+  test(`restart aligns both revision streams after ${advancedStream} updates`, async () => {
+    const harness = createHarness();
+    await harness.supervisor.start(makeSnapshot("Settings"));
+    await becomeNative(harness);
+    for (let index = 0; index < 2; index += 1) {
+      if (advancedStream === "menu") await harness.supervisor.replaceMenu(makeSnapshot("Settings"));
+      else await harness.supervisor.setAttention(true);
+    }
+
+    harness.children[0].exit(1, null);
+    await settle();
+    await harness.clock.tick(250);
+    const replacement = harness.children[1];
+    assert.strictEqual(replacement.writes[0].revision, 2);
+    await becomeNative(harness, replacement);
+
+    await harness.supervisor.setAttention(false);
+    await harness.supervisor.replaceMenu(makeSnapshot("Preferences"));
+    assert.deepStrictEqual(replacement.writes.slice(1), [
+      { version: 1, type: "set-icon", revision: 3, icon: "agentlog-pet" },
+      { version: 1, type: "replace-menu", revision: 3,
+        items: [{ kind: "command", id: "settings.open", label: "Preferences" }] },
+    ]);
+    await harness.supervisor.stop();
+  });
+}
 
 test("enters failed when restart budget and Electron fallback are both unavailable", async () => {
   const harness = createHarness({ fallbackStartFailures: 4 });
@@ -566,7 +594,7 @@ test("treats clean helper stdout EOF as failure and falls back", async () => {
 
   assert.deepStrictEqual(harness.supervisor.getHealth(), {
     status: "electron-fallback",
-    code: "native-helper-eof",
+    code: "native-helper-exited",
   });
   await harness.supervisor.stop();
 });

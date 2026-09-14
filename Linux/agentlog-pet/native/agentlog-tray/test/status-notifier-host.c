@@ -84,6 +84,7 @@ static gboolean activate_registered_item(gpointer data) {
   gchar *menu_path = NULL;
   guint revision;
   gint item_id;
+  gint radio_id;
   GVariant *event_result;
 
   state->attempts += 1;
@@ -144,12 +145,28 @@ static gboolean activate_registered_item(gpointer data) {
   g_variant_unref(about_to_show_result);
   g_print("OPENED %s\n", menu_path);
   item_id = find_menu_item(layout, "Settings");
+  radio_id = find_menu_item(layout, "Background");
   g_variant_unref(layout);
   g_variant_unref(layout_result);
-  if (item_id < 0) {
-    g_set_error_literal(&error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "Settings menu item not found");
+  if (item_id < 0 || radio_id < 0) {
+    g_set_error_literal(&error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "test menu item not found");
     goto retry;
   }
+
+  event_result = g_dbus_connection_call_sync(
+      state->connection,
+      state->item_service,
+      menu_path,
+      "com.canonical.dbusmenu",
+      "Event",
+      g_variant_new("(isvu)", radio_id, "clicked", g_variant_new_int32(0), 0U),
+      NULL,
+      G_DBUS_CALL_FLAGS_NONE,
+      500,
+      NULL,
+      &error);
+  if (event_result == NULL) goto retry;
+  g_variant_unref(event_result);
 
   event_result = g_dbus_connection_call_sync(
       state->connection,

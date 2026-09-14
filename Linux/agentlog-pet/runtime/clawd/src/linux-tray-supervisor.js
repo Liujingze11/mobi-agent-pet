@@ -201,7 +201,7 @@ function createLinuxTraySupervisor(deps) {
         void enqueue(() => handleNativeFailure(childGeneration, nextChild, "native-protocol-error"));
         return;
       }
-      void enqueue(() => handleNativeFailure(childGeneration, nextChild, "native-helper-eof"));
+      void enqueue(() => handleNativeFailure(childGeneration, nextChild, "native-helper-exited"));
     });
     nextChild.stdin.on("error", () => {
       if (!isCurrent(childGeneration, nextChild)) return;
@@ -237,6 +237,9 @@ function createLinuxTraySupervisor(deps) {
     child = nextChild;
     attachChild(nextChild, childGeneration);
 
+    // The init revision seeds both counters in the newly started helper.
+    menuRevision = Math.max(menuRevision, iconRevision);
+    iconRevision = menuRevision;
     try {
       send(initMessage());
     } catch (_error) {
@@ -247,7 +250,7 @@ function createLinuxTraySupervisor(deps) {
       void enqueue(() => handleNativeFailure(
         childGeneration,
         nextChild,
-        "native-startup-timeout"
+        "native-start-timeout"
       ));
     }, STARTUP_TIMEOUT_MS);
     return true;

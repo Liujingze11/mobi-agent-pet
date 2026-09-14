@@ -21,6 +21,8 @@ const DOCUMENTED_TRAY_CODES = [
   "native-protocol-error",
   "native-helper-missing",
   "native-helper-exited",
+  "native-helper-error",
+  "native-spawn-failed",
   "status-notifier-host-missing",
   "electron-fallback-failed",
   "tray-backends-unavailable",

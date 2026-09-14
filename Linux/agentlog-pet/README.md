@@ -62,6 +62,11 @@ when one is available. If a desktop intentionally has no compatible tray host,
 the launcher and second-instance activation remain available for opening the
 Manager; no GNOME settings override is required.
 
+Local tray recovery and package-menu verification are recorded in
+[the Linux development handoff](docs/verification/2026-09-14-linux-tray-local-handoff.md).
+The remaining desktop compatibility matrix is pre-release work and does not
+block development of the next product features.
+
 Phase 3 will add summaries, reports, trusted project restore scripts, execution
 logs, health checks, and Agent session continuation. Those features are not
 part of the current release.

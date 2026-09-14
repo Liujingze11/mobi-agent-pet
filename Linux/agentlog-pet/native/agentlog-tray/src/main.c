@@ -959,6 +959,11 @@ static void on_menu_item_activate(GtkMenuItem *item, gpointer user_data) {
   const gchar *id = g_object_get_data(G_OBJECT(item), "agentlog-command-id");
   guint64 *revision = g_object_get_data(G_OBJECT(item), "agentlog-menu-revision");
 
+  /* GTK also activates the old radio item when deselecting it. */
+  if (GTK_IS_RADIO_MENU_ITEM(item) &&
+      !gtk_check_menu_item_get_active(GTK_CHECK_MENU_ITEM(item))) {
+    return;
+  }
   if (id == NULL || revision == NULL ||
       !g_hash_table_contains(state->command_ids, id)) {
     return;
