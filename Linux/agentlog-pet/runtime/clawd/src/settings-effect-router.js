@@ -69,6 +69,7 @@ function createSettingsEffectRouter(options = {}) {
   const sendDashboardI18n = options.sendDashboardI18n || noop;
   const sendSessionHudI18n = options.sendSessionHudI18n || noop;
   const syncWindowTitles = options.syncWindowTitles || noop;
+  const notifyManagerLanguage = options.notifyManagerLanguage || noop;
   const emitSessionSnapshot = options.emitSessionSnapshot || noop;
   const cleanStaleSessions = options.cleanStaleSessions || noop;
   const syncPermissionShortcuts = options.syncPermissionShortcuts || noop;
@@ -148,6 +149,7 @@ function createSettingsEffectRouter(options = {}) {
       safeCall(logWarn, "Clawd: dashboard lang broadcast failed:", sendDashboardI18n);
       safeCall(logWarn, "Clawd: session HUD lang broadcast failed:", sendSessionHudI18n);
       safeCall(logWarn, "Clawd: window title sync failed:", syncWindowTitles);
+      safeCall(logWarn, "Clawd: Manager language broadcast failed:", notifyManagerLanguage);
     }
     if ("sessionAliases" in changes) {
       safeCall(

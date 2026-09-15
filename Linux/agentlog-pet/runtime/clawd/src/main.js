@@ -3377,6 +3377,7 @@ agentLogApp.setTrayHealthProvider(() => trayRuntime.getHealth());
 agentLogApp.registerHostActions({
   openAgentLogManager: () => agentLogApp.openManager(),
   openSettingsTab: (tab) => settingsWindowRuntime.open({ tab }),
+  getLanguage: () => _settingsController.get("lang") || lang || "en",
 });
 
 // ── Settings effect router ──
@@ -3435,6 +3436,7 @@ const settingsEffectRouter = createSettingsEffectRouter({
     // language — not just the native title bar.
     _tutorial.syncLocalization();
   },
+  notifyManagerLanguage: () => agentLogApp.notifyManager("language"),
   emitSessionSnapshot: (options) => _state.emitSessionSnapshot(options),
   cleanStaleSessions: () => _state.cleanStaleSessions(),
   syncPermissionShortcuts,

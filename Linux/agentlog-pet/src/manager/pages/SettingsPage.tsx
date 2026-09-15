@@ -2,6 +2,8 @@ import { ExternalLink } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import type { DiagnosticsHealth } from "../types";
+import { useI18n } from "../i18n";
+import type { TranslationKey } from "../i18n";
 
 type SettingsPageProps = {
   health: DiagnosticsHealth;
@@ -9,20 +11,21 @@ type SettingsPageProps = {
 };
 
 const storageLabels = {
-  starting: "Starting",
-  ready: "Ready",
-  error: "Error",
-} as const;
+  starting: "settings.storageStarting",
+  ready: "settings.storageReady",
+  error: "settings.storageError",
+} satisfies Record<DiagnosticsHealth["storage"], TranslationKey>;
 
 const trayLabels = {
-  starting: "Tray is starting",
-  native: "Native tray active",
-  "electron-fallback": "Electron tray fallback active",
-  "no-host": "No tray host detected",
-  failed: "Tray backend failed",
-} as const;
+  starting: "settings.trayStarting",
+  native: "settings.trayNative",
+  "electron-fallback": "settings.trayFallback",
+  "no-host": "settings.trayNoHost",
+  failed: "settings.trayFailed",
+} satisfies Record<DiagnosticsHealth["tray"]["status"], TranslationKey>;
 
 export function SettingsPage({ health, onOpenSettings }: SettingsPageProps) {
+  const { t } = useI18n();
   const [commandState, setCommandState] = useState<"idle" | "pending" | "error">("idle");
   const mountedRef = useRef(true);
   const tray = health.tray ?? { status: "starting", code: null };
@@ -48,22 +51,22 @@ export function SettingsPage({ health, onOpenSettings }: SettingsPageProps) {
     <section className="workspace" aria-labelledby="settings-title">
       <div className="workspace__heading">
         <div>
-          <p className="eyebrow">Manager</p>
-          <h2 id="settings-title">Diagnostics</h2>
+          <p className="eyebrow">{t("settings.eyebrow")}</p>
+          <h2 id="settings-title">{t("settings.title")}</h2>
         </div>
       </div>
       <dl className="diagnostics-list">
         <div>
-          <dt>Storage</dt>
-          <dd><span className={`status-dot status-dot--${health.storage}`} />{storageLabels[health.storage]}</dd>
+          <dt>{t("settings.storage")}</dt>
+          <dd><span className={`status-dot status-dot--${health.storage}`} />{t(storageLabels[health.storage])}</dd>
         </div>
         <div>
-          <dt>Database</dt>
+          <dt>{t("settings.database")}</dt>
           <dd>{health.databaseName}</dd>
         </div>
         <div>
-          <dt>Tray</dt>
-          <dd>{trayLabels[tray.status]}{tray.status === "failed" && tray.code ? ` (${tray.code})` : ""}</dd>
+          <dt>{t("settings.tray")}</dt>
+          <dd>{t(trayLabels[tray.status])}{tray.status === "failed" && tray.code ? ` (${tray.code})` : ""}</dd>
         </div>
       </dl>
       {health.errorMessage ? <p className="inline-alert inline-alert--error">{health.errorMessage}</p> : null}
@@ -75,9 +78,9 @@ export function SettingsPage({ health, onOpenSettings }: SettingsPageProps) {
           onClick={openSettings}
         >
           <ExternalLink aria-hidden="true" size={15} />
-          {commandState === "pending" ? "Opening App Settings" : "Open App Settings"}
+          {commandState === "pending" ? t("settings.opening") : t("settings.open")}
         </button>
-        {commandState === "error" ? <span className="command-error" role="alert">Unable to open app settings.</span> : null}
+        {commandState === "error" ? <span className="command-error" role="alert">{t("settings.openError")}</span> : null}
       </div>
     </section>
   );

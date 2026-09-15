@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { ProjectsPage } from "../pages/ProjectsPage";
+import { I18nProvider } from "../i18n";
 import type { AgentLogApi, ProjectSummary } from "../types";
 
 const pending: ProjectSummary = {
@@ -61,6 +62,22 @@ function sessionApi(): AgentLogApi["sessions"] {
 }
 
 describe("ProjectsPage", () => {
+  it("renders project management and its add dialog in Simplified Chinese", async () => {
+    const user = userEvent.setup();
+    const api = projectApi({ pickFolder: vi.fn(async () => ({ cancelled: false, path: "/work/new-project" })) });
+    render(
+      <I18nProvider locale="zh">
+        <ProjectsPage projectApi={api} projects={[]} sessionApi={sessionApi()} />
+      </I18nProvider>
+    );
+
+    expect(screen.getByRole("heading", { name: "项目" })).toBeVisible();
+    expect(screen.getByText("尚未记录项目。")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "添加项目" }));
+    expect(screen.getByRole("dialog", { name: "添加项目" })).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "项目名称" })).toBeVisible();
+  });
+
   it("sorts pending work first and cancels folder add without opening a form", async () => {
     const user = userEvent.setup();
     const api = projectApi();

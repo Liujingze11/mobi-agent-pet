@@ -4,6 +4,7 @@ import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { HumanTimerBar } from "../components/HumanTimerBar";
+import { I18nProvider } from "../i18n";
 import { OverviewPage } from "../pages/OverviewPage";
 import type {
   AgentLogApi,
@@ -136,6 +137,25 @@ function TimerHarness({ initial, api }: { initial: HumanSession | null; api: Age
 afterEach(() => vi.useRealTimers());
 
 describe("OverviewPage", () => {
+  it("renders overview and timer controls in Simplified Chinese", () => {
+    render(
+      <I18nProvider locale="zh">
+        <OverviewPage
+          now={() => 10_000}
+          onOpenProjects={() => {}}
+          projects={[project]}
+          snapshot={snapshot}
+          timerApi={timerApi()}
+        />
+      </I18nProvider>
+    );
+
+    expect(screen.getByRole("heading", { name: "当前工作" })).toBeVisible();
+    expect(screen.getByText("Agent 会话时间")).toBeVisible();
+    expect(screen.getByText("人工计时")).toBeVisible();
+    expect(screen.getByRole("button", { name: "暂停计时" })).toBeVisible();
+  });
+
   it("shows separate time totals, pending work, live agents, and recent activity", () => {
     render(
       <OverviewPage

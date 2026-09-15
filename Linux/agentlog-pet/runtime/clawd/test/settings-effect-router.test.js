@@ -48,6 +48,7 @@ function createHarness(options = {}) {
     sendToRenderer: (...args) => calls.push(["sendToRenderer", ...args]),
     sendDashboardI18n: () => calls.push(["sendDashboardI18n"]),
     sendSessionHudI18n: () => calls.push(["sendSessionHudI18n"]),
+    notifyManagerLanguage: () => calls.push(["notifyManagerLanguage"]),
     syncWindowTitles: () => calls.push(["syncWindowTitles"]),
     emitSessionSnapshot: (...args) => calls.push(["emitSessionSnapshot", ...args]),
     cleanStaleSessions: () => calls.push(["cleanStaleSessions"]),
@@ -84,6 +85,21 @@ function makeWindow(name, calls, options = {}) {
 }
 
 describe("settings-effect-router", () => {
+  it("notifies every localized surface when the language changes", () => {
+    const { calls, emit } = createHarness();
+
+    emit({ lang: "zh" });
+
+    assert.deepStrictEqual(calls, [
+      ["updateMirrors", { lang: "zh" }],
+      ["sendDashboardI18n"],
+      ["sendSessionHudI18n"],
+      ["syncWindowTitles"],
+      ["notifyManagerLanguage"],
+      ["rebuildAllMenus"],
+    ]);
+  });
+
   it("updates mirrors before tray and dock side effects", () => {
     const calls = [];
     const mirror = {};
@@ -224,6 +240,7 @@ describe("settings-effect-router", () => {
       ["sendDashboardI18n"],
       ["sendSessionHudI18n"],
       ["syncWindowTitles"],
+      ["notifyManagerLanguage"],
       ["emitSessionSnapshot", { force: true }],
       ["rebuildAllMenus"],
     ]);

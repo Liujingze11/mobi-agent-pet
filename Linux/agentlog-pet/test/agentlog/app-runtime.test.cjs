@@ -427,7 +427,7 @@ test("manager IPC registers once and its window is destroyed during AgentLog shu
 
   assert.ok(electron.ipcMain.handlers.has("agentlog:overview:get"));
   assert.ok(electron.ipcMain.handlers.has("agentlog:host:open-settings"));
-  assert.equal(electron.ipcMain.handlers.size, 22);
+  assert.equal(electron.ipcMain.handlers.size, 23);
   assert.equal(RuntimeBrowserWindow.instances.length, 1);
 
   await runtime.shutdown();
@@ -435,4 +435,15 @@ test("manager IPC registers once and its window is destroyed during AgentLog shu
   assert.equal(electron.ipcMain.handlers.size, 0);
   assert.equal(manager.destroyCalls, 1);
   assert.equal(runtime.openManager(), null);
+});
+
+test("runtime broadcasts host language changes to an open Manager", async (t) => {
+  const { electron, runtime } = createHarness(t);
+  runtime.install(electron);
+  await electron.app.emitReady();
+  const manager = runtime.openManager();
+
+  runtime.notifyManager("language");
+
+  assert.deepEqual(manager.sent, [["agentlog:data-changed", "language"]]);
 });

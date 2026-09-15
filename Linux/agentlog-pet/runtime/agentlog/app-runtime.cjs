@@ -211,11 +211,16 @@ function openManager() {
   return ready && managerWindowController ? managerWindowController.show() : null;
 }
 
+function notifyManager(scope) {
+  if (managerIpcRegistration) managerIpcRegistration.notify(scope);
+}
+
 const api = Object.freeze({
   install,
   getServices,
   getHealth,
   openManager,
+  notifyManager,
   showManager,
   registerHostActions,
   setTrayHealthProvider,

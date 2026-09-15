@@ -2,6 +2,8 @@ import { Pause, Play, Square } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { deriveHumanTimerMs, deriveTimerActions, formatElapsedClock } from "../model.mjs";
+import { useI18n } from "../i18n";
+import type { TranslationKey } from "../i18n";
 import type { AgentLogApi, HumanSession, HumanTimerCommandResult, ProjectSummary } from "../types";
 
 type TimerAction = "start" | "pause" | "resume" | "stop";
@@ -20,11 +22,11 @@ function activeTimer(result: HumanTimerCommandResult): HumanSession | null {
   return result;
 }
 
-function commandError(result: HumanTimerCommandResult) {
+function commandError(result: HumanTimerCommandResult): TranslationKey | null {
   if (!result || !("code" in result)) return null;
-  if (result.code === "PROJECT_ARCHIVED") return "This project is archived.";
-  if (result.code === "PROJECT_NOT_FOUND") return "The selected project is unavailable.";
-  return "Timer state changed. Refresh and try again.";
+  if (result.code === "PROJECT_ARCHIVED") return "timer.errorArchived";
+  if (result.code === "PROJECT_NOT_FOUND") return "timer.errorUnavailable";
+  return "timer.errorChanged";
 }
 
 export function HumanTimerBar({
@@ -35,6 +37,7 @@ export function HumanTimerBar({
   timer,
   timerApi,
 }: HumanTimerBarProps) {
+  const { t } = useI18n();
   const selectableProjects = useMemo(
     () => projects.filter((project) => project.lifecycle === "active"),
     [projects]
@@ -78,13 +81,13 @@ export function HumanTimerBar({
           : action === "resume"
             ? await timerApi.resume()
             : await timerApi.stop();
-      const resultError = commandError(result);
-      if (resultError) {
+      const resultErrorKey = commandError(result);
+      if (resultErrorKey) {
         const authoritativeTimer = result && "code" in result ? activeTimer(result.state) : null;
         setCurrentTimer(authoritativeTimer);
         onTimerChange(authoritativeTimer);
         setTick(now());
-        setError(resultError);
+        setError(t(resultErrorKey));
         return;
       }
       const nextTimer = activeTimer(result);
@@ -92,7 +95,7 @@ export function HumanTimerBar({
       onTimerChange(nextTimer);
       setTick(now());
     } catch {
-      setError("Unable to update the timer.");
+      setError(t("timer.errorUpdate"));
     } finally {
       setBusy(null);
     }
@@ -101,14 +104,14 @@ export function HumanTimerBar({
   return (
     <section className="human-timer" aria-labelledby="human-timer-title">
       <div className="human-timer__identity">
-        <span id="human-timer-title">Human timer</span>
-        <strong>{currentTimer?.projectName || "No project selected"}</strong>
+        <span id="human-timer-title">{t("timer.title")}</span>
+        <strong>{currentTimer?.projectName || t("timer.noProject")}</strong>
       </div>
       <output className="human-timer__clock" aria-live="off">{elapsed}</output>
       <div className="human-timer__controls">
         {actions.includes("start") && selectableProjects.length > 0 ? (
           <select
-            aria-label="Timer project"
+            aria-label={t("timer.project")}
             disabled={Boolean(busy)}
             value={selectedProjectId}
             onChange={(event) => setSelectedProjectId(event.target.value)}
@@ -117,25 +120,25 @@ export function HumanTimerBar({
           </select>
         ) : null}
         {actions.includes("start") && selectableProjects.length === 0 ? (
-          <button type="button" className="command-button" onClick={onOpenProjects}>Add project</button>
+          <button type="button" className="command-button" onClick={onOpenProjects}>{t("timer.addProject")}</button>
         ) : null}
         {actions.includes("start") && selectableProjects.length > 0 ? (
-          <button type="button" className="icon-button icon-button--primary" aria-label="Start timer" title="Start timer" disabled={Boolean(busy)} onClick={() => void run("start")}>
+          <button type="button" className="icon-button icon-button--primary" aria-label={t("timer.start")} title={t("timer.start")} disabled={Boolean(busy)} onClick={() => void run("start")}>
             <Play aria-hidden="true" size={16} />
           </button>
         ) : null}
         {actions.includes("pause") ? (
-          <button type="button" className="icon-button" aria-label="Pause timer" title="Pause timer" disabled={Boolean(busy)} onClick={() => void run("pause")}>
+          <button type="button" className="icon-button" aria-label={t("timer.pause")} title={t("timer.pause")} disabled={Boolean(busy)} onClick={() => void run("pause")}>
             <Pause aria-hidden="true" size={16} />
           </button>
         ) : null}
         {actions.includes("resume") ? (
-          <button type="button" className="icon-button icon-button--primary" aria-label="Resume timer" title="Resume timer" disabled={Boolean(busy)} onClick={() => void run("resume")}>
+          <button type="button" className="icon-button icon-button--primary" aria-label={t("timer.resume")} title={t("timer.resume")} disabled={Boolean(busy)} onClick={() => void run("resume")}>
             <Play aria-hidden="true" size={16} />
           </button>
         ) : null}
         {actions.includes("stop") ? (
-          <button type="button" className="icon-button icon-button--danger" aria-label="Stop timer" title="Stop timer" disabled={Boolean(busy)} onClick={() => void run("stop")}>
+          <button type="button" className="icon-button icon-button--danger" aria-label={t("timer.stop")} title={t("timer.stop")} disabled={Boolean(busy)} onClick={() => void run("stop")}>
             <Square aria-hidden="true" size={15} />
           </button>
         ) : null}

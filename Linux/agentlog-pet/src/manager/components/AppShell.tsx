@@ -11,15 +11,16 @@ import {
 } from "lucide-react";
 
 import { deriveNavigationBadge } from "../model.mjs";
+import { useI18n } from "../i18n";
 import type { RouteId } from "../types";
 
 const destinations = [
-  ["overview", "Overview", LayoutDashboard],
-  ["projects", "Projects", FolderKanban],
-  ["sessions", "Sessions", History],
-  ["agents", "Agents", Bot],
-  ["pet", "Pet & Themes", Palette],
-  ["settings", "Settings", SettingsIcon],
+  ["overview", "nav.overview", LayoutDashboard],
+  ["projects", "nav.projects", FolderKanban],
+  ["sessions", "nav.sessions", History],
+  ["agents", "nav.agents", Bot],
+  ["pet", "nav.pet", Palette],
+  ["settings", "nav.settings", SettingsIcon],
 ] as const;
 
 type AppShellProps = {
@@ -41,7 +42,9 @@ export function AppShell({
   onRefresh,
   pendingProjectCount = 0,
 }: AppShellProps) {
-  const currentLabel = destinations.find(([route]) => route === currentRoute)?.[1] || "Overview";
+  const { t } = useI18n();
+  const currentKey = destinations.find(([route]) => route === currentRoute)?.[1] || "nav.overview";
+  const currentLabel = t(currentKey);
 
   return (
     <div className="app-shell" data-testid="manager-shell">
@@ -50,8 +53,9 @@ export function AppShell({
           <span className="product-mark__signal" aria-hidden="true" />
           <span className="product-mark__text">AgentLog Pet</span>
         </div>
-        <nav className="primary-navigation" aria-label="Manager destinations">
-          {destinations.map(([route, label, Icon]) => {
+        <nav className="primary-navigation" aria-label={t("nav.destinations")}>
+          {destinations.map(([route, labelKey, Icon]) => {
+            const label = t(labelKey);
             const badge = deriveNavigationBadge(route, { pendingProjectCount });
             return (
               <button
@@ -79,8 +83,8 @@ export function AppShell({
             <button
               type="button"
               className="icon-button"
-              aria-label="Refresh current view"
-              title="Refresh current view"
+              aria-label={t("nav.refresh")}
+              title={t("nav.refresh")}
               disabled={isRefreshing}
               onClick={onRefresh}
             >
@@ -91,8 +95,8 @@ export function AppShell({
             <button
               type="button"
               className="icon-button"
-              aria-label="Hide Manager"
-              title="Hide Manager"
+              aria-label={t("nav.hide")}
+              title={t("nav.hide")}
               onClick={onHide}
             >
               <Minus aria-hidden="true" size={17} />

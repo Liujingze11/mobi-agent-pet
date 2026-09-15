@@ -67,6 +67,9 @@ function installPreload({ contextBridge, ipcRenderer } = {}) {
     diagnostics: freezeGroup({
       get: () => invoke("agentlog:diagnostics:get"),
     }),
+    localization: freezeGroup({
+      getLanguage: () => invoke("agentlog:host:get-language"),
+    }),
     managerWindow: freezeGroup({
       hide: () => invoke("agentlog:manager:hide"),
     }),

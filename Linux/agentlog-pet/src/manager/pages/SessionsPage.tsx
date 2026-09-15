@@ -2,6 +2,8 @@ import { ArrowDown, ArrowUp } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { filterSessions, formatDuration, formatPath } from "../model.mjs";
+import { useI18n } from "../i18n";
+import type { TranslationKey } from "../i18n";
 import type { ProjectSummary, SessionSummary } from "../types";
 
 type SessionKind = "all" | "agent" | "human";
@@ -11,11 +13,6 @@ type SessionsPageProps = {
   sessions: SessionSummary[];
 };
 
-function sessionName(session: SessionSummary) {
-  if (session.source === "agent") return session.title || `${session.agentId} session`;
-  return session.notes || "Human work session";
-}
-
 function sessionStatus(session: SessionSummary) {
   return session.source === "agent" ? session.disposition : session.status;
 }
@@ -24,9 +21,18 @@ function sessionDuration(session: SessionSummary) {
   return session.source === "agent" ? session.activeMs : session.effectiveMs;
 }
 
-function dateTime(value: number | null) {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "In progress";
-  return new Date(value).toLocaleString([], {
+const statusKeys: Record<string, TranslationKey> = {
+  active: "status.active",
+  running: "status.running",
+  paused: "status.paused",
+  completed: "status.completed",
+  errored: "status.errored",
+  interrupted: "status.interrupted",
+};
+
+function dateTime(value: number | null, locale: "en" | "zh", inProgress: string) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return inProgress;
+  return new Date(value).toLocaleString(locale === "zh" ? "zh-CN" : "en", {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -35,6 +41,7 @@ function dateTime(value: number | null) {
 }
 
 export function SessionsPage({ projects, sessions }: SessionsPageProps) {
+  const { locale, t } = useI18n();
   const [kind, setKind] = useState<SessionKind>("all");
   const [projectId, setProjectId] = useState("");
   const [status, setStatus] = useState("");
@@ -58,25 +65,33 @@ export function SessionsPage({ projects, sessions }: SessionsPageProps) {
     [direction, from, kind, projectId, sessions, status, to]
   );
   const selected = sessions.find((session) => session.id === selectedId) || null;
+  const displayName = (session: SessionSummary) => session.source === "agent"
+    ? session.title || t("sessions.agentFallback", { agent: session.agentId })
+    : session.notes || t("sessions.humanFallback");
+  const displayStatus = (session: SessionSummary) => {
+    const value = sessionStatus(session);
+    return statusKeys[value] ? t(statusKeys[value]) : value;
+  };
+  const displayDate = (value: number | null) => dateTime(value, locale, t("sessions.inProgress"));
 
   return (
     <section className="sessions-workspace" aria-labelledby="sessions-title">
       <div className="workspace__heading">
-        <div><p className="eyebrow">History</p><h2 id="sessions-title">Sessions</h2></div>
-        <span>{rows.length} shown</span>
+        <div><p className="eyebrow">{t("sessions.eyebrow")}</p><h2 id="sessions-title">{t("sessions.title")}</h2></div>
+        <span>{t("sessions.shown", { count: rows.length })}</span>
       </div>
 
-      <div className="session-filters" aria-label="Session filters">
-        <div className="segmented-control" aria-label="Session source">
-          <button type="button" aria-pressed={kind === "all"} aria-label="All sessions" onClick={() => setKind("all")}>All</button>
-          <button type="button" aria-pressed={kind === "agent"} aria-label="Agent sessions" onClick={() => setKind("agent")}>Agent</button>
-          <button type="button" aria-pressed={kind === "human"} aria-label="Human sessions" onClick={() => setKind("human")}>Human</button>
+      <div className="session-filters" aria-label={t("sessions.filters")}>
+        <div className="segmented-control" aria-label={t("sessions.sourceFilter")}>
+          <button type="button" aria-pressed={kind === "all"} aria-label={t("sessions.allAria")} onClick={() => setKind("all")}>{t("sessions.all")}</button>
+          <button type="button" aria-pressed={kind === "agent"} aria-label={t("sessions.agentAria")} onClick={() => setKind("agent")}>{t("sessions.agent")}</button>
+          <button type="button" aria-pressed={kind === "human"} aria-label={t("sessions.humanAria")} onClick={() => setKind("human")}>{t("sessions.human")}</button>
         </div>
-        <label><span>Project</span><select aria-label="Project" value={projectId} onChange={(event) => setProjectId(event.target.value)}><option value="">All projects</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
-        <label><span>Status</span><select aria-label="Status" value={status} onChange={(event) => setStatus(event.target.value)}><option value="">Any status</option>{statuses.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
-        <label><span>From</span><input aria-label="From date" type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></label>
-        <label><span>To</span><input aria-label="To date" type="date" value={to} onChange={(event) => setTo(event.target.value)} /></label>
-        <button type="button" className="icon-button session-sort" aria-label={`Sort ${direction === "newest" ? "oldest" : "newest"} first`} title={`Sort ${direction === "newest" ? "oldest" : "newest"} first`} onClick={() => setDirection((value) => value === "newest" ? "oldest" : "newest")}>
+        <label><span>{t("sessions.project")}</span><select aria-label={t("sessions.project")} value={projectId} onChange={(event) => setProjectId(event.target.value)}><option value="">{t("sessions.allProjects")}</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
+        <label><span>{t("sessions.status")}</span><select aria-label={t("sessions.status")} value={status} onChange={(event) => setStatus(event.target.value)}><option value="">{t("sessions.anyStatus")}</option>{statuses.map((value) => <option key={value} value={value}>{statusKeys[value] ? t(statusKeys[value]) : value}</option>)}</select></label>
+        <label><span>{t("sessions.from")}</span><input aria-label={t("sessions.fromDate")} type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></label>
+        <label><span>{t("sessions.to")}</span><input aria-label={t("sessions.toDate")} type="date" value={to} onChange={(event) => setTo(event.target.value)} /></label>
+        <button type="button" className="icon-button session-sort" aria-label={t(direction === "newest" ? "sessions.sortOldest" : "sessions.sortNewest")} title={t(direction === "newest" ? "sessions.sortOldest" : "sessions.sortNewest")} onClick={() => setDirection((value) => value === "newest" ? "oldest" : "newest")}>
           {direction === "newest" ? <ArrowDown aria-hidden="true" size={16} /> : <ArrowUp aria-hidden="true" size={16} />}
         </button>
       </div>
@@ -85,37 +100,37 @@ export function SessionsPage({ projects, sessions }: SessionsPageProps) {
         <div className="session-table-wrap">
           {rows.length > 0 ? (
             <table className="session-table">
-              <thead><tr><th>Source</th><th>Session</th><th>Project</th><th>Started</th><th>Status</th><th>Duration</th></tr></thead>
+              <thead><tr><th>{t("sessions.source")}</th><th>{t("sessions.session")}</th><th>{t("sessions.project")}</th><th>{t("sessions.started")}</th><th>{t("sessions.status")}</th><th>{t("sessions.duration")}</th></tr></thead>
               <tbody>{rows.map((session) => (
                 <tr key={session.id} data-selected={selectedId === session.id || undefined}>
-                  <td>{session.source === "agent" ? session.agentId : "Human"}</td>
-                  <td><button type="button" aria-label={`Open session ${sessionName(session)}`} onClick={() => setSelectedId(session.id)}>{sessionName(session)}</button></td>
-                  <td>{session.projectName || "Unassigned"}</td>
-                  <td>{dateTime(session.startedAt)}</td>
-                  <td><span className={`record-state record-state--${sessionStatus(session)}`}>{sessionStatus(session)}</span></td>
+                  <td>{session.source === "agent" ? session.agentId : t("sessions.human")}</td>
+                  <td><button type="button" aria-label={t("sessions.open", { name: displayName(session) })} onClick={() => setSelectedId(session.id)}>{displayName(session)}</button></td>
+                  <td>{session.projectName || t("sessions.unassigned")}</td>
+                  <td>{displayDate(session.startedAt)}</td>
+                  <td><span className={`record-state record-state--${sessionStatus(session)}`}>{displayStatus(session)}</span></td>
                   <td>{formatDuration(sessionDuration(session))}</td>
                 </tr>
               ))}</tbody>
             </table>
-          ) : <div className="workspace-empty">No sessions match these filters.</div>}
+          ) : <div className="workspace-empty">{t("sessions.empty")}</div>}
         </div>
 
         {selected ? (
-          <aside className="session-detail" aria-label="Session detail">
-            <div className="section-heading"><h3>{sessionName(selected)}</h3><span>{selected.source}</span></div>
+          <aside className="session-detail" aria-label={t("sessions.detail")}>
+            <div className="section-heading"><h3>{displayName(selected)}</h3><span>{selected.source === "agent" ? t("sessions.agent") : t("sessions.human")}</span></div>
             <dl>
-              <div><dt>Project</dt><dd>{selected.projectName || "Unassigned"}</dd></div>
-              <div><dt>Started</dt><dd>{dateTime(selected.startedAt)}</dd></div>
-              <div><dt>Ended</dt><dd>{dateTime(selected.endedAt)}</dd></div>
-              <div><dt>Status</dt><dd>{sessionStatus(selected)}</dd></div>
+              <div><dt>{t("sessions.project")}</dt><dd>{selected.projectName || t("sessions.unassigned")}</dd></div>
+              <div><dt>{t("sessions.started")}</dt><dd>{displayDate(selected.startedAt)}</dd></div>
+              <div><dt>{t("sessions.ended")}</dt><dd>{displayDate(selected.endedAt)}</dd></div>
+              <div><dt>{t("sessions.status")}</dt><dd>{displayStatus(selected)}</dd></div>
               {selected.source === "agent" ? <>
-                <div><dt>Active time</dt><dd>{formatDuration(selected.activeMs)}</dd></div>
-                <div><dt>Working directory</dt><dd title={selected.cwd || undefined}>{formatPath(selected.cwd, 34)}</dd></div>
-                <div><dt>Parent session</dt><dd>{selected.parentSourceSessionId || "None"}</dd></div>
+                <div><dt>{t("sessions.activeTime")}</dt><dd>{formatDuration(selected.activeMs)}</dd></div>
+                <div><dt>{t("sessions.workingDirectory")}</dt><dd title={selected.cwd || undefined}>{formatPath(selected.cwd, 34)}</dd></div>
+                <div><dt>{t("sessions.parent")}</dt><dd>{selected.parentSourceSessionId || t("sessions.none")}</dd></div>
               </> : <>
-                <div><dt>Effective time</dt><dd>{formatDuration(selected.effectiveMs)}</dd></div>
-                <div><dt>Paused time</dt><dd>{formatDuration(selected.accumulatedPauseMs)}</dd></div>
-                <div><dt>Notes</dt><dd>{selected.notes || "None"}</dd></div>
+                <div><dt>{t("sessions.effectiveTime")}</dt><dd>{formatDuration(selected.effectiveMs)}</dd></div>
+                <div><dt>{t("sessions.pausedTime")}</dt><dd>{formatDuration(selected.accumulatedPauseMs)}</dd></div>
+                <div><dt>{t("sessions.notes")}</dt><dd>{selected.notes || t("sessions.none")}</dd></div>
               </>}
             </dl>
           </aside>

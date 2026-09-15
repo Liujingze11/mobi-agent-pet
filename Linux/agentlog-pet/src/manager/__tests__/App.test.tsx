@@ -46,11 +46,13 @@ function deferred<T>() {
 
 function createApi(options: {
   diagnostics?: (DiagnosticsHealth & Record<string, unknown>) | Promise<DiagnosticsHealth & Record<string, unknown>>;
+  language?: string;
   overview?: OverviewSnapshot | Promise<OverviewSnapshot>;
   projects?: ProjectSummary[] | Promise<ProjectSummary[]>;
   sessions?: SessionSummary[] | Promise<SessionSummary[]>;
 } = {}) {
   const listeners = new Set<(scope: string) => void>();
+  let language = options.language ?? "en";
   const diagnostics = options.diagnostics ?? {
     storage: "ready",
     databaseName: "agentlog.db",
@@ -88,6 +90,7 @@ function createApi(options: {
     },
     settings: { open: vi.fn(async () => undefined) },
     diagnostics: { get: vi.fn(() => Promise.resolve(diagnostics)) },
+    localization: { getLanguage: vi.fn(async () => language) },
     managerWindow: { hide: vi.fn(async () => undefined) },
     events: {
       onChanged: vi.fn((listener: (scope: string) => void) => {
@@ -103,10 +106,36 @@ function createApi(options: {
       for (const listener of listeners) listener(scope);
     },
     listenerCount: () => listeners.size,
+    setLanguage(nextLanguage: string) {
+      language = nextLanguage;
+    },
   };
 }
 
 describe("App", () => {
+  it("renders Manager navigation in the selected Simplified Chinese language", async () => {
+    const { api } = createApi({ language: "zh" });
+
+    render(<App api={api} />);
+
+    expect(await screen.findByRole("heading", { name: "当前工作" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "概览" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "项目" })).toBeVisible();
+    expect(document.documentElement).toHaveAttribute("lang", "zh-CN");
+  });
+
+  it("updates visible Manager copy when the host language changes", async () => {
+    const harness = createApi({ language: "en" });
+    render(<App api={harness.api} />);
+    expect(await screen.findByRole("heading", { name: "Live work" })).toBeVisible();
+
+    harness.setLanguage("zh");
+    await act(async () => harness.emit("language"));
+
+    expect(await screen.findByRole("heading", { name: "当前工作" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "项目" })).toBeVisible();
+  });
+
   it("renders project data that includes a worktree path", async () => {
     const user = userEvent.setup();
     const { api } = createApi({

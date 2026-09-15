@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import { SessionsPage } from "../pages/SessionsPage";
+import { I18nProvider } from "../i18n";
 import type { AgentSession, HumanSession, ProjectSummary } from "../types";
 
 const projects: ProjectSummary[] = [
@@ -24,6 +25,21 @@ const human: HumanSession = {
 };
 
 describe("SessionsPage", () => {
+  it("renders session filters and detail labels in Simplified Chinese", async () => {
+    const user = userEvent.setup();
+    render(
+      <I18nProvider locale="zh">
+        <SessionsPage projects={projects} sessions={[human, agent]} />
+      </I18nProvider>
+    );
+
+    expect(screen.getByRole("heading", { name: "会话" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Agent 会话" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "打开会话 Implement manager" }));
+    expect(screen.getByRole("complementary", { name: "会话详情" })).toBeVisible();
+    expect(screen.getByText("工作目录")).toBeVisible();
+  });
+
   it("filters agent and human sessions with segmented controls", async () => {
     const user = userEvent.setup();
     render(<SessionsPage projects={projects} sessions={[human, agent]} />);

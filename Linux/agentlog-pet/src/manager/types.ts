@@ -158,6 +158,9 @@ export type AgentLogApi = {
   diagnostics: {
     get(): Promise<DiagnosticsHealth>;
   };
+  localization: {
+    getLanguage(): Promise<string>;
+  };
   managerWindow: {
     hide(): Promise<unknown>;
   };

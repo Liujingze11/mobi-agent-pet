@@ -20,6 +20,7 @@ const PROJECT_LIFECYCLES = ["active", "archived"];
 const SESSION_SOURCES = ["agent", "human"];
 const AGENT_SESSION_STATUSES = ["active", "completed", "errored", "interrupted"];
 const HUMAN_SESSION_STATUSES = ["running", "paused", "completed"];
+const SUPPORTED_LANGUAGES = new Set(["en", "zh", "zh-TW", "ko", "ja"]);
 const EVENT_CATEGORIES = [
   "permission_requested",
   "session_started",
@@ -240,6 +241,10 @@ function registerManagerIpc({
     }));
   });
   handle("agentlog:diagnostics:get", () => redactedHealth(runtime));
+  handle("agentlog:host:get-language", () => {
+    const language = hostBridge.invokeHostAction("getLanguage");
+    return SUPPORTED_LANGUAGES.has(language) ? language : "en";
+  });
   handle("agentlog:manager:hide", (event) => {
     const window = BrowserWindow.fromWebContents(event.sender);
     if (window && !(typeof window.isDestroyed === "function" && window.isDestroyed())) window.hide();

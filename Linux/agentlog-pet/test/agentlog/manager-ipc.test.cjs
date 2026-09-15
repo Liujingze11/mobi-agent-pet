@@ -72,7 +72,11 @@ function createHarness(t, options = {}) {
     stop(input) { calls.push(["timer:stop", input]); return null; },
   };
   const hostBridge = {
-    invokeHostAction(...input) { calls.push(["host", ...input]); return "opened"; },
+    invokeHostAction(...input) {
+      calls.push(["host", ...input]);
+      if (input[0] === "getLanguage") return options.hostLanguage ?? "en";
+      return "opened";
+    },
   };
   const registration = registerManagerIpc({
     ipcMain: options.ipcMain || {
@@ -509,6 +513,16 @@ test("host settings and manager hide are scoped through trusted main-process obj
   assert.deepEqual(api.calls, [["host", "openSettingsTab", "agents"], ["hide"]]);
 });
 
+test("host language is exposed through a named renderer API and invalid values fall back to English", async (t) => {
+  const chinese = createHarness(t, { hostLanguage: "zh" });
+  const invalid = createHarness(t, { hostLanguage: "private-locale" });
+
+  assert.equal(await createRendererApi(chinese).localization.getLanguage(), "zh");
+  assert.equal(await createRendererApi(invalid).localization.getLanguage(), "en");
+  assert.deepEqual(chinese.calls, [["host", "getLanguage"]]);
+  assert.deepEqual(invalid.calls, [["host", "getLanguage"]]);
+});
+
 test("preload exposes only frozen named APIs and unsubscribes its own change listener", async () => {
   const invocations = [];
   const listeners = [];
@@ -534,7 +548,7 @@ test("preload exposes only frozen named APIs and unsubscribes its own change lis
   });
 
   assert.deepEqual(Object.keys(exposed).sort(), [
-    "diagnostics", "events", "humanTimer", "managerWindow", "overview", "projects", "sessions", "settings",
+    "diagnostics", "events", "humanTimer", "localization", "managerWindow", "overview", "projects", "sessions", "settings",
   ]);
   assert.equal(Object.isFrozen(exposed), true);
   for (const group of Object.values(exposed)) assert.equal(Object.isFrozen(group), true);
@@ -548,6 +562,7 @@ test("preload exposes only frozen named APIs and unsubscribes its own change lis
   assert.deepEqual(Object.keys(exposed.humanTimer).sort(), ["get", "pause", "resume", "start", "stop"]);
   assert.deepEqual(Object.keys(exposed.settings), ["open"]);
   assert.deepEqual(Object.keys(exposed.diagnostics), ["get"]);
+  assert.deepEqual(Object.keys(exposed.localization), ["getLanguage"]);
   assert.deepEqual(Object.keys(exposed.managerWindow), ["hide"]);
   assert.deepEqual(Object.keys(exposed.events), ["onChanged"]);
 
@@ -557,6 +572,7 @@ test("preload exposes only frozen named APIs and unsubscribes its own change lis
     exposed.projects.archive("project-1"),
     exposed.humanTimer.start("project-1"),
     exposed.settings.open("agents"),
+    exposed.localization.getLanguage(),
     exposed.managerWindow.hide(),
   ]);
   assert.deepEqual(invocations, [
@@ -565,6 +581,7 @@ test("preload exposes only frozen named APIs and unsubscribes its own change lis
     ["agentlog:projects:archive", { id: "project-1" }],
     ["agentlog:human-timer:start", { projectId: "project-1" }],
     ["agentlog:host:open-settings", { tab: "agents" }],
+    ["agentlog:host:get-language"],
     ["agentlog:manager:hide"],
   ]);
 
@@ -698,10 +715,10 @@ test("duplicate IPC registration reuses its owner and disposal removes only owne
   const duplicate = registerManagerIpc({ ipcMain });
 
   assert.equal(duplicate, api.registration);
-  assert.equal(handleCalls, 22);
+  assert.equal(handleCalls, 23);
   api.registration.dispose();
   duplicate.dispose();
-  assert.equal(removed.length, 22);
+  assert.equal(removed.length, 23);
   assert.equal(handlers.has("unrelated:channel"), true);
   assert.equal(handlers.size, 1);
 });
@@ -748,6 +765,7 @@ test("registers only the named manager invoke channels", (t) => {
 
   assert.deepEqual(api.channels(), [
     "agentlog:diagnostics:get",
+    "agentlog:host:get-language",
     "agentlog:host:open-settings",
     "agentlog:human-timer:get",
     "agentlog:human-timer:pause",
