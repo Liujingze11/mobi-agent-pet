@@ -1,8 +1,8 @@
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-import { filterSessions, formatDuration, formatPath } from "../model.mjs";
-import { useI18n } from "../i18n";
+import { filterSessions } from "../model.mjs";
+import { formatManagerDuration, formatManagerPath, useI18n } from "../i18n";
 import type { TranslationKey } from "../i18n";
 import type { ProjectSummary, SessionSummary } from "../types";
 
@@ -108,7 +108,7 @@ export function SessionsPage({ projects, sessions }: SessionsPageProps) {
                   <td>{session.projectName || t("sessions.unassigned")}</td>
                   <td>{displayDate(session.startedAt)}</td>
                   <td><span className={`record-state record-state--${sessionStatus(session)}`}>{displayStatus(session)}</span></td>
-                  <td>{formatDuration(sessionDuration(session))}</td>
+                  <td>{formatManagerDuration(sessionDuration(session), locale)}</td>
                 </tr>
               ))}</tbody>
             </table>
@@ -124,12 +124,12 @@ export function SessionsPage({ projects, sessions }: SessionsPageProps) {
               <div><dt>{t("sessions.ended")}</dt><dd>{displayDate(selected.endedAt)}</dd></div>
               <div><dt>{t("sessions.status")}</dt><dd>{displayStatus(selected)}</dd></div>
               {selected.source === "agent" ? <>
-                <div><dt>{t("sessions.activeTime")}</dt><dd>{formatDuration(selected.activeMs)}</dd></div>
-                <div><dt>{t("sessions.workingDirectory")}</dt><dd title={selected.cwd || undefined}>{formatPath(selected.cwd, 34)}</dd></div>
+                <div><dt>{t("sessions.activeTime")}</dt><dd>{formatManagerDuration(selected.activeMs, locale)}</dd></div>
+                <div><dt>{t("sessions.workingDirectory")}</dt><dd title={selected.cwd || undefined}>{formatManagerPath(selected.cwd, 34, locale)}</dd></div>
                 <div><dt>{t("sessions.parent")}</dt><dd>{selected.parentSourceSessionId || t("sessions.none")}</dd></div>
               </> : <>
-                <div><dt>{t("sessions.effectiveTime")}</dt><dd>{formatDuration(selected.effectiveMs)}</dd></div>
-                <div><dt>{t("sessions.pausedTime")}</dt><dd>{formatDuration(selected.accumulatedPauseMs)}</dd></div>
+                <div><dt>{t("sessions.effectiveTime")}</dt><dd>{formatManagerDuration(selected.effectiveMs, locale)}</dd></div>
+                <div><dt>{t("sessions.pausedTime")}</dt><dd>{formatManagerDuration(selected.accumulatedPauseMs, locale)}</dd></div>
                 <div><dt>{t("sessions.notes")}</dt><dd>{selected.notes || t("sessions.none")}</dd></div>
               </>}
             </dl>

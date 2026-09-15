@@ -1,7 +1,6 @@
 import { FolderPlus } from "lucide-react";
 
-import { formatDuration } from "../model.mjs";
-import { useI18n } from "../i18n";
+import { formatManagerDuration, translateManagerState, useI18n } from "../i18n";
 import type { AgentLogApi, HumanSession, OverviewSnapshot, ProjectSummary } from "../types";
 import { HumanTimerBar } from "../components/HumanTimerBar";
 
@@ -42,9 +41,9 @@ export function OverviewPage({ now, onOpenProjects, projects, snapshot, timerApi
       />
 
       <dl className="overview-metrics">
-        <div><dt>{t("overview.agentSessionTime")}</dt><dd>{formatDuration(snapshot.today.agentSessionMs)}</dd></div>
-        <div><dt>{t("overview.agentActiveTime")}</dt><dd>{formatDuration(snapshot.today.agentActiveMs)}</dd></div>
-        <div><dt>{t("overview.humanTime")}</dt><dd>{formatDuration(snapshot.today.humanMs)}</dd></div>
+        <div><dt>{t("overview.agentSessionTime")}</dt><dd>{formatManagerDuration(snapshot.today.agentSessionMs, locale)}</dd></div>
+        <div><dt>{t("overview.agentActiveTime")}</dt><dd>{formatManagerDuration(snapshot.today.agentActiveMs, locale)}</dd></div>
+        <div><dt>{t("overview.humanTime")}</dt><dd>{formatManagerDuration(snapshot.today.humanMs, locale)}</dd></div>
         <div><dt>{t("overview.pendingProjects")}</dt><dd>{snapshot.pendingProjectCount}</dd></div>
       </dl>
 
@@ -63,8 +62,8 @@ export function OverviewPage({ now, onOpenProjects, projects, snapshot, timerApi
                     <tr key={session.id}>
                       <td>{session.agentId}</td>
                       <td>{session.projectName || t("overview.unassigned")}</td>
-                      <td><span className="record-state record-state--active">{session.latestState || "active"}</span></td>
-                      <td>{formatDuration(session.activeMs)}</td>
+                      <td><span className="record-state record-state--active">{translateManagerState(session.latestState, t)}</span></td>
+                      <td>{formatManagerDuration(session.activeMs, locale)}</td>
                     </tr>
                   ))}
                 </tbody>

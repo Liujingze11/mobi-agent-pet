@@ -45,7 +45,7 @@ export function HumanTimerBar({
   const [currentTimer, setCurrentTimer] = useState<HumanSession | null>(activeTimer(timer));
   const [selectedProjectId, setSelectedProjectId] = useState(selectableProjects[0]?.id || "");
   const [busy, setBusy] = useState<TimerAction | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<TranslationKey | null>(null);
   const [tick, setTick] = useState(() => now());
 
   useEffect(() => {
@@ -87,7 +87,7 @@ export function HumanTimerBar({
         setCurrentTimer(authoritativeTimer);
         onTimerChange(authoritativeTimer);
         setTick(now());
-        setError(t(resultErrorKey));
+        setError(resultErrorKey);
         return;
       }
       const nextTimer = activeTimer(result);
@@ -95,7 +95,7 @@ export function HumanTimerBar({
       onTimerChange(nextTimer);
       setTick(now());
     } catch {
-      setError(t("timer.errorUpdate"));
+      setError("timer.errorUpdate");
     } finally {
       setBusy(null);
     }
@@ -143,7 +143,7 @@ export function HumanTimerBar({
           </button>
         ) : null}
       </div>
-      <p className="human-timer__error" role={error ? "alert" : undefined}>{error || ""}</p>
+      <p className="human-timer__error" role={error ? "alert" : undefined}>{error ? t(error) : ""}</p>
     </section>
   );
 }

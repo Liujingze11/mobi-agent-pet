@@ -105,6 +105,7 @@ export function App({ api = window.agentLog }: AppProps) {
   const [commandError, setCommandError] = useState(false);
   const mountedRef = useRef(false);
   const requestRef = useRef(0);
+  const languageRequestRef = useRef(0);
   const routeRef = useRef<InternalRouteId>(route);
   const healthRef = useRef<DiagnosticsHealth | null | "unexpected">(health);
   routeRef.current = route;
@@ -141,19 +142,23 @@ export function App({ api = window.agentLog }: AppProps) {
   useEffect(() => {
     mountedRef.current = true;
     let active = true;
+    const refreshLanguage = () => {
+      const languageRequest = ++languageRequestRef.current;
+      void api.localization.getLanguage().then((language) => {
+        if (active && languageRequest === languageRequestRef.current) {
+          setLocale(normalizeManagerLocale(language));
+        }
+      }).catch(() => {});
+    };
     const unsubscribe = api.events.onChanged((scope) => {
       if (scope === "language") {
-        void api.localization.getLanguage().then((language) => {
-          if (active) setLocale(normalizeManagerLocale(language));
-        }).catch(() => {});
+        refreshLanguage();
         return;
       }
       const currentRoute = routeRef.current;
       if (isRelevantScope(currentRoute, scope)) void loadRoute(currentRoute, { silent: true });
     });
-    void api.localization.getLanguage().then((language) => {
-      if (active) setLocale(normalizeManagerLocale(language));
-    }).catch(() => {});
+    refreshLanguage();
     void api.diagnostics.get().then((result) => {
       if (active) setHealth(result);
     }).catch(() => {
@@ -163,6 +168,7 @@ export function App({ api = window.agentLog }: AppProps) {
       active = false;
       mountedRef.current = false;
       requestRef.current += 1;
+      languageRequestRef.current += 1;
       unsubscribe();
     };
   }, [api, loadRoute]);
@@ -204,7 +210,7 @@ export function App({ api = window.agentLog }: AppProps) {
   } else if (health.storage === "starting") {
     content = <StateSurface kind="pending" title={t("app.storageStartingTitle")} detail={t("app.storageStartingDetail")} />;
   } else if (health.storage === "error") {
-    content = <StateSurface kind="error" title={t("app.storageErrorTitle")} detail={health.errorMessage || t("app.storageErrorDetail")} />;
+    content = <StateSurface kind="error" title={t("app.storageErrorTitle")} detail={t("app.storageErrorDetail")} />;
   } else if (view.status === "loading" || view.route !== route) {
     content = <StateSurface kind="loading" title={t("app.loadingRoute", { route: t(routeLabels[route]) })} detail={t("app.readingDetail")} />;
   } else if (view.status === "error") {

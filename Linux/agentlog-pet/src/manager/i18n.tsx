@@ -1,6 +1,8 @@
 import { createContext, useContext } from "react";
 import type { ReactNode } from "react";
 
+import { formatDuration, formatPath } from "./model.mjs";
+
 export type ManagerLocale = "en" | "zh";
 
 const en = {
@@ -48,6 +50,15 @@ const en = {
   "overview.noRecentActivity": "No recent agent activity.",
   "overview.activity": "Activity",
   "overview.unknownTime": "Unknown time",
+  "state.active": "active",
+  "state.working": "working",
+  "state.thinking": "thinking",
+  "state.juggling": "juggling",
+  "state.sleeping": "sleeping",
+  "state.notification": "waiting for confirmation",
+  "state.attention": "completed",
+  "state.sweeping": "cleaning up",
+  "state.error": "error",
   "timer.title": "Human timer",
   "timer.noProject": "No project selected",
   "timer.project": "Timer project",
@@ -117,6 +128,7 @@ const en = {
   "projects.errorAlias": "Unable to add the selected path.",
   "projects.errorPath": "Unable to update this project path.",
   "projects.newProject": "New project",
+  "projects.unknownPath": "Unknown path",
   "sessions.eyebrow": "History",
   "sessions.title": "Sessions",
   "sessions.shown": "{count} shown",
@@ -232,6 +244,15 @@ const zh: Record<TranslationKey, string> = {
   "overview.noRecentActivity": "暂无最近的 Agent 活动。",
   "overview.activity": "活动",
   "overview.unknownTime": "未知时间",
+  "state.active": "活跃",
+  "state.working": "工作中",
+  "state.thinking": "思考中",
+  "state.juggling": "多任务处理中",
+  "state.sleeping": "休眠中",
+  "state.notification": "等待确认",
+  "state.attention": "已完成",
+  "state.sweeping": "清理中",
+  "state.error": "出错",
   "timer.title": "人工计时",
   "timer.noProject": "尚未选择项目",
   "timer.project": "计时项目",
@@ -301,6 +322,7 @@ const zh: Record<TranslationKey, string> = {
   "projects.errorAlias": "无法添加所选路径。",
   "projects.errorPath": "无法更新此项目路径。",
   "projects.newProject": "新项目",
+  "projects.unknownPath": "未知路径",
   "sessions.eyebrow": "历史记录",
   "sessions.title": "会话",
   "sessions.shown": "显示 {count} 项",
@@ -395,4 +417,35 @@ export function I18nProvider({ children, locale }: { children: ReactNode; locale
 
 export function useI18n() {
   return useContext(I18nContext);
+}
+
+const managerStateKeys: Record<string, TranslationKey> = {
+  idle: "state.active",
+  active: "state.active",
+  working: "state.working",
+  thinking: "state.thinking",
+  juggling: "state.juggling",
+  sleeping: "state.sleeping",
+  notification: "state.notification",
+  attention: "state.attention",
+  sweeping: "state.sweeping",
+  error: "state.error",
+  running: "status.running",
+  paused: "status.paused",
+  completed: "status.completed",
+  errored: "status.errored",
+  interrupted: "status.interrupted",
+};
+
+export function translateManagerState(value: string | null | undefined, t: ReturnType<typeof createTranslator>) {
+  if (!value) return t("state.active");
+  return managerStateKeys[value] ? t(managerStateKeys[value]) : value;
+}
+
+export function formatManagerDuration(milliseconds: unknown, locale: ManagerLocale) {
+  return formatDuration(milliseconds, locale === "zh" ? { hour: "小时", minute: "分钟" } : undefined);
+}
+
+export function formatManagerPath(input: unknown, maxLength: number, locale: ManagerLocale) {
+  return formatPath(input, maxLength, locale === "zh" ? "未知路径" : undefined);
 }

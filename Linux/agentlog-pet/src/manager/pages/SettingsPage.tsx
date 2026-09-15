@@ -1,9 +1,9 @@
 import { ExternalLink } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import type { DiagnosticsHealth } from "../types";
 import { useI18n } from "../i18n";
 import type { TranslationKey } from "../i18n";
+import type { DiagnosticsHealth } from "../types";
 
 type SettingsPageProps = {
   health: DiagnosticsHealth;
@@ -69,7 +69,7 @@ export function SettingsPage({ health, onOpenSettings }: SettingsPageProps) {
           <dd>{t(trayLabels[tray.status])}{tray.status === "failed" && tray.code ? ` (${tray.code})` : ""}</dd>
         </div>
       </dl>
-      {health.errorMessage ? <p className="inline-alert inline-alert--error">{health.errorMessage}</p> : null}
+      {health.errorMessage ? <p className="inline-alert inline-alert--error">{t("app.storageErrorDetail")}</p> : null}
       <div className="command-row">
         <button
           type="button"

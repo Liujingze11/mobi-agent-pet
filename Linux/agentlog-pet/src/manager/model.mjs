@@ -4,11 +4,11 @@ function usableDuration(value) {
 }
 
 /** @param {unknown} milliseconds */
-export function formatDuration(milliseconds) {
+export function formatDuration(milliseconds, labels = { hour: "h", minute: "m" }) {
   const totalMinutes = Math.floor(usableDuration(milliseconds) / 60_000);
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
-  return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+  return hours > 0 ? `${hours}${labels.hour} ${minutes}${labels.minute}` : `${minutes}${labels.minute}`;
 }
 
 /** @param {string} value */
@@ -25,9 +25,10 @@ function pathParts(value) {
 /**
  * @param {unknown} input
  * @param {number} [maxLength]
+ * @param {string} [unknownPath]
  */
-export function formatPath(input, maxLength = 48) {
-  if (typeof input !== "string" || input.trim() === "") return "Unknown path";
+export function formatPath(input, maxLength = 48, unknownPath = "Unknown path") {
+  if (typeof input !== "string" || input.trim() === "") return unknownPath;
   const value = input.trim();
   const { separator, root, basename } = pathParts(value);
   if (!Number.isFinite(maxLength) || maxLength <= 0) return basename;

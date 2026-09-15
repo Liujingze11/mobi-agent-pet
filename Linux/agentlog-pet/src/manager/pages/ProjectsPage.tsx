@@ -1,8 +1,8 @@
 import { Archive, Check, FolderPlus, GitMerge, Link, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-import { formatDuration, formatPath, sortProjects } from "../model.mjs";
-import { useI18n } from "../i18n";
+import { sortProjects } from "../model.mjs";
+import { formatManagerDuration, formatManagerPath, translateManagerState, useI18n } from "../i18n";
 import type { TranslationKey } from "../i18n";
 import type { ActivityEvent, AgentLogApi, ProjectDetail, ProjectSummary, SessionSummary } from "../types";
 
@@ -61,7 +61,7 @@ export function ProjectsPage({ projectApi, projects: initialProjects, sessionApi
   const [description, setDescription] = useState("");
   const [mergeTargetId, setMergeTargetId] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<TranslationKey | null>(null);
   const selectedExternalUpdatedAt = initialProjects.find((project) => project.id === selectedId)?.updatedAt;
 
   useEffect(() => {
@@ -86,7 +86,7 @@ export function ProjectsPage({ projectApi, projects: initialProjects, sessionApi
       setTimeline(nextTimeline);
       setSessions(nextSessions);
     }).catch(() => {
-      if (active) setError(t("projects.errorDetails"));
+      if (active) setError("projects.errorDetails");
     });
     return () => { active = false; };
   }, [projectApi, selectedExternalUpdatedAt, selectedId, sessionApi]);
@@ -113,7 +113,7 @@ export function ProjectsPage({ projectApi, projects: initialProjects, sessionApi
       const result = await projectApi.pickFolder();
       if (!result.cancelled && result.path) openDialog({ kind: "add", path: result.path });
     } catch {
-      setError(t("projects.errorSelect"));
+      setError("projects.errorSelect");
     }
   }
 
@@ -155,7 +155,7 @@ export function ProjectsPage({ projectApi, projects: initialProjects, sessionApi
       }
       setDialog(null);
     } catch {
-      setError(t("projects.errorOperation"));
+      setError("projects.errorOperation");
     } finally {
       setBusy(false);
     }
@@ -172,7 +172,7 @@ export function ProjectsPage({ projectApi, projects: initialProjects, sessionApi
       const updated = await projectApi.get(current.id);
       if (updated) replaceProject(updated);
     } catch {
-      setError(t("projects.errorAlias"));
+      setError("projects.errorAlias");
     } finally {
       setBusy(false);
     }
@@ -188,7 +188,7 @@ export function ProjectsPage({ projectApi, projects: initialProjects, sessionApi
         : await projectApi.removePath({ projectId: current.id, pathId });
       if (updated) replaceProject(updated);
     } catch {
-      setError(t("projects.errorPath"));
+      setError("projects.errorPath");
     } finally {
       setBusy(false);
     }
@@ -203,7 +203,7 @@ export function ProjectsPage({ projectApi, projects: initialProjects, sessionApi
     : session.notes || t("sessions.humanFallback");
   const sessionState = (session: SessionSummary) => {
     const value = session.source === "agent" ? session.disposition : session.status;
-    return statusKeys[value] ? t(statusKeys[value]) : value;
+    return statusKeys[value] ? t(statusKeys[value]) : translateManagerState(value, t);
   };
 
   return (
@@ -212,13 +212,13 @@ export function ProjectsPage({ projectApi, projects: initialProjects, sessionApi
         <div><p className="eyebrow">{t("projects.eyebrow")}</p><h2 id="projects-title">{t("projects.title")}</h2></div>
         <button type="button" className="command-button" onClick={() => void addProject()}><FolderPlus aria-hidden="true" size={15} />{t("projects.add")}</button>
       </div>
-      {error ? <p className="inline-alert inline-alert--error" role="alert">{error}</p> : null}
+      {error ? <p className="inline-alert inline-alert--error" role="alert">{t(error)}</p> : null}
 
       <div className="projects-layout">
         <aside className="project-list" aria-label={t("projects.list")}>
           {projects.length > 0 ? projects.map((project) => (
             <button key={project.id} type="button" aria-label={t("projects.open", { name: project.name })} aria-current={selectedId === project.id || undefined} onClick={() => { setSelectedId(project.id); setTab("overview"); }}>
-              <span><strong>{project.name}</strong><small title={project.paths[0]?.path}>{formatPath(project.paths[0]?.path, 31)}</small></span>
+              <span><strong>{project.name}</strong><small title={project.paths[0]?.path}>{formatManagerPath(project.paths[0]?.path, 31, locale)}</small></span>
               <span className={`record-state record-state--${project.confirmation}`}>{projectStatus(project)}</span>
             </button>
           )) : <div className="workspace-empty">{t("projects.empty")}</div>}
@@ -237,24 +237,24 @@ export function ProjectsPage({ projectApi, projects: initialProjects, sessionApi
 
             {tab === "overview" ? <div className="project-tab project-overview">
               <dl className="project-time-band">
-                <div><dt>{t("overview.agentSessionTime")}</dt><dd>{formatDuration(detail?.today?.agentSessionMs || 0)}</dd></div>
-                <div><dt>{t("overview.agentActiveTime")}</dt><dd>{formatDuration(detail?.today?.agentActiveMs || 0)}</dd></div>
-                <div><dt>{t("overview.humanTime")}</dt><dd>{formatDuration(detail?.today?.humanMs || 0)}</dd></div>
+                <div><dt>{t("overview.agentSessionTime")}</dt><dd>{formatManagerDuration(detail?.today?.agentSessionMs || 0, locale)}</dd></div>
+                <div><dt>{t("overview.agentActiveTime")}</dt><dd>{formatManagerDuration(detail?.today?.agentActiveMs || 0, locale)}</dd></div>
+                <div><dt>{t("overview.humanTime")}</dt><dd>{formatManagerDuration(detail?.today?.humanMs || 0, locale)}</dd></div>
               </dl>
               <div className="path-list"><div className="section-heading"><h3>{t("projects.paths")}</h3><span>{current.paths.length}</span></div>{current.paths.map((path) => <div className="path-row" key={path.id}>
                 <span className={`path-health path-health--${path.isAvailable ? "ready" : "missing"}`} title={path.isAvailable ? t("projects.pathAvailable") : t("projects.pathUnavailable")} />
-                <div><strong title={path.path}>{formatPath(path.path, 54)}</strong><span>{t(pathKeys[path.kind])} / {path.gitBranch || t("projects.noBranch")} / {path.gitRemoteIdentity || t("projects.noRemote")}</span></div>
+                <div><strong title={path.path}>{formatManagerPath(path.path, 54, locale)}</strong><span>{t(pathKeys[path.kind])} / {path.gitBranch || t("projects.noBranch")} / {path.gitRemoteIdentity || t("projects.noRemote")}</span></div>
               </div>)}</div>
             </div> : null}
 
-            {tab === "activity" ? <div className="project-tab"><div className="section-heading"><h3>{t("projects.activity")}</h3><span>{timeline.length}</span></div>{timeline.length > 0 ? <ol className="project-activity">{timeline.map((event) => <li key={event.id}><time>{new Date(event.occurredAt).toLocaleString(locale === "zh" ? "zh-CN" : "en")}</time><strong>{eventName(event)}</strong><span>{event.agentId} / {event.state && statusKeys[event.state] ? t(statusKeys[event.state]) : event.state || t("projects.activity")}</span></li>)}</ol> : <div className="workspace-empty">{t("projects.noActivity")}</div>}</div> : null}
+            {tab === "activity" ? <div className="project-tab"><div className="section-heading"><h3>{t("projects.activity")}</h3><span>{timeline.length}</span></div>{timeline.length > 0 ? <ol className="project-activity">{timeline.map((event) => <li key={event.id}><time>{new Date(event.occurredAt).toLocaleString(locale === "zh" ? "zh-CN" : "en")}</time><strong>{eventName(event)}</strong><span>{event.agentId} / {event.state ? (statusKeys[event.state] ? t(statusKeys[event.state]) : translateManagerState(event.state, t)) : t("projects.activity")}</span></li>)}</ol> : <div className="workspace-empty">{t("projects.noActivity")}</div>}</div> : null}
 
             {tab === "sessions" ? <div className="project-tab"><div className="section-heading"><h3>{t("projects.sessions")}</h3><span>{sessions.length}</span></div>{sessions.length > 0 ? <ul className="project-sessions">{sessions.map((session) => <li key={session.id}><strong>{sessionName(session)}</strong><span>{session.source === "agent" ? t("sessions.agent") : t("sessions.human")} / {sessionState(session)}</span></li>)}</ul> : <div className="workspace-empty">{t("projects.noSessions")}</div>}</div> : null}
 
             {tab === "settings" ? <div className="project-tab project-settings">
               <div className="project-command-row"><div><strong>{t("projects.details")}</strong><span>{t("projects.editHint")}</span></div><button type="button" className="icon-button" aria-label={t("projects.edit")} title={t("projects.edit")} onClick={() => openDialog({ kind: "edit" })}><Pencil aria-hidden="true" size={16} /></button></div>
               <div className="project-command-row"><div><strong>{t("projects.aliasPath")}</strong><span>{t("projects.aliasHint")}</span></div><button type="button" className="icon-button" aria-label={t("projects.addAlias")} title={t("projects.addAlias")} onClick={() => void addAlias()}><Link aria-hidden="true" size={16} /></button></div>
-              {current.paths.filter((path) => path.kind !== "primary").map((path) => <div className="project-command-row" key={path.id}><div><strong title={path.path}>{formatPath(path.path, 48)}</strong><span>{t(pathKeys[path.kind])}</span></div><div className="row-actions"><button type="button" className="icon-button" aria-label={t("projects.makePrimary", { path: path.path })} title={t("projects.makePrimaryTitle")} onClick={() => void updatePath(path.id, "rebind")}><RotateCcw aria-hidden="true" size={16} /></button><button type="button" className="icon-button icon-button--danger" aria-label={t("projects.removePath", { path: path.path })} title={t("projects.removePathTitle")} onClick={() => void updatePath(path.id, "remove")}><Trash2 aria-hidden="true" size={16} /></button></div></div>)}
+              {current.paths.filter((path) => path.kind !== "primary").map((path) => <div className="project-command-row" key={path.id}><div><strong title={path.path}>{formatManagerPath(path.path, 48, locale)}</strong><span>{t(pathKeys[path.kind])}</span></div><div className="row-actions"><button type="button" className="icon-button" aria-label={t("projects.makePrimary", { path: path.path })} title={t("projects.makePrimaryTitle")} onClick={() => void updatePath(path.id, "rebind")}><RotateCcw aria-hidden="true" size={16} /></button><button type="button" className="icon-button icon-button--danger" aria-label={t("projects.removePath", { path: path.path })} title={t("projects.removePathTitle")} onClick={() => void updatePath(path.id, "remove")}><Trash2 aria-hidden="true" size={16} /></button></div></div>)}
               <div className="project-command-row"><div><strong>{t("projects.merge")}</strong><span>{t("projects.mergeHint")}</span></div><button type="button" className="icon-button" aria-label={t("projects.merge")} title={t("projects.merge")} disabled={mergeTargets.length === 0} onClick={() => openDialog({ kind: "merge" })}><GitMerge aria-hidden="true" size={16} /></button></div>
               <div className="project-command-row"><div><strong>{t("projects.archive")}</strong><span>{t("projects.archiveHint")}</span></div><button type="button" className="icon-button icon-button--danger" aria-label={t("projects.archive")} title={t("projects.archive")} onClick={() => openDialog({ kind: "archive" })}><Archive aria-hidden="true" size={16} /></button></div>
             </div> : null}
@@ -267,7 +267,7 @@ export function ProjectsPage({ projectApi, projects: initialProjects, sessionApi
         {dialog.kind === "add" || dialog.kind === "confirm" || dialog.kind === "edit" ? <div className="dialog-form">
           <label><span>{t("projects.name")}</span><input aria-label={t("projects.name")} value={name} maxLength={200} onChange={(event) => setName(event.target.value)} /></label>
           <label><span>{t("projects.description")}</span><textarea aria-label={t("projects.description")} value={description} maxLength={2000} onChange={(event) => setDescription(event.target.value)} /></label>
-          {dialog.kind === "add" ? <p title={dialog.path}>{formatPath(dialog.path, 58)}</p> : null}
+          {dialog.kind === "add" ? <p title={dialog.path}>{formatManagerPath(dialog.path, 58, locale)}</p> : null}
         </div> : null}
         {dialog.kind === "merge" ? <div className="dialog-form"><p>{t("projects.mergeExplanation")}</p><dl className="merge-summary"><div><dt>{t("projects.paths")}</dt><dd>{t((current?.paths.length || 0) === 1 ? "projects.pathCount" : "projects.pathsCount", { count: current?.paths.length || 0 })}</dd></div><div><dt>{t("projects.sessions")}</dt><dd>{t("projects.sessionsCount", { count: sessions.length })}</dd></div><div><dt>{t("projects.events")}</dt><dd>{t("projects.eventsCount", { count: timeline.length })}</dd></div></dl><label><span>{t("projects.target")}</span><select aria-label={t("projects.target")} value={mergeTargetId} onChange={(event) => setMergeTargetId(event.target.value)}>{mergeTargets.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label></div> : null}
         {dialog.kind === "archive" ? <p>{t("projects.archiveQuestion")}</p> : null}

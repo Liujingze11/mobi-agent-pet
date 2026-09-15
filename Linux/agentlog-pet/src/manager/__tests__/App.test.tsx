@@ -136,6 +136,31 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "项目" })).toBeVisible();
   });
 
+  it("does not let a stale initial language response overwrite a live switch", async () => {
+    const initialLanguage = deferred<string>();
+    const liveLanguage = deferred<string>();
+    const harness = createApi({ language: "en" });
+    harness.api.localization.getLanguage
+      .mockReset()
+      .mockReturnValueOnce(initialLanguage.promise)
+      .mockReturnValueOnce(liveLanguage.promise);
+    render(<App api={harness.api} />);
+
+    await screen.findByRole("heading", { name: "Live work" });
+    act(() => harness.emit("language"));
+    await act(async () => {
+      liveLanguage.resolve("zh");
+      await liveLanguage.promise;
+    });
+    expect(await screen.findByRole("heading", { name: "当前工作" })).toBeVisible();
+
+    await act(async () => {
+      initialLanguage.resolve("en");
+      await initialLanguage.promise;
+    });
+    expect(screen.getByRole("heading", { name: "当前工作" })).toBeVisible();
+  });
+
   it("renders project data that includes a worktree path", async () => {
     const user = userEvent.setup();
     const { api } = createApi({

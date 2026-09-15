@@ -26,4 +26,23 @@ describe("SettingsPage", () => {
     expect(screen.getByText("原生托盘正在运行")).toBeVisible();
     expect(screen.getByRole("button", { name: "打开应用设置" })).toBeVisible();
   });
+
+  it("localizes the redacted storage error", () => {
+    render(
+      <I18nProvider locale="zh">
+        <SettingsPage
+          health={{
+            storage: "error",
+            databaseName: "agentlog.db",
+            errorMessage: "Unable to open AgentLog storage",
+            tray: { status: "starting", code: null },
+          }}
+          onOpenSettings={vi.fn(async () => undefined)}
+        />
+      </I18nProvider>
+    );
+
+    expect(screen.getByText("无法打开 AgentLog 存储")).toBeVisible();
+    expect(screen.queryByText("Unable to open AgentLog storage")).not.toBeInTheDocument();
+  });
 });

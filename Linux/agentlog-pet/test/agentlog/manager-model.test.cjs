@@ -12,6 +12,11 @@ test("formatDuration keeps long project time compact and stable", async () => {
   assert.equal(formatDuration(444_660_000), "123h 31m");
 });
 
+test("formatDuration accepts localized unit labels", async () => {
+  const { formatDuration } = await model;
+  assert.equal(formatDuration(3_900_000, { hour: "小时", minute: "分钟" }), "1小时 5分钟");
+});
+
 test("formatDuration normalizes negative and nonfinite input", async () => {
   const { formatDuration } = await model;
   assert.equal(formatDuration(-60_000), "0m");
@@ -32,6 +37,11 @@ test("formatPath handles unusable input and very narrow limits", async () => {
   assert.equal(formatPath(null, 22), "Unknown path");
   assert.equal(formatPath("/projects/agentlog-pet", -5), "agentlog-pet");
   assert.equal(formatPath("/projects/agentlog-pet", 10), "/.../g-pet");
+});
+
+test("formatPath accepts a localized fallback for unusable input", async () => {
+  const { formatPath } = await model;
+  assert.equal(formatPath("", 22, "未知路径"), "未知路径");
 });
 
 test("deriveNavigationBadge reports only actionable pending work", async () => {

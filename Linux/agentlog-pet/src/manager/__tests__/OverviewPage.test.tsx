@@ -153,6 +153,8 @@ describe("OverviewPage", () => {
     expect(screen.getByRole("heading", { name: "当前工作" })).toBeVisible();
     expect(screen.getByText("Agent 会话时间")).toBeVisible();
     expect(screen.getByText("人工计时")).toBeVisible();
+    expect(screen.getByText("1小时 5分钟")).toBeVisible();
+    expect(screen.getByText("工作中")).toBeVisible();
     expect(screen.getByRole("button", { name: "暂停计时" })).toBeVisible();
   });
 
@@ -223,6 +225,41 @@ describe("OverviewPage", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Timer state changed");
     expect(screen.getByRole("button", { name: "Start timer" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "Pause timer" })).not.toBeInTheDocument();
+  });
+
+  it("translates a stored timer error when the locale changes", async () => {
+    const user = userEvent.setup();
+    const api = timerApi({ pause: vi.fn(async () => ({ code: "TIMER_NOT_RUNNING", state: null })) });
+    const view = render(
+      <I18nProvider locale="en">
+        <HumanTimerBar
+          now={() => 10_000}
+          onOpenProjects={() => {}}
+          onTimerChange={() => {}}
+          projects={[project]}
+          timer={runningTimer}
+          timerApi={api}
+        />
+      </I18nProvider>
+    );
+
+    await user.click(screen.getByRole("button", { name: "Pause timer" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Timer state changed");
+
+    view.rerender(
+      <I18nProvider locale="zh">
+        <HumanTimerBar
+          now={() => 10_000}
+          onOpenProjects={() => {}}
+          onTimerChange={() => {}}
+          projects={[project]}
+          timer={runningTimer}
+          timerApi={api}
+        />
+      </I18nProvider>
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent("计时状态已发生变化");
   });
 
   it("ticks a running timer from persisted timestamps", () => {
