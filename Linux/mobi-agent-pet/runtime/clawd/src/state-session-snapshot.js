@@ -227,7 +227,14 @@ function buildSessionSnapshotEntry(id, session, sessionAliases = {}, options = {
   const hiddenFromHud = shouldAutoClearDetachedSession(session, badge, options)
     || isSupersededLocalCodexProcessSession(id, session, options.latestLocalCodexProcessIds);
   const startupRecovered = !!(session && session.startupRecovered === true);
-  const focusTarget = session && !session.headless && !startupRecovered && state !== "sleeping" && !hiddenFromHud
+  const verifiedRecoveredFocus = startupRecovered
+    && agentId === "claude-code"
+    && options.focusHostPlatform === "linux"
+    && session.recoveryFocusVerified === true
+    && typeof options.isProcessAlive === "function"
+    && options.isProcessAlive(session.agentPid);
+  const focusTarget = session && !session.headless && (!startupRecovered || verifiedRecoveredFocus)
+    && state !== "sleeping" && !hiddenFromHud
     ? getSessionFocusTarget({ ...(session || {}), id }, {
       osPlatform: options.focusHostPlatform || options.osPlatform,
     })
@@ -364,6 +371,9 @@ function buildSessionSnapshot(sessions, options = {}) {
     accountQuota: Array.isArray(options.accountQuota)
       ? JSON.parse(JSON.stringify(options.accountQuota))
       : [],
+    providerBalances: Array.isArray(options.providerBalances)
+      ? JSON.parse(JSON.stringify(options.providerBalances))
+      : [],
     // Provider icons for the quota strip (same agent icons the session rows
     // use, resolved via the injected accessor). Static per run — excluded
     // from the snapshot signature.
@@ -423,6 +433,12 @@ function sessionSnapshotSignature(snapshot) {
       codexQuota: entry.codexQuota
         ? { group: entry.codexQuota.group, lastSeenAt: entry.codexQuota.lastSeenAt }
         : null,
+    })),
+    providerBalances: (snapshot.providerBalances || []).map((entry) => ({
+      providerId: entry.providerId, appId: entry.appId, providerName: entry.providerName,
+      kind: entry.kind, amount: entry.amount, currency: entry.currency,
+      remaining: entry.remaining, unit: entry.unit, resetAt: entry.resetAt,
+      checkedAt: entry.checkedAt, stale: entry.stale, error: entry.error,
     })),
     sessions: snapshot.sessions.map((entry) => ({
       id: entry.id,

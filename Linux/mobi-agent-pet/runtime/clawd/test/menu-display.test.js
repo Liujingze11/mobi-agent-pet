@@ -353,11 +353,11 @@ describe("Agent integrations menu shortcut", () => {
     const tray = traySnapshot(ctx);
     for (const template of [ctx.contextMenu.template, tray.items]) {
       const managerIndex = template.findIndex((item) => item.label === "App Window");
-      const dashboardIndex = template.findIndex((item) => item.label === "Pet Status");
-      const settingsIndex = template.findIndex((item) => item.label === "Settings…");
+      const dashboardIndex = template.findIndex((item) => item.label === "Desktop Pet");
+      const settingsIndex = template.findIndex((item) => item.label === "Settings");
       const agentsIndex = template.findIndex((item) => item.label === "Agent Integrations");
       assert.ok(managerIndex >= 0, "menu should include App Window");
-      assert.ok(dashboardIndex < managerIndex, "Pet Status should precede App Window");
+      assert.ok(dashboardIndex < managerIndex, "Desktop Pet should precede App Window");
       assert.ok(managerIndex < settingsIndex, "App Window should precede Settings");
       assert.equal(agentsIndex, -1, "menu should omit the redundant Agent shortcut");
       if (template === tray.items) {
@@ -469,7 +469,7 @@ describe("menu dashboard action", () => {
     const menu = initMenu(ctx);
     menu.buildContextMenu();
 
-    const openDashboard = ctx.contextMenu.template.find((item) => item.label === "Pet Status");
+    const openDashboard = ctx.contextMenu.template.find((item) => item.label === "Desktop Pet");
     assert.ok(openDashboard, "context menu should expose dashboard entry");
     openDashboard.click();
     assert.strictEqual(called, 1);
@@ -514,7 +514,7 @@ describe("menu dashboard action", () => {
     menu.createTray();
 
     const tray = traySnapshot(ctx);
-    const openDashboard = tray.items.find((item) => item.label === "Pet Status");
+    const openDashboard = tray.items.find((item) => item.label === "Desktop Pet");
     assert.ok(openDashboard, "tray menu should expose dashboard entry");
     assert.strictEqual(tray.commands.execute("dashboard.open"), true);
     assert.strictEqual(called, 1);

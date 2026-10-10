@@ -108,6 +108,7 @@ function createPetWindowRuntime(options = {}) {
   const getCurrentSvg = options.getCurrentSvg || (() => null);
   const getCurrentHitBox = options.getCurrentHitBox || (() => null);
   const getMiniMode = options.getMiniMode || (() => false);
+  const getForcedPetHidden = options.getForcedPetHidden || (() => null);
   const getMiniTransitioning = options.getMiniTransitioning || (() => false);
   const getMiniContainedSeam = options.getMiniContainedSeam || (() => null);
   const getMiniPeekOffset = options.getMiniPeekOffset || (() => 0);
@@ -271,6 +272,7 @@ function createPetWindowRuntime(options = {}) {
   }
 
   function showPetWindows() {
+    if (getForcedPetHidden() === true) return;
     const win = getRenderWindow();
     if (isLiveWindow(win)) {
       uncloakIfAbnormal(win);
@@ -298,10 +300,11 @@ function createPetWindowRuntime(options = {}) {
   //  - already in target  -> { applied:true,  deferred:false, changed:false }
   //  - state flipped      -> { applied:true,  deferred:false, changed:true  }
   function setPetHidden(hidden) {
-    const target = !!hidden;
+    const forced = getForcedPetHidden();
+    const target = typeof forced === "boolean" ? forced : !!hidden;
     const win = getRenderWindow();
     if (!isLiveWindow(win)) return { applied: false, deferred: false, changed: false };
-    if (getMiniTransitioning()) return { applied: false, deferred: true, changed: false };
+    if (getMiniTransitioning() && typeof forced !== "boolean") return { applied: false, deferred: true, changed: false };
     if (target === petHidden) return { applied: true, deferred: false, changed: false };
     if (petHidden) {
       // becoming visible
@@ -646,7 +649,7 @@ function createPetWindowRuntime(options = {}) {
       renderWin.on("close", (event) => {
         if (!isQuitting()) {
           event.preventDefault();
-          if (!renderWin.isVisible()) {
+          if (!petHidden && getForcedPetHidden() !== true && !renderWin.isVisible()) {
             renderWin.showInactive();
             keepOutOfTaskbar(renderWin);
           }

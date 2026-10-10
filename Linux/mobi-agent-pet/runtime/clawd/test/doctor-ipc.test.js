@@ -1,8 +1,28 @@
 const { describe, it } = require("node:test");
 const assert = require("node:assert");
-const { __test } = require("../src/doctor-ipc");
+const { __test, registerDoctorIpc } = require("../src/doctor-ipc");
 
 describe("Doctor IPC helpers", () => {
+  it("exposes the conversation jump check and records its actual result", async () => {
+    const handlers = new Map();
+    let lastResult = null;
+    registerDoctorIpc({
+      ipcMain: { handle: (name, handler) => handlers.set(name, handler) },
+      app: { getPath: () => "/tmp", getAppPath: () => "/tmp" },
+      shell: {}, server: {},
+      getPrefsSnapshot: () => ({}), getDoNotDisturb: () => false,
+      getLocale: () => "en", resolveAgentDisplayName: () => "Claude Code",
+      getRemoteSshStatuses: () => [], getAppSelfCheck: () => ({}),
+      getLatestAgentRecords: () => [],
+      getSessionSnapshot: () => ({ sessions: [{ id: "claude", canFocus: true, agentName: "Claude Code" }] }),
+      focusSession: async () => ({ confirmed: true, status: "confirmed" }),
+      onConversationJumpResult: (result) => { lastResult = result; },
+    });
+    const result = await handlers.get("doctor:test-conversation-jump")();
+    assert.deepStrictEqual(result, { status: "ok", agentName: "Claude Code" });
+    assert.deepStrictEqual(lastResult, result);
+  });
+
   it("single-flights concurrent doctor checks and resets after completion", async () => {
     let calls = 0;
     let resolveRun;

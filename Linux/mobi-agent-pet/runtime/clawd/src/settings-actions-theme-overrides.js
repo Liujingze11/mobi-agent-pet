@@ -14,6 +14,7 @@ const THEME_OVERRIDE_RESERVED_KEYS = new Set([
   "reactions",
   "hitbox",
   "sounds",
+  "actionPlan",
 ]);
 const TIER_OVERRIDE_GROUPS = new Set(["workingTiers", "jugglingTiers"]);
 const REACTION_KEYS = new Set(["drag", "clickLeft", "clickRight", "annoyed", "double"]);
@@ -107,8 +108,10 @@ function buildThemeOverrideMap({
   reactions,
   hitbox,
   sounds,
+  actionPlan,
 }) {
   const out = {};
+  if (actionPlan) out.actionPlan = actionPlan;
   if (states && Object.keys(states).length > 0) out.states = states;
   const tiers = {};
   if (workingTiers && Object.keys(workingTiers).length > 0) tiers.workingTiers = workingTiers;
@@ -174,6 +177,7 @@ function setThemeOverrideDisabled(payload, deps) {
   }
 
   const nextThemeMap = buildThemeOverrideMap({
+    actionPlan: currentThemeMap.actionPlan,
     states: nextStates,
     workingTiers: cloneTierOverrides(currentThemeMap, "workingTiers"),
     jugglingTiers: cloneTierOverrides(currentThemeMap, "jugglingTiers"),
@@ -372,6 +376,7 @@ function setAnimationOverride(payload, deps) {
   }
 
   const nextThemeMap = buildThemeOverrideMap({
+    actionPlan: currentThemeMap.actionPlan,
     states: nextStates,
     workingTiers: nextWorkingTiers,
     jugglingTiers: nextJugglingTiers,
@@ -433,6 +438,7 @@ function setSoundOverride(payload, deps) {
   }
 
   const nextThemeMap = buildThemeOverrideMap({
+    actionPlan: currentThemeMap.actionPlan,
     states: cloneStateOverrides(currentThemeMap),
     workingTiers: cloneTierOverrides(currentThemeMap, "workingTiers"),
     jugglingTiers: cloneTierOverrides(currentThemeMap, "jugglingTiers"),

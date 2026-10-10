@@ -5,6 +5,9 @@ const { getCodexHookHealth } = require("./codex-hook-health");
 const { formatDiagnosticReport, redactDoctorResult } = require("./doctor-report");
 const { createConnectionTestDeduper, runConnectionTest } = require("./doctor-hook-activity");
 const { openClawdLog } = require("./doctor-logs");
+const { buildDoctorUserView } = require("./doctor-user-view");
+const { runConversationJumpCheck } = require("./doctor-conversation-jump");
+const { readProblems, recordProblem } = require("../../agentlog/problem-journal.cjs");
 
 function getDoctorRedactionOptions(app) {
   const appRoots = [path.resolve(path.join(__dirname, ".."))];
@@ -63,6 +66,12 @@ function registerDoctorIpc({
   getLocale,
   resolveAgentDisplayName,
   getRemoteSshStatuses,
+  getAppSelfCheck,
+  getLatestAgentRecords,
+  getSessionSnapshot,
+  focusSession,
+  getConversationJumpResult,
+  onConversationJumpResult,
 }) {
   let lastDoctorResult = null;
   let lastDoctorConnectionTest = null;
@@ -82,12 +91,41 @@ function registerDoctorIpc({
   );
 
   function buildDoctorResult() {
-    lastDoctorResult = runDoctorChecks({
+    const prefs = getPrefsSnapshot();
+    const result = runDoctorChecks({
       server,
-      prefs: getPrefsSnapshot(),
+      prefs,
       doNotDisturb: getDoNotDisturb(),
       getRemoteSshStatuses,
     });
+    const problemDir = app.getPath("userData");
+    const local = result.checks.find((check) => check.id === "local-server");
+    if (local && local.level) recordProblem(problemDir, "local-service");
+    const integrations = result.checks.find((check) => check.id === "agent-integrations");
+    for (const detail of integrations && Array.isArray(integrations.details) ? integrations.details : []) {
+      if (detail && detail.level === "warning") {
+        recordProblem(problemDir, "agent-connection", { agentId: detail.agentId });
+      }
+    }
+    let features = {};
+    let records = [];
+    try { features = { ...(typeof getAppSelfCheck === "function" ? getAppSelfCheck() : {}) }; } catch { features = { data: "issue" }; }
+    const jumpResult = typeof getConversationJumpResult === "function" ? getConversationJumpResult() : null;
+    features.jump = jumpResult && jumpResult.status === "ok" ? "ok"
+      : jumpResult && jumpResult.status === "failed" ? "issue" : "waiting";
+    try { records = typeof getLatestAgentRecords === "function" ? getLatestAgentRecords() : []; } catch { features.data = "issue"; }
+    if (features.icon === "issue") recordProblem(problemDir, "icon-unavailable");
+    if (features.pet === "issue") recordProblem(problemDir, "pet-window");
+    if (features.data === "issue") recordProblem(problemDir, "storage-unavailable");
+    const events = server && typeof server.getRecentHookEvents === "function"
+      ? server.getRecentHookEvents({ since: Date.now() - 24 * 60 * 60 * 1000 }) : [];
+    result.selfCheck = buildDoctorUserView({
+      checks: result.checks, events, records, features,
+      customApplications: prefs.customApplications,
+      agentPrefs: prefs.agents,
+    });
+    result.problems = readProblems(problemDir);
+    lastDoctorResult = result;
     return lastDoctorResult;
   }
 
@@ -125,6 +163,13 @@ function registerDoctorIpc({
   ipcMain.handle("doctor:test-connection", async (_event, payload) => {
     const result = await runDedupedDoctorConnectionTest(normalizeDoctorConnectionTestPayload(payload));
     return redactDoctorResult(result, getDoctorRedactionOptions(app));
+  });
+
+  ipcMain.handle("doctor:test-conversation-jump", async () => {
+    const result = await runConversationJumpCheck({ getSessionSnapshot, focusSession });
+    if (typeof onConversationJumpResult === "function") onConversationJumpResult(result);
+    if (result.status === "failed") recordProblem(app.getPath("userData"), "conversation-jump");
+    return result;
   });
 
   ipcMain.handle("doctor:open-clawd-log", async (_event, payload) => {

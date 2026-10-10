@@ -40,9 +40,9 @@ function buildItems(ctx, t) {
       { id: "mode.normal", kind: KIND.radio, label: t("appModeNormal"), checked: currentMode === "normal" },
       { id: "mode.background", kind: KIND.radio, label: t("appModeBackground"), checked: currentMode === "background" },
       { id: "mode.automatic", kind: KIND.radio, label: t("appModeAutomatic"), checked: currentMode === "automatic" },
-      { kind: KIND.radio, label: t("appModeCustom"), enabled: false, checked: false },
+      { id: "mode.custom", kind: KIND.radio, label: t("appModeCustom"), checked: currentMode === "custom" },
       { kind: KIND.separator },
-      { kind: KIND.command, label: t("appModeEditCustom"), enabled: false },
+      { id: "mode.custom.edit", kind: KIND.command, label: t("appModeEditCustom") },
     ],
   }];
   const workGroup = [
@@ -86,6 +86,8 @@ function createTrayMenuModel(ctx, t) {
     ["mode.normal", () => ctx.requestAppMode("normal")],
     ["mode.background", () => ctx.requestAppMode("background")],
     ["mode.automatic", () => ctx.requestAppMode("automatic")],
+    ["mode.custom", () => ctx.requestAppMode("custom")],
+    ["mode.custom.edit", () => ctx.openSettingsWindow({tab:"custom-mode"})],
     ["agentlog.open", () => ctx.openAgentLogManager()],
     ["dashboard.open", () => ctx.openDashboard()],
     ["tray.visibility", () => { ctx.showTray = !ctx.showTray; }],

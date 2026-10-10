@@ -64,6 +64,18 @@ const STATE_PRIORITY = {
   sleeping: 0,
 };
 
+describe("provider balance snapshots", () => {
+  it("copies balances and changes the signature when the active provider changes", () => {
+    const input = [{ providerId: "claude-a", appId: "claude", providerName: "A",
+      kind: "money", amount: 10, currency: "USD", stale: false, checkedAt: 1000 }];
+    const first = buildSessionSnapshot(new Map(), { providerBalances: input });
+    input[0].amount = 99;
+    assert.strictEqual(first.providerBalances[0].amount, 10);
+    const second = buildSessionSnapshot(new Map(), { providerBalances: [{ ...input[0], providerId: "claude-b" }] });
+    assert.notStrictEqual(sessionSnapshotSignature(first), sessionSnapshotSignature(second));
+  });
+});
+
 function session(state, overrides = {}) {
   return {
     state,
@@ -89,6 +101,37 @@ describe("startup-recovered session snapshots", () => {
     assert.strictEqual(recovered.sessions[0].focusTarget, null);
     assert.strictEqual(live.sessions[0].startupRecovered, false);
     assert.notStrictEqual(sessionSnapshotSignature(recovered), sessionSnapshotSignature(live));
+  });
+
+  it("allows a verified live Claude terminal recovered after restart", () => {
+    const recovered = buildSessionSnapshot(new Map([
+      ["claude-session", session("working", {
+        sourcePid: 321,
+        agentPid: 123,
+        startupRecovered: true,
+        recoveryFocusVerified: true,
+      })],
+    ]), {
+      focusHostPlatform: "linux", statePriority: STATE_PRIORITY,
+      isProcessAlive: (pid) => pid === 123,
+    });
+    assert.strictEqual(recovered.sessions[0].canFocus, true);
+    assert.deepStrictEqual(recovered.sessions[0].focusTarget, { type: "terminal", url: null });
+  });
+
+  it("disables a recovered Claude focus target after its process exits", () => {
+    const recovered = buildSessionSnapshot(new Map([
+      ["claude-session", session("working", {
+        sourcePid: 321,
+        agentPid: 123,
+        startupRecovered: true,
+        recoveryFocusVerified: true,
+      })],
+    ]), {
+      focusHostPlatform: "linux", statePriority: STATE_PRIORITY,
+      isProcessAlive: () => false,
+    });
+    assert.strictEqual(recovered.sessions[0].canFocus, false);
   });
 });
 

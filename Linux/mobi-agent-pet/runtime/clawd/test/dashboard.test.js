@@ -42,6 +42,7 @@ describe("dashboard window", () => {
         this.backgroundColors = [opts.backgroundColor];
         this.parentWindows = [];
         this.setBoundsCalls = [];
+        this.minimumSizes = [];
         this.onceCallbacks = new Map();
         this.webContents = {
           isDestroyed: () => false,
@@ -60,6 +61,8 @@ describe("dashboard window", () => {
       once(eventName, callback) { this.onceCallbacks.set(eventName, callback); }
       on() {}
       setBackgroundColor(color) { this.backgroundColors.push(color); }
+      setMinimumSize(width, height) { this.minimumSizes.push([width, height]); }
+      getBounds() { return { ...this.bounds }; }
       setBounds(bounds) {
         this.bounds = { ...bounds };
         this.setBoundsCalls.push({ ...bounds });
@@ -102,12 +105,12 @@ describe("dashboard window", () => {
 
     dashboard.showDashboard();
     const createdWindow = getCreatedWindow();
-    assert.strictEqual(createdWindow.opts.backgroundColor, "#f6f8fc");
+    assert.strictEqual(createdWindow.opts.backgroundColor, "#f5f7fb");
 
     nativeTheme.shouldUseDarkColors = true;
     nativeTheme.emit("updated");
 
-    assert.deepStrictEqual(createdWindow.backgroundColors, ["#f6f8fc"]);
+    assert.deepStrictEqual(createdWindow.backgroundColors, ["#f5f7fb"]);
   });
 
   it("centers the dashboard on the pet work area by default", () => {
@@ -116,13 +119,29 @@ describe("dashboard window", () => {
     dashboard.showDashboard();
 
     assert.deepStrictEqual(getCreatedWindow().bounds, {
-      x: 400,
-      y: 100,
-      width: 480,
-      height: 600,
+      x: 50,
+      y: 0,
+      width: 1180,
+      height: 800,
     });
+    assert.strictEqual(getCreatedWindow().opts.title, "Desktop Pet");
     assert.strictEqual(getCreatedWindow().opts.parent, undefined);
     assert.strictEqual(getCreatedWindow().opts.modal, undefined);
+  });
+
+  it("uses the larger default while keeping small-screen bounds and native minimums on screen", () => {
+    const large = createWindowHarness({ getNearestWorkArea: () => ({ x: 1920, y: 0, width: 1920, height: 1040 }) });
+    large.dashboard.showDashboard();
+    assert.deepStrictEqual(large.getCreatedWindow().bounds, { x: 2290, y: 110, width: 1180, height: 820 });
+    const small = createWindowHarness({ getNearestWorkArea: () => ({ x: -640, y: -400, width: 640, height: 400 }) });
+    small.dashboard.showDashboard();
+    const win = small.getCreatedWindow();
+    assert.deepStrictEqual(win.bounds, { x: -640, y: -400, width: 640, height: 400 });
+    assert.ok(win.opts.minWidth <= win.bounds.width);
+    assert.ok(win.opts.minHeight <= win.bounds.height);
+    small.dashboard.applyTextScaleToWindow();
+    assert.deepStrictEqual(win.bounds, { x: -640, y: -400, width: 640, height: 400 });
+    assert.deepStrictEqual(win.minimumSizes.at(-1), [640, 400]);
   });
 
   it("anchors dashboard windows opened from settings to the settings window bounds", () => {
@@ -138,9 +157,9 @@ describe("dashboard window", () => {
     dashboard.showDashboard({ source: "settings" });
 
     assert.deepStrictEqual(getCreatedWindow().bounds, {
-      x: 260,
+      x: 100,
       y: 50,
-      width: 480,
+      width: 800,
       height: 560,
     });
     assert.strictEqual(getCreatedWindow().opts.parent, undefined);
@@ -162,9 +181,9 @@ describe("dashboard window", () => {
     dashboard.showDashboard({ source: "settings" });
 
     assert.deepStrictEqual(getCreatedWindow().bounds, {
-      x: 520,
+      x: 320,
       y: 0,
-      width: 480,
+      width: 680,
       height: 600,
     });
   });
@@ -181,10 +200,10 @@ describe("dashboard window", () => {
     dashboard.showDashboard({ source: "settings" });
 
     assert.deepStrictEqual(getCreatedWindow().bounds, {
-      x: 400,
-      y: 100,
-      width: 480,
-      height: 600,
+      x: 50,
+      y: 0,
+      width: 1180,
+      height: 800,
     });
     assert.strictEqual(getCreatedWindow().opts.parent, undefined);
   });
@@ -203,9 +222,9 @@ describe("dashboard window", () => {
     dashboard.showDashboard({ source: "settings" });
 
     assert.deepStrictEqual(getCreatedWindow().setBoundsCalls, [{
-      x: 260,
+      x: 100,
       y: 50,
-      width: 480,
+      width: 800,
       height: 560,
     }]);
     assert.deepStrictEqual(getCreatedWindow().parentWindows, []);
@@ -229,9 +248,9 @@ describe("dashboard window", () => {
     for (const timer of timers) timer.callback();
 
     assert.deepStrictEqual(getCreatedWindow().setBoundsCalls, [
-      { x: 260, y: 50, width: 480, height: 540 },
-      { x: 260, y: 50, width: 480, height: 520 },
-      { x: 260, y: 50, width: 480, height: 520 },
+      { x: 100, y: 50, width: 800, height: 540 },
+      { x: 100, y: 50, width: 800, height: 520 },
+      { x: 100, y: 50, width: 800, height: 520 },
     ]);
     assert.deepStrictEqual(timers.map((timer) => timer.delay), [0, 80]);
   });
@@ -243,16 +262,23 @@ describe("dashboard window", () => {
     assert.match(rendererSource, /dashboardHideSessionTitle/);
     assert.match(rendererSource, /hideSession\(session\.id\)/);
     assert.match(rendererSource, /session\.canFocus !== true/);
-    assert.match(rendererSource, /dashboardOpenCodexSession/);
+    assert.match(rendererSource, /dashboardJumpToConversation/);
     assert.doesNotMatch(rendererSource, /session\.platform === "webui"/);
     assert.match(preloadSource, /dashboard:hide-session/);
   });
 
-  it("wires the account-quota summary bar (Antigravity + Claude Code + Codex, per source) into the dashboard header", () => {
+  it("wires the account-quota summary bar (Antigravity + Claude Code + Codex, per source) into the quota panel", () => {
     const rendererSource = fs.readFileSync(path.join(__dirname, "..", "src", "dashboard-renderer.js"), "utf8");
     const htmlSource = fs.readFileSync(path.join(__dirname, "..", "src", "dashboard.html"), "utf8");
 
     assert.match(htmlSource, /id="quotaSummary" class="quota-summary" hidden/);
+    assert.doesNotMatch(htmlSource, /<header class="header">/);
+    assert.doesNotMatch(htmlSource, /id="count"/);
+    assert.doesNotMatch(htmlSource, /id="quotaTitle"/);
+    assert.match(htmlSource, /class="dashboard-overview"/);
+    assert.match(htmlSource, /id="petScene"/);
+    assert.match(htmlSource, /class="quota-panel"/);
+    assert.match(htmlSource, /class="sessions-panel"/);
     // Quota renders from the session-independent per-source store
     // (snapshot.accountQuota), grouped local + one row per remote host —
     // never from per-session fields.
@@ -291,7 +317,7 @@ describe("dashboard window", () => {
   it("memoizes the quota summary rebuild instead of rebuilding on every 1s render tick", () => {
     const rendererSource = fs.readFileSync(path.join(__dirname, "..", "src", "dashboard-renderer.js"), "utf8");
 
-    assert.match(rendererSource, /computeQuotaSummarySignature\(accountQuota\)/);
+    assert.match(rendererSource, /computeQuotaSummarySignature\(accountQuota, providerBalances\)/);
     assert.match(rendererSource, /if \(signature === lastQuotaSummarySignature\) return;/);
     assert.match(rendererSource, /resetDateFormatterLang !== lang/);
   });

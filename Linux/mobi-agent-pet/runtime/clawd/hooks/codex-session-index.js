@@ -4,6 +4,23 @@ const path = require("path");
 
 const SESSION_INDEX_READ_MAX_BYTES = 512 * 1024;
 
+function extractCodexSessionIdFromTranscriptPath(transcriptPath) {
+  if (typeof transcriptPath !== "string" || !transcriptPath.trim()) return null;
+  const fileName = path.basename(transcriptPath.replace(/\\/g, "/"));
+  const uuid = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+  const match = fileName.match(new RegExp(`^rollout-.+?-(${uuid})(?:_${uuid})?\\.jsonl$`, "i"));
+  return match ? match[1] : null;
+}
+
+function normalizeCodexSessionId(value, transcriptPath = "", sessionMeta = null) {
+  // Desktop may write a second rollout copy with an extra UUID suffix. The
+  // session metadata identifies the conversation; the filename is fallback.
+  const metadataId = bareCodexSessionId(sessionMeta && sessionMeta.id);
+  const raw = metadataId || extractCodexSessionIdFromTranscriptPath(transcriptPath)
+    || bareCodexSessionId(value) || "default";
+  return `codex:${raw}`;
+}
+
 function getCodexDir() {
   const configured = process.env.CODEX_HOME;
   if (typeof configured === "string" && configured.trim()) {
@@ -70,5 +87,7 @@ function readCodexThreadName(sessionId, options = {}) {
 
 module.exports = {
   bareCodexSessionId,
+  extractCodexSessionIdFromTranscriptPath,
+  normalizeCodexSessionId,
   readCodexThreadName,
 };

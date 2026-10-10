@@ -58,7 +58,7 @@ function projectApi(overrides: Partial<AgentLogApi["projects"]> = {}): AgentLogA
 }
 
 function sessionApi(): AgentLogApi["sessions"] {
-  return { list: vi.fn(async () => []), timeline: vi.fn(async () => []) };
+  return { list: vi.fn(async () => []), usage: vi.fn(async () => null), assignProject: vi.fn(async (input) => input), timeline: vi.fn(async () => []) };
 }
 
 describe("ProjectsPage", () => {

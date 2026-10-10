@@ -10,6 +10,8 @@ const {
   listPetAccessoryOptions,
 } = require("./pet-customization-catalog");
 
+const {normalizeCustomModeProfile, validateCustomModeProfile} = require("./custom-mode-profile");
+const MODE_BEHAVIOR_KEYS = new Set(["customModeProfile", "freeRoam", "petHidden", "soundMuted", "soundVolume", "flashTaskbarOnComplete", "flashIntervalMs", "flashDurationMs", "sessionHudEnabled", "sessionHudShowStateLabels", "sessionHudShowElapsed", "sessionHudShowContextUsage", "sessionHudShowQuota", "hideBubbles", "permissionBubblesEnabled", "permissionBubbleAutoCloseSeconds", "notificationBubbleAutoCloseSeconds", "bubbleFollowPet", "lowPowerIdleMode", "keepAwakeWhileWorking", "allowEdgePinning", "keepSizeAcrossDisplays", "disableMiniMode", "fullscreenOverlay"]);
 const SOUND_OVERRIDE_ASSET_EXTS = new Set([".mp3", ".wav", ".ogg", ".m4a", ".aac", ".flac"]);
 // These commands mutate trust material or persist facts learned from an SSH
 // transaction. They are main-process capabilities, not renderer commands.
@@ -246,6 +248,7 @@ function registerSettingsIpc(options = {}) {
     if (!payload || typeof payload !== "object") {
       return { status: "error", message: "settings:update payload must be { key, value }" };
     }
+    if (MODE_BEHAVIOR_KEYS.has(payload.key)) return {status:"error", message:"Mode behavior is fixed; use Edit Custom Mode"};
     if (payload.key === "tgMigration") {
       return { status: "error", message: "tgMigration is internal; use telegramMigration.dispatch" };
     }
@@ -293,125 +296,53 @@ function registerSettingsIpc(options = {}) {
   // window currently sits on.
   handle("settings:get-text-scale-context", () => getTextScaleContext());
   handle("settings:get-preview-sound-url", () => {
-    try { return themeLoader.getPreviewSoundUrl(); }
-    catch { return null; }
+    return null;
   });
+  let customSaveQueue = Promise.resolve();
+  function saveCustomMode(payload) {
+    const operation = customSaveQueue.then(async () => {
+      const invalid = validateCustomModeProfile(payload?.profile);
+      if (invalid) return {status:"error", message:invalid};
+      const previous = normalizeCustomModeProfile(settingsController.getSnapshot().customModeProfile);
+      const result = await settingsController.applyCommand("setCustomModeProfile", payload);
+      if (result?.status !== "ok") return result;
+      try {
+        const applied = await options.onCustomModeSaved?.({confirmed:payload.confirmed === true});
+        if (applied && applied.status !== "ok") throw new Error(applied.message || "Custom mode could not be applied");
+        return {status:"ok", profile:normalizeCustomModeProfile(settingsController.getSnapshot().customModeProfile)};
+      } catch (error) {
+        await settingsController.applyCommand("setCustomModeProfile", {profile:previous, confirmed:true});
+        await options.onCustomModeSaved?.({confirmed:false});
+        return {status:"error", message:error.message};
+      }
+    });
+    customSaveQueue = operation.catch(() => {}); return operation;
+  }
+  handle("settings:get-mode-config", () => ({mode:options.getActiveAppMode?.() || "normal", profile:normalizeCustomModeProfile(settingsController.getSnapshot().customModeProfile)}));
+  handle("settings:save-custom-mode", (_event, payload) => saveCustomMode(payload));
   handle("settings:command", async (_event, payload) => {
     if (!payload || typeof payload !== "object") {
       return { status: "error", message: "settings:command payload must be { action, payload }" };
     }
+    if (payload.action === "setCustomModeProfile") return saveCustomMode(payload.payload);
+    if (["setPermissionAutomationMode", "setAllBubblesHidden"].includes(payload.action)) return {status:"error", message:"Use Edit Custom Mode"};
+    if (payload.action === "setSoundOverride") return {status:"error", code:"SOUND_DISABLED", message:"Sound is not available"};
     if (INTERNAL_SETTINGS_COMMANDS.has(payload.action)) {
       return { status: "error", message: `settings command "${payload.action}" is internal` };
     }
     return settingsController.applyCommand(payload.action, payload.payload);
   });
 
-  handle("settings:pick-sound-file", async (event, payload) => {
-    if (!payload || typeof payload !== "object") {
-      return { status: "error", message: "pickSoundFile payload must be an object" };
-    }
-    const { soundName } = payload;
-    if (typeof soundName !== "string" || !soundName) {
-      return { status: "error", message: "pickSoundFile.soundName must be a non-empty string" };
-    }
-    if (!/^[a-zA-Z0-9_-]+$/.test(soundName)) {
-      return { status: "error", message: `pickSoundFile.soundName "${soundName}" contains invalid characters` };
-    }
-
-    const activeTheme = getActiveTheme();
-    if (!activeTheme) return { status: "error", message: "no active theme" };
-    const themeId = activeTheme._id;
-    if (!isPlainObject(activeTheme.sounds) || !activeTheme.sounds[soundName]) {
-      return { status: "error", message: `sound "${soundName}" not declared by theme "${themeId}"` };
-    }
-    const overridesDir = themeLoader.getSoundOverridesDir(themeId);
-    if (!overridesDir) return { status: "error", message: "sound-overrides directory unavailable" };
-
-    const lang = getLang();
-    const strings = SOUND_OVERRIDE_DIALOG_STRINGS[lang] || SOUND_OVERRIDE_DIALOG_STRINGS.en;
-    const extList = [...SOUND_OVERRIDE_ASSET_EXTS].map((ext) => ext.slice(1));
-    let result;
-    try {
-      result = await dialog.showOpenDialog(getDialogParent(event), {
-        title: strings.title,
-        filters: [{ name: strings.filterName, extensions: extList }],
-        properties: ["openFile"],
-      });
-    } catch (err) {
-      return { status: "error", message: `pick dialog failed: ${err && err.message}` };
-    }
-    if (result.canceled || !result.filePaths || !result.filePaths[0]) {
-      return { status: "cancel" };
-    }
-
-    const sourcePath = result.filePaths[0];
-    const ext = path.extname(sourcePath).toLowerCase();
-    if (!SOUND_OVERRIDE_ASSET_EXTS.has(ext)) {
-      return { status: "error", message: `unsupported audio extension: ${ext || "(none)"}` };
-    }
-
-    try { fs.mkdirSync(overridesDir, { recursive: true }); }
-    catch (err) { return { status: "error", message: `mkdir failed: ${err && err.message}` }; }
-
-    const destFilename = `${soundName}${ext}`;
-    const destPath = path.join(overridesDir, destFilename);
-    try {
-      fs.copyFileSync(sourcePath, destPath);
-    } catch (err) {
-      return { status: "error", message: `copy failed: ${err && err.message}` };
-    }
-    cleanupSiblingSoundOverrides(fs, path, overridesDir, soundName, ext);
-
-    const cmdResult = await settingsController.applyCommand("setSoundOverride", {
-      themeId,
-      soundName,
-      file: destFilename,
-      originalName: path.basename(sourcePath),
-    });
-    if (!cmdResult || cmdResult.status !== "ok") {
-      return cmdResult || { status: "error", message: "setSoundOverride failed" };
-    }
-    rememberRuntimeSoundOverrideFile({ getActiveTheme }, themeId, soundName, destPath);
-    const newUrl = themeLoader.getSoundUrl(soundName);
-    if (newUrl) {
-      sendToRenderer("invalidate-sound-cache", newUrl);
-      sendToRenderer("preload-sounds", { urls: [newUrl] });
-    }
-    return { status: "ok", file: destFilename };
-  });
-
-  handle("settings:preview-sound", (_event, payload) => {
-    if (!payload || typeof payload !== "object") {
-      return { status: "error", message: "previewSound payload must be an object" };
-    }
-    const { soundName } = payload;
-    if (typeof soundName !== "string" || !soundName) {
-      return { status: "error", message: "previewSound.soundName must be a non-empty string" };
-    }
-    if (getDoNotDisturb()) return { status: "skipped", reason: "dnd" };
-    if (getSoundMuted()) return { status: "skipped", reason: "muted" };
-    const url = themeLoader.getSoundUrl(soundName);
-    if (!url) return { status: "error", message: "sound unavailable" };
-    const bustedUrl = `${url}${url.includes("?") ? "&" : "?"}_t=${now()}`;
-    sendToRenderer("play-sound", { url: bustedUrl, volume: getSoundVolume() });
-    return { status: "ok" };
-  });
-
-  handle("settings:open-sound-overrides-dir", async () => {
-    const activeTheme = getActiveTheme();
-    if (!activeTheme) return { status: "error", message: "no active theme" };
-    const dir = themeLoader.getSoundOverridesDir(activeTheme._id);
-    if (!dir) return { status: "error", message: "sound-overrides directory unavailable" };
-    try { fs.mkdirSync(dir, { recursive: true }); } catch {}
-    const openResult = await shell.openPath(dir);
-    if (openResult) return { status: "error", message: openResult };
-    return { status: "ok", path: dir };
-  });
+  for (const channel of ["settings:pick-sound-file", "settings:preview-sound", "settings:open-sound-overrides-dir"]) {
+    handle(channel, () => ({status:"error",code:"SOUND_DISABLED",message:"Sound is not available in this application"}));
+  }
 
   handle("settings:list-themes", () => {
     try {
       const activeTheme = getActiveTheme();
-      const activeId = activeTheme ? activeTheme._id : "clawd";
+      const activeId = activeTheme ? activeTheme._id : (
+        typeof themeLoader.getDefaultThemeId === "function" ? themeLoader.getDefaultThemeId() : "clawd"
+      );
       return themeLoader.listThemesWithMetadata().map((theme) => {
         const active = theme.id === activeId;
         const runtimeCapabilities = active

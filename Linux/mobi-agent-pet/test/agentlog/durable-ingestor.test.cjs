@@ -18,6 +18,7 @@ const {
   isWorkingState,
 } = require("../../runtime/agentlog/sessions/agent-session-tracker.cjs");
 const { createDurableIngestor } = require("../../runtime/agentlog/events/durable-ingestor.cjs");
+const { createProjectAssignment } = require("../../runtime/agentlog/sessions/project-assignment.cjs");
 
 function createHarness(t) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "agentlog-durable-ingestor-"));
@@ -76,6 +77,32 @@ test("the first unknown-directory event persists before creating its pending pro
   assert.equal(row(db, "agent_events", event.id).project_id, result.projectId);
   assert.equal(row(db, "projects", result.projectId).confirmation, "pending");
   assert.equal(openIntervals(db, result.sessionId).length, 1);
+});
+
+test("manual project assignment updates historical intervals and survives later auto resolution", (t) => {
+  const { db, ingestor, tmp } = createHarness(t);
+  const firstDir = path.join(tmp, "first");
+  const secondDir = path.join(tmp, "second");
+  fs.mkdirSync(firstDir);
+  fs.mkdirSync(secondDir);
+  const first = normalizeAgentEvent(fixture({ opts: { cwd: firstDir, sourceEventId: "manual-first" } }));
+  const firstResult = ingestor.ingest(first);
+  const other = normalizeAgentEvent(fixture({ sessionId: "other", opts: { cwd: secondDir, sourceEventId: "manual-other" } }));
+  const otherResult = ingestor.ingest(other);
+  const assignment = createProjectAssignment(db, { now: () => 1_800_000_000_300 });
+  assert.deepEqual(assignment.assign(firstResult.sessionId, otherResult.projectId), {
+    sessionId: firstResult.sessionId, projectId: otherResult.projectId,
+  });
+  const later = normalizeAgentEvent(fixture({ opts: { cwd: firstDir, sourceEventId: "manual-later", timestamp: 1_800_000_000_400 } }));
+  const laterResult = ingestor.ingest(later);
+  assert.equal(laterResult.projectId, otherResult.projectId);
+  assert.equal(row(db, "agent_sessions", firstResult.sessionId).project_assignment_source, "manual");
+  assert.equal(row(db, "agent_sessions", firstResult.sessionId).project_id, otherResult.projectId);
+  assert.equal(row(db, "agent_events", first.id).project_id, otherResult.projectId);
+  assert.equal(row(db, "agent_events", later.id).project_id, otherResult.projectId);
+  assert.deepEqual(db.prepare("SELECT DISTINCT project_id FROM agent_active_intervals WHERE agent_session_id = ?").all(firstResult.sessionId), [{ project_id: otherResult.projectId }]);
+  assert.equal(assignment.assign(firstResult.sessionId, null).projectId, null);
+  assert.equal(row(db, "agent_sessions", firstResult.sessionId).project_id, null);
 });
 
 test("the event row exists without projections when resolution begins", (t) => {
@@ -289,6 +316,7 @@ test("interrupted reconciliation closes active rows and a newer event reactivate
   assert.equal(session.disposition, "interrupted");
   assert.equal(session.ended_at, 500);
   assert.equal(db.prepare("SELECT close_reason FROM agent_active_intervals WHERE agent_session_id = ?").get(result.sessionId).close_reason, "interrupted");
+  assert.equal(db.prepare("SELECT ended_at FROM agent_active_intervals WHERE agent_session_id = ?").get(result.sessionId).ended_at, 100);
 
   const delayedResult = ingestor.ingest(delayed);
   assert.equal(delayedResult.inserted, true);

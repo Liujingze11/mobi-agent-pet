@@ -193,10 +193,10 @@ function formatDiagnosticReport(result, meta = {}) {
   const checks = Array.isArray(result && result.checks) ? result.checks : [];
 
   const lines = [
-    "# Clawd Diagnostic Report",
+    "# Mobi Agent Pet Diagnostic Report",
     "",
     `- Generated: ${generatedAt}`,
-    `- Clawd version: ${version}`,
+    `- Mobi Agent Pet version: ${version}`,
     `- Platform: ${platform} (${release})`,
     `- Locale: ${locale}`,
     "",
@@ -270,9 +270,18 @@ function formatDiagnosticReport(result, meta = {}) {
     }
   }
 
+  const problems = Array.isArray(result && result.problems) ? result.problems.slice(0, 50) : [];
+  if (problems.length) {
+    lines.push("", "## Recent Problems", "", row(["Time", "Problem", "Agent"]), row(["---", "---", "---"]));
+    for (const problem of problems) {
+      const time = Number.isFinite(problem && problem.at) ? new Date(problem.at).toISOString() : "unknown";
+      lines.push(row([time, problem && problem.code || "unknown", problem && problem.agentId || ""]));
+    }
+  }
+
   lines.push(
     "",
-    "**Privacy notice**: This report is generated locally. Clawd does not upload any data. User paths are replaced with `~`, and Clawd app paths are replaced with `[APP]`. The report contains no API keys, tokens, conversation content, or document filenames."
+    "**Privacy notice**: This report is generated locally. Mobi Agent Pet does not upload any data. User paths are replaced with `~`, and app paths are replaced with `[APP]`. The report contains no API keys, tokens, conversation content, or document filenames."
   );
 
   return redact(lines.join("\n"), meta);

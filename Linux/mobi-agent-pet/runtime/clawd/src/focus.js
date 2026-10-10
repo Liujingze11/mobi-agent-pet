@@ -7,10 +7,23 @@ const os = require("os");
 const crypto = require("crypto");
 const path = require("path");
 const { execFile, spawn } = require("child_process");
+const {
+  focusLinuxX11Window,
+  getLinuxX11ActiveWindow,
+} = require("./linux-x11-window-focus");
 
 const isMac = process.platform === "darwin";
 const isWin = process.platform === "win32";
 const isLinux = process.platform === "linux";
+
+function isUnverifiedCodexPanel(request) {
+  if (!request || request.agentId !== "codex" || !Number.isSafeInteger(request.sourcePid)) return false;
+  try {
+    return fs.readFileSync(`/proc/${request.sourcePid}/cmdline`, "utf8").includes("app-server");
+  } catch {
+    return false;
+  }
+}
 
 // ── Mac-only: Superset workspace deep-link helpers ──────────────────────────
 // Superset.app is a multi-workspace Electron host. The generic
@@ -884,17 +897,37 @@ function killFocusHelper() {
   if (psProc) { psProc.kill(); psProc = null; }
 }
 
-function scheduleTerminalTabFocus(editor, pidChain) {
-  if (!editor || !pidChain || !pidChain.length) return;
+function scheduleTerminalTabFocus(editor, pidChain, onResult) {
+  if (!editor || !pidChain || !pidChain.length) {
+    if (typeof onResult === "function") onResult(null);
+    return;
+  }
   setTimeout(() => {
     const body = JSON.stringify({ pids: pidChain });
+    let remaining = 5;
+    let matched = false;
+    const complete = (found) => {
+      if (matched) return;
+      if (found) matched = true;
+      remaining -= 1;
+      if ((matched || remaining === 0) && typeof onResult === "function") onResult(matched);
+    };
     for (let port = 23456; port <= 23460; port++) {
+      let finished = false;
+      const finishPort = (found) => {
+        if (finished) return;
+        finished = true;
+        complete(found);
+      };
       const tabReq = http.request({
         hostname: "127.0.0.1", port, path: "/focus-tab", method: "POST",
         headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) },
         timeout: 300,
-      }, () => {});
-      tabReq.on("error", () => {});
+      }, (response) => {
+        response.resume();
+        response.on("end", () => finishPort(response.statusCode === 200));
+      });
+      tabReq.on("error", () => finishPort(false));
       tabReq.on("timeout", () => tabReq.destroy());
       tabReq.end(body);
     }
@@ -1801,10 +1834,27 @@ function focusTerminalWindow(sourcePidOrRequest, cwd, editor, pidChain, meta) {
 
   if (isLinux) {
     focusTerminalWindowLegacy(request);
-    scheduleTerminalTabFocus(request.editor, request.pidChain);
+    const activateX11 = ctx.activateLinuxX11Window || focusLinuxX11Window;
+    const activeX11Window = ctx.getLinuxX11ActiveWindow || getLinuxX11ActiveWindow;
+    const x11Result = activateX11(request);
+    const windowFocus = x11Result.submitted
+      ? new Promise((resolve) => setTimeout(() => resolve(activeX11Window() === x11Result.windowId), 200))
+      : Promise.resolve(false);
+    const tabFocus = typeof ctx.requestTerminalTabFocus === "function"
+      ? Promise.resolve(ctx.requestTerminalTabFocus(request.editor, request.pidChain))
+      : new Promise((resolve) => scheduleTerminalTabFocus(request.editor, request.pidChain, resolve));
     scheduleTmuxPaneFocus(request.pidChain, request.tmuxSocket, request.tmuxClient);
     logFocusResult("branch=linux-command-submitted");
-    return normalizeFocusResultPayload({ reason: "linux-command-submitted" });
+    return Promise.all([windowFocus, tabFocus]).then(([windowConfirmed, tabMatched]) => {
+      const panelUnverified = (ctx.isUnverifiedConversationPanel || isUnverifiedCodexPanel)(request);
+      const confirmed = windowConfirmed && tabMatched !== false && !panelUnverified;
+      const reason = !windowConfirmed
+        ? (x11Result.reason || "window-not-active")
+        : tabMatched === false ? "terminal-tab-not-found"
+          : panelUnverified ? "conversation-panel-unverified" : "linux-window-active";
+      logFocusResult(`branch=linux-window reason=${reason} confirmed=${confirmed ? 1 : 0}`);
+      return { ...normalizeFocusResultPayload({ reason }), confirmed, status: confirmed ? "confirmed" : "unconfirmed" };
+    });
   }
 
   const outcome = requestWindowsFocus(request);

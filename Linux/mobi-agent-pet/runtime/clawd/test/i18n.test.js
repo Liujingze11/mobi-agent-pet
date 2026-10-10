@@ -63,9 +63,9 @@ function runtimeDictRenderers() {
   const dir = path.join(ROOT, "src");
   const renderers = new Set();
   for (const html of fs.readdirSync(dir).filter((f) => f.endsWith(".html"))) {
+    if (html === "settings.html") continue;
     const markup = fs.readFileSync(path.join(dir, html), "utf8");
     const scripts = Array.from(markup.matchAll(/<script[^>]+src="\.?\/?([^"]+\.js)"/g), (m) => m[1]);
-    if (scripts.includes("settings-i18n.js")) continue;
     for (const script of scripts) {
       const file = path.join(dir, script);
       if (!fs.existsSync(file)) continue;
@@ -97,10 +97,21 @@ describe("i18n locales", () => {
     }
   });
 
-  it("uses the two short pet menu labels in Chinese", () => {
-    assert.strictEqual(i18n.zh.openDashboard, "宠物状态");
+  it("uses generic desktop pet names and overview headings in all languages", () => {
+    const labels = {
+      en: ["Desktop Pet", "Overview", "Pet Overview"],
+      zh: ["桌面宠物", "概览", "宠物概览"],
+      "zh-TW": ["桌面寵物", "概覽", "寵物概覽"],
+      ko: ["데스크톱 펫", "개요", "펫 개요"],
+      ja: ["デスクトップペット", "概要", "ペットの概要"],
+    };
+    for (const [lang, [windowTitle, tab, heading]] of Object.entries(labels)) {
+      assert.strictEqual(i18n[lang].openDashboard, windowTitle);
+      assert.strictEqual(i18n[lang].dashboardWindowTitle, windowTitle);
+      assert.strictEqual(i18n[lang].dashboardStatusTab, tab);
+      assert.strictEqual(i18n[lang].dashboardOverviewTitle, heading);
+    }
     assert.strictEqual(i18n.zh.openAgentLog, "应用界面");
-    assert.strictEqual(i18n.en.openDashboard, "Pet Status");
     assert.strictEqual(i18n.en.openAgentLog, "App Window");
   });
 
@@ -188,10 +199,16 @@ describe("i18n locales", () => {
     const settings = loadSettingsI18nStrings();
     for (const file of runtimeDictRenderers()) {
       const source = fs.readFileSync(path.join(ROOT, "src", file), "utf8");
+      const loadsSettingsLocale = fs.readdirSync(path.join(ROOT, "src"))
+        .filter((name) => name.endsWith(".html"))
+        .some((name) => {
+          const html = fs.readFileSync(path.join(ROOT, "src", name), "utf8");
+          return html.includes(`<script src="./${file}"></script>`) && html.includes('src="./settings-i18n.js"');
+        });
       const literals = new Set(Array.from(source.matchAll(/"([A-Za-z][A-Za-z0-9_]{2,})"/g), (m) => m[1]));
       for (const literal of literals) {
-        if (literal in settings.en && !(literal in i18n.en)) {
-          assert.fail(`${file}: "${literal}" resolves only in settings-i18n.js, which this window never loads`);
+        if (literal in settings.en && !(literal in i18n.en) && !loadsSettingsLocale) {
+          assert.fail(`${file}: "${literal}" resolves only in settings-i18n.js, which this window does not load`);
         }
       }
     }

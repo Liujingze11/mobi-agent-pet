@@ -28,6 +28,50 @@ const COMPLETE = { type: "event_msg", payload: { type: "task_complete" } };
 const FUNC = { type: "response_item", payload: { type: "function_call" } };
 
 describe("Codex remote monitor", () => {
+  it("reports the same metadata identity as official hooks for ordinary and suffixed copies", () => {
+    const { normalizeCodexSessionId } = require("../hooks/codex-hook");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clawd-codex-remote-identity-"));
+    try {
+      const id = "019d23d4-f1a9-7633-b9c7-758327137229";
+      const copies = [ROLLOUT_NAME, ROLLOUT_NAME.replace(".jsonl", `_${id}.jsonl`)];
+      const posted = [];
+      for (const fileName of copies) {
+        const filePath = path.join(dir, fileName);
+        fs.writeFileSync(filePath, [
+          { type: "session_meta", payload: { id, cwd: "/repo", source: "cli" } },
+          STARTED,
+        ].map((line) => JSON.stringify(line)).join("\n") + "\n");
+        __test.pollFile(filePath, fileName, { postState: (sessionId) => posted.push(sessionId) });
+        assert.strictEqual(__test.tracked.get(filePath).sessionId, `codex:${id}`);
+        assert.strictEqual(normalizeCodexSessionId("official", filePath), `codex:${id}`);
+      }
+      assert.deepStrictEqual([...new Set(posted)], [`codex:${id}`]);
+    } finally {
+      __test.tracked.clear();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("recovers pending input under its metadata id instead of the rollout filename id", () => {
+    const id = "019d23d4-f1a9-7633-b9c7-758327137229";
+    const { dir, filePath } = tempRollout([
+      { type: "session_meta", payload: { id, cwd: "/repo", source: "cli" } },
+      { type: "response_item", payload: {
+        type: "function_call", name: "request_user_input", call_id: "question-id",
+        arguments: JSON.stringify({ questions: [{ id: "q", header: "Choice", question: "Pick", options: [{ label: "A", description: "First" }] }] }),
+      } },
+    ]);
+    try {
+      const posted = [];
+      const recovered = __test.recoverStalePendingUserInputEntry(filePath, ROLLOUT_NAME, {
+        postState: (sessionId) => posted.push(sessionId),
+      });
+      assert.ok(recovered);
+      assert.strictEqual(recovered.sessionId, `codex:${id}`);
+      assert.deepStrictEqual(posted, [`codex:${id}`]);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
   it("exits only after the bounded delivery-failure threshold and resets on success", () => {
     let now = 1_000;
     let exits = 0;

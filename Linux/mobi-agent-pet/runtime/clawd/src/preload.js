@@ -13,7 +13,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   onPetTintChange: (cb) => ipcRenderer.on("pet-tint-change", (_, payload) => cb(payload)),
   onPetAccessoryChange: (cb) => ipcRenderer.on("pet-accessory-change", (_, payload) => cb(payload)),
   // State sync from main
-  onStateChange: (callback) => ipcRenderer.on("state-change", (_, state, svg) => callback(state, svg)),
+  onStateChange: (callback) => ipcRenderer.on("state-change", (_, state, svg, snapshot) => callback(state, svg, snapshot)),
   onKimiPermissionPulse: (callback) => ipcRenderer.on("kimi-permission-pulse", () => callback()),
   onEyeMove: (callback) => ipcRenderer.on("eye-move", (_, dx, dy) => callback(dx, dy)),
   onCloudlingPointer: (callback) => ipcRenderer.on("cloudling-pointer", (_, payload) => callback(payload)),
@@ -37,6 +37,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   pauseCursorPolling: () => ipcRenderer.send("pause-cursor-polling"),
   resumeFromReaction: () => ipcRenderer.send("resume-from-reaction"),
   notifyPetVisualReady: () => ipcRenderer.send("pet-visual-ready"),
+  reportActionFrame: (payload) => ipcRenderer.send("pet-action-frame", payload),
   setLowPowerIdlePaused: (paused) => ipcRenderer.send("low-power-idle-paused", !!paused),
   reportSystemWakeStatus: (payload) => ipcRenderer.send("system-wake-status", payload),
 });

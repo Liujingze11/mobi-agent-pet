@@ -20,9 +20,9 @@ const EYE_ATTACH_RETRY_MS = 16;
 const EYE_ATTACH_MAX_ATTEMPTS = 60;
 const WAKE_OBJECT_RELOAD_RETRIES = 1;
 const LOW_POWER_PAUSE_STYLE_ID = "clawd-low-power-pause-svg";
-const LOW_POWER_PAUSE_STATES = new Set(["idle", "mini-idle", "dozing"]);
+const LOW_POWER_PAUSE_STATES = new Set(["idle"]);
 const LOW_POWER_BOUNDARY_EPSILON_MS = 80;
-const CLOUDLING_POINTER_BRIDGE_STATES = new Set(["idle", "mini-idle", "mini-peek"]);
+const CLOUDLING_POINTER_BRIDGE_STATES = new Set(["idle"]);
 let lowPowerIdleMode = false;
 let lowPowerIdlePauseTimer = null;
 let lowPowerSvgPaused = false;
@@ -57,6 +57,9 @@ const PET_TINT_FILTER_TOKEN_RE =
 
 // ── Theme config (injected via preload.js additionalArguments) ──
 let tc = window.themeConfig || {};
+let actionPlayer = null;
+let petStateSnapshot = null;
+let actionIdleDeadline = null;
 
 function initWithConfig(cfg) {
   tc = cfg || {};
@@ -68,7 +71,7 @@ function initWithConfig(cfg) {
   _bodyScale = (tc.eyeTracking && tc.eyeTracking.bodyScale) || 0.33;
   _shadowStretch = (tc.eyeTracking && tc.eyeTracking.shadowStretch) || 0.15;
   _shadowShift = (tc.eyeTracking && tc.eyeTracking.shadowShift) || 0.3;
-  _eyeTrackingStates = (tc.eyeTrackingStates) || ["idle", "dozing", "mini-idle"];
+  _eyeTrackingStates = (tc.eyeTrackingStates) || ["idle"];
   _trustedScriptedSvgFiles = new Set(Array.isArray(tc.trustedScriptedSvgFiles) ? tc.trustedScriptedSvgFiles : []);
   _forceSvgObjectChannel = !!(tc.rendering && tc.rendering.svgChannel === "object");
   _lowPowerStaticImageOverrides = (tc.rendering && tc.rendering.lowPowerStaticImageOverrides) || {};
@@ -251,8 +254,9 @@ function getLowPowerAnimationBoundaryDelayMs(root) {
 
 function pauseCurrentSvgForLowPower({ waitForBoundary = false } = {}) {
   if (!shouldPauseForLowPower()) return;
+  if (actionPlayer) actionPlayer.pause();
   const root = getCurrentSvgRoot();
-  if (!root) return;
+  if (!root) { if (tc.actionPlan) setLowPowerSvgPaused(true); return; }
   if (waitForBoundary) {
     const delayMs = getLowPowerAnimationBoundaryDelayMs(root);
     if (delayMs > 0) {
@@ -283,6 +287,7 @@ function pauseCurrentSvgForLowPower({ waitForBoundary = false } = {}) {
 }
 
 function resumeCurrentSvgForLowPower() {
+  if (actionPlayer) actionPlayer.resume();
   if (lowPowerIdlePauseTimer) {
     clearTimeout(lowPowerIdlePauseTimer);
     lowPowerIdlePauseTimer = null;
@@ -322,10 +327,11 @@ function scheduleLowPowerIdlePause() {
   lowPowerIdlePauseTimer = setTimeout(() => {
     lowPowerIdlePauseTimer = null;
     pauseCurrentSvgForLowPower({ waitForBoundary: true });
-  }, LOW_POWER_IDLE_PAUSE_MS);
+  }, tc.actionPlan && actionIdleDeadline !== null ? Math.max(0, actionIdleDeadline - Date.now()) : LOW_POWER_IDLE_PAUSE_MS);
 }
 
 function noteLowPowerActivity() {
+  if (tc.actionPlan) actionIdleDeadline = Date.now() + LOW_POWER_IDLE_PAUSE_MS;
   if (!lowPowerIdleMode && !lowPowerSvgPaused) return;
   if (lowPowerSvgPaused) {
     resumeCurrentSvgForLowPower();
@@ -349,7 +355,7 @@ function isSvgFile(file) {
 
 function resolveViewBox(state, file) {
   if (file && _fileViewBoxes && _fileViewBoxes[file]) return _fileViewBoxes[file];
-  if (state && state.startsWith("mini-") && _miniViewBox) return _miniViewBox;
+  if (_inMiniMode && _miniViewBox) return _miniViewBox;
   return _viewBox;
 }
 
@@ -369,7 +375,7 @@ function shouldUseNormalizedLayout(file, state) {
   if (!_layout || !_layout.contentBox) return false;
   if (_inMiniMode) return false;
   if (hasRootViewBoxFileOverride(file)) return true;
-  if ((state && state.startsWith("mini-")) || (file && file.startsWith("mini-"))) return false;
+  if (_inMiniMode) return false;
   return true;
 }
 
@@ -457,8 +463,7 @@ function shouldApplyMiniAssetFlip(state) {
   // Only mini-family visuals mirror with flipAssets. mini-mode-change can land
   // while a transitional visual (idle, drag reaction) is still on screen —
   // those keep their orientation until the mini swap happens.
-  if (!state || !state.startsWith("mini-")) return false;
-  return _miniFlipAssets && (_inMiniMode || (_miniPreEntryMode && state === "mini-crabwalk"));
+  return _miniFlipAssets && (_inMiniMode || _miniPreEntryMode);
 }
 
 function applyMiniFlip(el, state = currentState) {
@@ -511,6 +516,8 @@ window.electronAPI.onThemeConfig((newConfig) => {
   clearAccessoryRuntime({ clearAsset: true });
   initWithConfig(newConfig);
   applyPetTintToAllMedia();
+  configureActionPlayer();
+  if (currentState && currentRequestedSvg) actionPlayer?.update(currentState, currentRequestedSvg);
 });
 
 window.electronAPI.onViewportOffset((offsetY) => {
@@ -647,7 +654,7 @@ function getAccessoryDescriptor(file, state) {
       && Object.prototype.hasOwnProperty.call(files, safeFile)) {
     return files[safeFile];
   }
-  if (state && state.startsWith("mini-") && _accessoryAttachments.mini) {
+  if (_inMiniMode && _accessoryAttachments.mini) {
     return _accessoryAttachments.mini;
   }
   return _accessoryAttachments.default || null;
@@ -1068,7 +1075,7 @@ function needsEyeTracking(state) {
  */
 function tracksEyesForFile(state, file) {
   if (!needsEyeTracking(state)) return false;
-  return state !== "idle" || file === _idleFollowSvg;
+  return state !== "idle" || _inMiniMode || file === _idleFollowSvg;
 }
 
 /**
@@ -1116,6 +1123,8 @@ function refreshAccessoryMediaChannel() {
 }
 
 function resolveLowPowerStaticImageOverride(state, file) {
+  // An active action plan owns the file; low power pauses that asset.
+  if (tc.actionPlan) return null;
   if (!lowPowerIdleMode) return null;
   const override = _lowPowerStaticImageOverrides && _lowPowerStaticImageOverrides[state];
   if (!override || override.from !== file || !override.to) return null;
@@ -1123,6 +1132,7 @@ function resolveLowPowerStaticImageOverride(state, file) {
 }
 
 function hasLowPowerStaticImageOverride(state, file) {
+  if (tc.actionPlan) return false;
   const override = _lowPowerStaticImageOverrides && _lowPowerStaticImageOverrides[state];
   return !!(override && override.from === file && override.to);
 }
@@ -1198,17 +1208,8 @@ window.electronAPI.onStartDragReaction((direction) => startDragReaction(directio
 window.electronAPI.onEndDragReaction(() => endDragReaction());
 window.electronAPI.onPlayClickReaction((svg, duration) => playReaction(svg, duration));
 
-function playReaction(svgFile, durationMs) {
-  isReacting = true;
-  detachEyeTracking();
-  resumeCurrentSvgForLowPower();
-  window.electronAPI.pauseCursorPolling();
-
-  // Reactions do not attach eye tracking, but some themes force SVGs through
-  // <object> so their SVG documents can load local sub-resources.
-  swapToFile(svgFile, null);
-
-  reactTimer = setTimeout(() => endReaction(), durationMs);
+function playReaction() {
+  // Legacy IPC cannot inject an unassigned action into a pet state.
 }
 
 function endReaction() {
@@ -1225,35 +1226,13 @@ function cancelReaction() {
   }
   if (isDragReacting) {
     isDragReacting = false;
+    container.classList.remove("pet-lifted");
   }
 }
 
 // --- Drag reaction (loops while dragging) ---
-function startDragReaction(direction) {
-  if (dndEnabled) return;
-  const dragSvg = (direction && _dragSvgs[direction]) || _dragSvg;
-  if (!dragSvg) return;
-  if (isDragReacting && currentDragSvg === dragSvg) return;
-
-  if (!isDragReacting && isReacting) {
-    if (reactTimer) { clearTimeout(reactTimer); reactTimer = null; }
-    isReacting = false;
-  }
-
-  isDragReacting = true;
-  currentDragSvg = dragSvg;
-  detachEyeTracking();
-  resumeCurrentSvgForLowPower();
-  window.electronAPI.pauseCursorPolling();
-  swapToFile(dragSvg, null);
-}
-
-function endDragReaction() {
-  if (!isDragReacting) return;
-  isDragReacting = false;
-  currentDragSvg = null;
-  window.electronAPI.resumeFromReaction();
-}
+function startDragReaction() {}
+function endDragReaction() {}
 
 // --- Generic swap function: handles both <object> and <img> channels ---
 let currentDisplayedSvg = getObjectSvgName(clawdEl);
@@ -1561,7 +1540,7 @@ function swapToFile(file, state, useObjectChannel, options = {}) {
   }
 }
 
-function renderStateFile(state, svg) {
+function displayStateFile(state, svg, options = {}) {
   // Main process state change → cancel any active click reaction
   cancelReaction();
   // Track the latest state name so the Kimi permission pulse can re-trigger
@@ -1571,7 +1550,7 @@ function renderStateFile(state, svg) {
   const requestedSvg = svg;
   const lowPowerStaticImageOverride = resolveLowPowerStaticImageOverride(state, requestedSvg);
   const effectiveSvg = lowPowerStaticImageOverride || requestedSvg;
-  noteLowPowerActivity();
+  if (!options.playlistFrame) noteLowPowerActivity();
 
   // ── Roam state: add walk animation class for visual movement ──
   // When the pet is roaming (free-roam mode), add a CSS animation to simulate
@@ -1604,7 +1583,7 @@ function renderStateFile(state, svg) {
     cancelPendingSwap();
   }
 
-  if ((alreadyDisplayed && displayedChannelMatches) || (alreadyPending && pendingChannelMatches)) {
+  if (!options.replay && ((alreadyDisplayed && displayedChannelMatches) || (alreadyPending && pendingChannelMatches))) {
     // Same file, no swap — but the flip is state-dependent (mini flip vs roam
     // heading), so re-apply it for the incoming state. E.g. a leftward roam
     // entering mini pre-entry reuses the same crabwalk asset; without this the
@@ -1648,11 +1627,38 @@ function renderStateFile(state, svg) {
 function refreshCurrentStateForLowPowerStaticImage() {
   if (!currentState || !currentRequestedSvg) return;
   if (!hasLowPowerStaticImageOverride(currentState, currentRequestedSvg)) return;
-  renderStateFile(currentState, currentRequestedSvg);
+  displayStateFile(currentState, currentRequestedSvg, { playlistFrame: !!tc.actionPlan });
+}
+
+function configureActionPlayer() {
+  if (actionPlayer) actionPlayer.stop();
+  actionPlayer = globalThis.MobiPetActions ? globalThis.MobiPetActions.createPlayer({
+    plan: tc.actionPlan,
+    render: (file, state, durationMs, replay) => {
+      container.classList.toggle("pet-lifted", state === "held");
+      displayStateFile(state, file, { replay: !!replay, playlistFrame: !!tc.actionPlan });
+      const group = globalThis.MobiPetActions.groupForState(state);
+      const slot = globalThis.MobiPetActions.playbackSlot(tc.actionPlan, group);
+      const returnAfterMs = slot && slot.mode === "random" && ["complete", "error"].includes(group) ? durationMs : undefined;
+      if (tc.actionPlan && window.electronAPI.reportActionFrame) window.electronAPI.reportActionFrame({...petStateSnapshot, file, state});
+    },
+  }) : null;
+}
+configureActionPlayer();
+window.addEventListener("beforeunload", () => { if (actionPlayer) actionPlayer.stop(); });
+
+function renderStateFile(state, svg) {
+  currentState = state;
+  currentRequestedSvg = svg;
+  noteLowPowerActivity();
+  if (actionPlayer) actionPlayer.update(state, svg);
+  else if (!isDragReacting) displayStateFile(state, svg);
 }
 
 // --- State change → switch animation (preload + instant swap) ---
-window.electronAPI.onStateChange((state, svg) => {
+window.electronAPI.onStateChange((state, svg, snapshot) => {
+  if (!globalThis.MobiPetStates.isPetState(state)) return;
+  petStateSnapshot = snapshot || null;
   renderStateFile(state, svg);
 });
 
@@ -2169,110 +2175,13 @@ if (window.electronAPI && typeof window.electronAPI.onRoamHeading === "function"
   });
 }
 
-// --- Sound playback (IPC from main, receives { url, volume } from theme) ---
-const _audioCache = {};
-const AUDIO_WARMUP_STALE_MS = 10000;
-const AUDIO_WARMUP_DELAY_MS = 50;
-const AUDIO_WARMUP_VOLUME = 0.001;
-let _lastAudioWarmupAt = 0;
-
-function reportSoundPlaybackError(phase, err) {
-  const message = err && err.message ? err.message : String(err || "unknown");
-  if (window.electronAPI && typeof window.electronAPI.reportSoundPlaybackError === "function") {
-    window.electronAPI.reportSoundPlaybackError({ phase, message });
-    return;
-  }
-  try { console.warn(`Clawd sound ${phase} failed:`, message); } catch {}
-}
-
-function cacheAudio(url) {
-  if (typeof url !== "string" || !url) return null;
-  let audio = _audioCache[url];
-  const created = !audio;
-  if (!audio) {
-    audio = new Audio(url);
-    audio.preload = "auto";
-    _audioCache[url] = audio;
-  }
-  if (created) {
-    try { audio.load(); } catch {}
-  }
-  return audio;
-}
-
-function normalizeSoundUrls(payload) {
-  const raw = Array.isArray(payload)
-    ? payload
-    : (payload && Array.isArray(payload.urls) ? payload.urls : []);
-  return raw.filter((url) => typeof url === "string" && url);
-}
-
-function warmAudioOutput(url, { force = false } = {}) {
-  const now = Date.now();
-  if (!force && now - _lastAudioWarmupAt < AUDIO_WARMUP_STALE_MS) {
-    return Promise.resolve();
-  }
-  if (!url) return Promise.resolve();
-  _lastAudioWarmupAt = now;
-
-  const primer = new Audio(url);
-  primer.preload = "auto";
-  primer.volume = AUDIO_WARMUP_VOLUME;
-  return primer.play()
-    .then(() => new Promise((resolve) => {
-      setTimeout(() => {
-        try { primer.pause(); } catch {}
-        resolve();
-      }, AUDIO_WARMUP_DELAY_MS);
-    }))
-    .catch((err) => {
-      reportSoundPlaybackError("warmup", err);
-    });
-}
-
-if (window.electronAPI && typeof window.electronAPI.onPreloadSounds === "function") {
-  window.electronAPI.onPreloadSounds((payload) => {
-    const urls = normalizeSoundUrls(payload);
-    urls.forEach((url) => cacheAudio(url));
-  });
-}
-
-window.electronAPI.onPlaySound((payload) => {
-  const url = typeof payload === "string" ? payload : payload && payload.url;
-  const volume = typeof payload === "object" && payload && typeof payload.volume === "number"
-    ? Math.max(0, Math.min(1, payload.volume))
-    : 1;
-  if (!url) return;
-  // Preview URLs carry a `_t=` cache-buster so every click is a fresh URL;
-  // caching them would grow the map unboundedly (one entry per preview click)
-  // for no benefit since the URL will never be requested again. Only cache
-  // real playback URLs.
-  const isPreview = url.includes("_t=");
-  const audio = isPreview ? new Audio(url) : cacheAudio(url);
-  if (!audio) return;
-  if (isPreview) audio.preload = "auto";
-  warmAudioOutput(url).then(() => {
-    audio.volume = volume;
-    audio.currentTime = 0;
-    audio.play().catch((err) => reportSoundPlaybackError("play", err));
-  });
-});
-// Same-extension override replacement overwrites the file on disk without
-// changing the URL, so the cached Audio object keeps its old buffered data.
-// Main sends this after a successful pick so the next playback re-loads.
-window.electronAPI.onInvalidateSoundCache((url) => {
-  if (typeof url === "string" && url) delete _audioCache[url];
-});
+// Retired sound channels are accepted as no-ops for older main-process callers.
+if (window.electronAPI.onPreloadSounds) window.electronAPI.onPreloadSounds(() => {});
+if (window.electronAPI.onPlaySound) window.electronAPI.onPlaySound(() => {});
+if (window.electronAPI.onInvalidateSoundCache) window.electronAPI.onInvalidateSoundCache(() => {});
 
 // --- Wake from doze (smooth eye opening) ---
-window.electronAPI.onWakeFromDoze(() => {
-  if (clawdEl && clawdEl.tagName === "OBJECT" && clawdEl.contentDocument) {
-    try {
-      const eyes = clawdEl.contentDocument.getElementById(_eyeIds.dozeEyes || "eyes-doze");
-      if (eyes) eyes.style.transform = "scaleY(1)";
-    } catch (e) {}
-  }
-});
+window.electronAPI.onWakeFromDoze(() => {});
 
 // --- Initial frame: always go through swapToFile so the right channel and theme scaling apply ---
 if (!currentDisplayedSvg && _initialIdleSvg) {

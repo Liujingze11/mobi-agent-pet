@@ -3,58 +3,33 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { AppShell } from "../components/AppShell";
+import { I18nProvider } from "../i18n";
 
 describe("AppShell", () => {
-  it("renders the six approved destinations without Phase 3 placeholders", () => {
+  it("shows a single records workspace without the old sidebar", () => {
     render(
-      <AppShell currentRoute="overview" onNavigate={() => {}}>
-        <div>Operational view</div>
-      </AppShell>,
+      <I18nProvider locale="zh">
+        <AppShell><div>记录内容</div></AppShell>
+      </I18nProvider>,
     );
 
-    for (const label of ["Overview", "Projects", "Sessions", "Agents", "Pet & Themes", "Settings"]) {
-      expect(screen.getByRole("button", { name: label })).toBeVisible();
-    }
-    expect(screen.getByText("Operational view")).toBeVisible();
-    expect(screen.queryByText(/Reports|Restore|Coming Soon/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "记录" })).toBeVisible();
+    expect(screen.getByText("莫比 Pet")).toBeVisible();
+    expect(screen.getByText("记录内容")).toBeVisible();
+    expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "设置" })).not.toBeInTheDocument();
   });
 
-  it("reports destination selection through the navigation contract", async () => {
+  it("keeps refresh and hide commands", async () => {
     const user = userEvent.setup();
-    const onNavigate = vi.fn();
-    render(
-      <AppShell currentRoute="overview" onNavigate={onNavigate}>
-        <div>Operational view</div>
-      </AppShell>,
-    );
+    const onRefresh = vi.fn();
+    const onHide = vi.fn();
+    render(<AppShell onRefresh={onRefresh} onHide={onHide}><div>Records</div></AppShell>);
 
-    await user.click(screen.getByRole("button", { name: "Sessions" }));
+    await user.click(screen.getByRole("button", { name: "Refresh current view" }));
+    await user.click(screen.getByRole("button", { name: "Hide Manager" }));
 
-    expect(onNavigate).toHaveBeenCalledWith("sessions");
-  });
-
-  it("keeps the longest project badge inside the Projects button name", () => {
-    render(
-      <AppShell currentRoute="overview" onNavigate={() => {}} pendingProjectCount={104}>
-        <div>Operational view</div>
-      </AppShell>,
-    );
-
-    const projects = screen.getByRole("button", { name: "Projects" });
-    expect(projects).toBeVisible();
-    expect(projects).toHaveTextContent("99+");
-  });
-
-  it("marks only the destination that renders a badge for the mobile two-column layout", () => {
-    render(
-      <AppShell currentRoute="overview" onNavigate={() => {}} pendingProjectCount={104}>
-        <div>Operational view</div>
-      </AppShell>,
-    );
-
-    expect(screen.getByRole("button", { name: "Projects" })).toHaveClass("navigation-item--has-badge");
-    for (const label of ["Overview", "Sessions", "Agents", "Pet & Themes", "Settings"]) {
-      expect(screen.getByRole("button", { name: label })).not.toHaveClass("navigation-item--has-badge");
-    }
+    expect(onRefresh).toHaveBeenCalledOnce();
+    expect(onHide).toHaveBeenCalledOnce();
   });
 });

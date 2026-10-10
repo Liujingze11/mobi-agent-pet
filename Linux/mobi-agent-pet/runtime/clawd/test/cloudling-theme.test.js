@@ -79,20 +79,20 @@ describe("built-in Cloudling theme", () => {
   it("maps the full Cloudling Phase 2 state set", () => {
     const theme = themeLoader.loadTheme("cloudling", { strict: true });
 
-    assert.deepStrictEqual(theme.states.idle, ["cloudling-idle.svg"]);
-    assert.deepStrictEqual(theme.states.thinking, ["cloudling-thinking.svg"]);
-    assert.deepStrictEqual(theme.states.working, ["cloudling-typing.svg"]);
-    assert.deepStrictEqual(theme.states.juggling, ["cloudling-juggling.svg"]);
-    assert.deepStrictEqual(theme.states.attention, ["cloudling-attention.svg"]);
-    assert.deepStrictEqual(theme.states.notification, ["cloudling-notification.svg"]);
-    assert.deepStrictEqual(theme.states.error, ["cloudling-error.svg"]);
-    assert.deepStrictEqual(theme.states.sweeping, ["cloudling-sweeping.svg"]);
-    assert.deepStrictEqual(theme.states.carrying, ["cloudling-carrying.svg"]);
-    assert.deepStrictEqual(theme.states.sleeping, ["cloudling-sleeping.svg"]);
-    assert.deepStrictEqual(theme.states.yawning, ["cloudling-idle-to-dozing.svg"]);
-    assert.deepStrictEqual(theme.states.dozing, ["cloudling-dozing.svg"]);
-    assert.deepStrictEqual(theme.states.collapsing, ["cloudling-dozing-to-sleeping.svg"]);
-    assert.deepStrictEqual(theme.states.waking, ["cloudling-sleeping-to-idle.svg"]);
+    assert.deepStrictEqual(theme._sourcePetBindings.idle, ["cloudling-idle.svg"]);
+    assert.deepStrictEqual(theme._sourcePetBindings.thinking, ["cloudling-thinking.svg"]);
+    assert.deepStrictEqual(theme._sourcePetBindings.working, ["cloudling-typing.svg"]);
+    assert.deepStrictEqual(theme._sourcePetBindings.juggling, ["cloudling-juggling.svg"]);
+    assert.deepStrictEqual(theme._sourcePetBindings.attention, ["cloudling-attention.svg"]);
+    assert.deepStrictEqual(theme._sourcePetBindings.notification, ["cloudling-notification.svg"]);
+    assert.deepStrictEqual(theme._sourcePetBindings.error, ["cloudling-error.svg"]);
+    assert.deepStrictEqual(theme._sourcePetBindings.sweeping, ["cloudling-sweeping.svg"]);
+    assert.deepStrictEqual(theme._sourcePetBindings.carrying, ["cloudling-carrying.svg"]);
+    assert.deepStrictEqual(theme._sourcePetBindings.sleeping, ["cloudling-sleeping.svg"]);
+    assert.deepStrictEqual(theme._sourcePetBindings.yawning, ["cloudling-idle-to-dozing.svg"]);
+    assert.deepStrictEqual(theme._sourcePetBindings.dozing, ["cloudling-dozing.svg"]);
+    assert.deepStrictEqual(theme._sourcePetBindings.collapsing, ["cloudling-dozing-to-sleeping.svg"]);
+    assert.deepStrictEqual(theme._sourcePetBindings.waking, ["cloudling-sleeping-to-idle.svg"]);
     assert.strictEqual(theme.sleepSequence.mode, "full");
     assert.strictEqual(theme.timings.dndSleepTransitionSvg, "cloudling-idle-to-sleeping.svg");
     assert.strictEqual(theme.timings.dndSleepTransitionDuration, 4850);
@@ -125,11 +125,11 @@ describe("built-in Cloudling theme", () => {
       { x: -32, y: -24, width: 88, height: 72 }
     );
     assert.deepStrictEqual(
-      hitGeometry.resolveViewBox(theme, "mini-idle", "cloudling-mini-idle.svg"),
+      hitGeometry.resolveViewBox(theme, "idle", "cloudling-mini-idle.svg", {miniMode:true}),
       { x: -12, y: -12, width: 48, height: 48 }
     );
     assert.deepStrictEqual(
-      hitGeometry.resolveViewBox(theme, "mini-crabwalk", "cloudling-mini-crabwalk.svg"),
+      hitGeometry.resolveViewBox(theme, "roam", "cloudling-mini-crabwalk.svg", {miniMode:true}),
       { x: -32, y: -24, width: 88, height: 72 }
     );
   });
@@ -158,21 +158,21 @@ describe("built-in Cloudling theme", () => {
 
     assert.strictEqual(hitGeometry.usesNormalizedLayout(
       theme,
-      "mini-crabwalk",
+      "roam",
       "cloudling-mini-crabwalk.svg"
-    ), true);
+    , {miniMode:true}), true);
     assert.strictEqual(hitGeometry.usesNormalizedLayout(
       theme,
-      "mini-idle",
+      "idle",
       "cloudling-mini-idle.svg"
-    ), false);
+    , {miniMode:true}), false);
 
     const crabwalk = hitGeometry.getAssetRectScreen(
       theme,
       bounds,
-      "mini-crabwalk",
+      "roam",
       "cloudling-mini-crabwalk.svg"
-    );
+    , {miniMode:true});
 
     assert.ok(crabwalk.w > bounds.width, "mini-crabwalk should use normal normalized layout");
   });

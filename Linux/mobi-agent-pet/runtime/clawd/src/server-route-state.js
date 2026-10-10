@@ -1,4 +1,5 @@
 "use strict";
+const { normalizePetState } = require("./pet-states");
 
 const path = require("path");
 const { resolveSessionIdentity } = require("./session-key");
@@ -378,14 +379,17 @@ function handleStatePost(req, res, options) {
         // hook events the diagnostics exist to show. 204 either way — the
         // statusline script never reads the response, and "session unknown"
         // is the designed drop, not an error.
-        if (contextUsage && typeof ctx.updateSessionMetadata === "function") {
-          ctx.updateSessionMetadata(session_id || "default", { contextUsage });
+        if ((contextUsage || model) && typeof ctx.updateSessionMetadata === "function") {
+          ctx.updateSessionMetadata(session_id || "default", {
+            ...(contextUsage ? { contextUsage } : {}),
+            ...(model ? { model } : {}),
+          });
         }
         res.writeHead(204, { [CLAWD_SERVER_HEADER]: CLAWD_SERVER_ID });
         res.end();
         return;
       }
-      if (ctx.STATE_SVGS[state]) {
+      if (normalizePetState(state) && normalizePetState(state) !== "held") {
         const sid = session_id || "default";
         const codexHookState = resolveCodexOfficialHookState(
           data,

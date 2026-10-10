@@ -259,120 +259,18 @@ function computePassiveNotifyRemainingMs(createdAt, autoCloseMs, now = Date.now(
   return Math.max(0, totalMs - Math.max(0, now - startedAt));
 }
 
-// Pure layout calculator for the permission bubble stack. Extracted out of
-// repositionBubbles() so the geometry can be unit-tested without spinning up
-// real Electron BrowserWindows. Returns one bounds object per height in the
-// input array, in the same (oldest→newest) order.
-//
-// Layout priority when followPet=true:
-//   1. below pet     — stack hangs from hitRect.bottom (oldest closest to
-//                       the pet body, newest at the bottom of the stack)
-//   2. side of pet   — pick the side with more horizontal room (right wins
-//                       on ties), vertically anchored on the pet center and
-//                       clamped to the work area
-//   3. corner fallback — only when neither side has bw of clearance, fall
-//                         back to the work area's bottom-right corner
-//
-// followPet=false → bottom-right of the work area (default Clawd behavior).
-//
-// Visual invariant across ALL branches: bubbles[0] (oldest) ends up at the
-// highest y, bubbles[N-1] (newest) at the lowest y. Crossing a layout
-// threshold only translates the anchor — it does NOT reverse the visual
-// order. PR #89 fixed the original below↔degraded order-flip; this guards
-// the same bug from regressing.
-//
-// Degenerate case (totalH > usable work area height): the second clamp on
-// yBottom intentionally wins, anchoring the stack to the TOP of the work
-// area. The OLDEST bubble stays visible while newer ones overflow off the
-// bottom. Rationale: oldest is the request that has been waiting longest,
-// and Claude Code re-sends on timeout if newest gets dropped — losing
-// oldest is harder to recover. See test
-// "anchors stack top when totalH overflows the work area".
-function computeBubbleStackLayout({
-  followPet,
-  bubbleHeights,
-  bubbleWidth: bw,
-  margin,
-  gap,
-  workArea: wa,
-  hitRect,
-  hudReservedOffset = 0,
-}) {
-  const N = bubbleHeights.length;
-  const bounds = new Array(N);
-  if (N === 0) return bounds;
-
-  // totalH = sum of heights + (N-1) gaps. The previous in-place loop in
-  // repositionBubbles added a gap after every bubble (N gaps total), which
-  // over-counted by one gap and slightly skewed both the below/side cutoff
-  // and the side vertical centering. Fixed here.
-  let totalH = 0;
-  for (let i = 0; i < N; i++) {
-    totalH += bubbleHeights[i];
-    if (i < N - 1) totalH += gap;
-  }
-
-  let x, yBottom;
-  if (followPet && hitRect) {
-    const hitBottom = Math.round(hitRect.bottom);
-    const hitLeft = Math.round(hitRect.left);
-    const hitRight = Math.round(hitRect.right);
-    const hitCx = Math.round((hitRect.left + hitRect.right) / 2);
-    const hitCy = Math.round((hitRect.top + hitRect.bottom) / 2);
-
-    // 1. Below pet — enough vertical room to hang the stack from the hitbox.
-    //    Iterate oldest→newest growing downward so the visual order matches
-    //    the side/corner branches' upward-stacking loop below.
-    const reserve = Math.max(0, Number(hudReservedOffset) || 0);
-    if (wa.y + wa.height - hitBottom >= reserve + totalH) {
-      x = Math.max(wa.x, Math.min(hitCx - Math.round(bw / 2), wa.x + wa.width - bw));
-      let yTop = hitBottom + reserve;
-      for (let i = 0; i < N; i++) {
-        const bh = bubbleHeights[i];
-        bounds[i] = { x, y: yTop, width: bw, height: bh };
-        yTop += bh + gap;
-      }
-      return bounds;
-    }
-
-    // 2. Side — pick the side with more room (right wins on ties).
-    const spaceRight = wa.x + wa.width - hitRight;
-    const spaceLeft = hitLeft - wa.x;
-    if (spaceRight >= bw && spaceRight >= spaceLeft) {
-      x = Math.min(hitRight, wa.x + wa.width - bw);
-    } else if (spaceLeft >= bw) {
-      x = Math.max(wa.x, hitLeft - bw);
-    } else {
-      // 3. Corner fallback — neither side has bw of clearance.
-      x = wa.x + wa.width - bw - margin;
-      yBottom = wa.y + wa.height - margin;
-    }
-
-    if (yBottom === undefined) {
-      // Side vertical anchor: center the stack on the pet, then clamp to
-      // the work area. When totalH > usable height, minBottom > maxBottom
-      // and the second clamp wins on purpose (see header comment for the
-      // degenerate-case rationale).
-      yBottom = hitCy + Math.round(totalH / 2);
-      const maxBottom = wa.y + wa.height - margin;
-      const minBottom = wa.y + margin + totalH;
-      if (yBottom > maxBottom) yBottom = maxBottom;
-      if (yBottom < minBottom) yBottom = minBottom;
-    }
-  } else {
-    // followPet=off (or no hit rect): bottom-right of the nearest work area.
-    x = wa.x + wa.width - bw - margin;
-    yBottom = wa.y + wa.height - margin;
-  }
-
-  // Default upward stacking loop: newest (i=N-1) sits at yBottom, the rest
-  // grow upward. Combined with the below-branch's downward iteration above,
-  // the invariant holds: oldest highest on screen, newest lowest.
-  for (let i = N - 1; i >= 0; i--) {
-    const bh = bubbleHeights[i];
-    const y = yBottom - bh;
-    yBottom = y - gap;
-    bounds[i] = { x, y, width: bw, height: bh };
+// Agent cards always stack upward from the bottom-right of the work area.
+// Legacy follow/hitRect/HUD parameters no longer affect placement.
+function computeBubbleStackLayout({bubbleHeights,bubbleWidth,margin,gap,workArea}) {
+  const bounds=new Array(bubbleHeights.length);
+  const x=workArea.x+workArea.width-bubbleWidth-margin;
+  let bottom=workArea.y+workArea.height-margin;
+  const total=bubbleHeights.reduce((sum,height)=>sum+height,0)+Math.max(0,bubbleHeights.length-1)*gap;
+  bottom=Math.max(bottom,workArea.y+margin+total);
+  for(let i=bubbleHeights.length-1;i>=0;i--){
+    const height=bubbleHeights[i];
+    bounds[i]={x,y:bottom-height,width:bubbleWidth,height};
+    bottom-=height+gap;
   }
   return bounds;
 }
@@ -698,7 +596,6 @@ function repositionBubbles() {
   const petBounds = ctx.getPetWindowBounds();
   const wa = getAnchorWorkArea(petBounds);
   const bw = getBubbleWidth(scale, wa);
-  const hitRect = ctx.bubbleFollowPet ? ctx.getHitRectScreen(petBounds) : null;
 
   const layoutPermissions = pendingPermissions.filter((perm) => !perm.remoteOnly);
   const bubbleHeights = layoutPermissions.map(perm =>
@@ -713,14 +610,11 @@ function repositionBubbles() {
   );
 
   const bounds = computeBubbleStackLayout({
-    followPet: !!ctx.bubbleFollowPet,
     bubbleHeights,
     bubbleWidth: bw,
     margin,
     gap,
     workArea: wa,
-    hitRect,
-    hudReservedOffset: typeof ctx.getHudReservedOffset === "function" ? ctx.getHudReservedOffset() : 0,
   });
 
   for (let i = 0; i < layoutPermissions.length; i++) {
@@ -808,6 +702,12 @@ function maybeAutoApprovePermission(permEntry) {
 function showPermissionBubble(permEntry) {
   // Auto-pilot: if enabled, approve immediately and never render a bubble.
   if (maybeAutoApprovePermission(permEntry)) return;
+  const kind=isPassiveNotifyEntry(permEntry)?"notification":"permission";
+  if (!getPolicy(ctx,kind).enabled) {
+    if(isPassiveNotifyEntry(permEntry))dismissPassiveNotify(permEntry,"Agent bubbles disabled");
+    else resolvePermissionEntry(permEntry,"no-decision","Agent bubbles disabled");
+    return;
+  }
 
   const sugCount = (permEntry.suggestions || []).length;
   const scale = getTextScale();
@@ -1071,6 +971,7 @@ function buildPermissionBubblePayload(permEntry) {
     ? String(permEntry.sessionId).slice(-3)
     : null;
   return {
+    agentId: permEntry.agentId || sess?.agentId || (permEntry.isCodex || permEntry.isCodexNotify || permEntry.isCodexUserInputNotify ? "codex" : permEntry.isKimiNotify ? "kimi-cli" : permEntry.isHermes ? "hermes" : permEntry.isQwenCode ? "qwen-code" : permEntry.isCopilotCli ? "copilot-cli" : permEntry.isAntigravity ? "antigravity-cli" : "claude-code"),
     toolName: permEntry.toolName,
     toolInput: permEntry.toolInput,
     suggestions: permEntry.suggestions || [],

@@ -48,6 +48,9 @@ function createHarness(overrides = {}) {
   const ipcMain = new FakeIpcMain();
   const runtime = registerPetInteractionIpc({
     ipcMain,
+    getDragLocked: overrides.getDragLocked,
+    cancelRoam: overrides.cancelRoam,
+    timers: overrides.timers,
     showContextMenu: (event) => calls.push(["showContextMenu", event.sender]),
     moveWindowForDrag: () => calls.push(["moveWindowForDrag"]),
     setIdlePaused: (value) => calls.push(["setIdlePaused", value]),
@@ -56,7 +59,9 @@ function createHarness(overrides = {}) {
     getCurrentSvg: () => state.currentSvg,
     sendToRenderer: (...args) => calls.push(["sendToRenderer", ...args]),
     recoverVisiblePetAfterRendererLoad: (event) => calls.push(["recoverVisiblePetAfterRendererLoad", event.sender]),
-    setDragLocked: (value) => calls.push(["setDragLocked", value]),
+    setDragLocked: (value) => { calls.push(["setDragLocked", value]); overrides.onDragLock?.(value); },
+    isInputSender: overrides.isInputSender,
+    setPetHeld: overrides.captureHeld ? (value) => calls.push(["setPetHeld", value]) : undefined,
     setMouseOverPet: (value) => calls.push(["setMouseOverPet", value]),
     beginDragSnapshot: () => calls.push(["beginDragSnapshot"]),
     clearDragSnapshot: () => calls.push(["clearDragSnapshot"]),
@@ -129,6 +134,7 @@ test("pet interaction IPC registers owned channels and disposes them", () => {
     "focus-terminal",
     "low-power-idle-paused",
     "pause-cursor-polling",
+    "pet-action-frame",
     "pet-drop-paths",
     "pet-interaction:reveal-session-hud",
     "pet-visual-ready",
@@ -185,13 +191,10 @@ test("pet interaction IPC delegates menu, drag move, reaction pause, and rendere
     ["setLowPowerIdlePaused", true],
     ["setLowPowerIdlePaused", false],
     ["setIdlePaused", false],
-    ["sendToRenderer", "start-drag-reaction", null],
-    ["sendToRenderer", "end-drag-reaction"],
-    ["sendToRenderer", "play-click-reaction", "click.svg", 900],
   ]);
 });
 
-test("pet interaction IPC relays only supported drag directions", () => {
+test("legacy drag reaction messages cannot start a separate visual", () => {
   const { ipcMain, calls } = createHarness();
 
   ipcMain.send("start-drag-reaction", "left");
@@ -199,9 +202,6 @@ test("pet interaction IPC relays only supported drag directions", () => {
   ipcMain.send("start-drag-reaction", "up");
 
   assert.deepStrictEqual(calls, [
-    ["sendToRenderer", "start-drag-reaction", "left"],
-    ["sendToRenderer", "start-drag-reaction", "right"],
-    ["sendToRenderer", "start-drag-reaction", null],
   ]);
 });
 
@@ -464,4 +464,60 @@ test("pet drop does not ping the hit window when the terminal launch fails", asy
   assert.deepStrictEqual(sender.sent, []);
   const logs = calls.filter((c) => c[0] === "dropLog").map((c) => c[1]);
   assert.ok(logs.some((m) => m.includes("launch failed") && m.includes("no terminal")), logs.join("; "));
+});
+test('old click reaction IPC cannot bypass configured state playback', () => {
+  const h=createHarness(); h.ipcMain.send('play-click-reaction','unassigned.svg',123);
+  assert.ok(!h.calls.some(x=>x[0]==='sendToRenderer' && x[1]==='play-click-reaction'));
+  h.runtime.dispose();
+});
+
+test('foreign drag-end cannot release the input window held state', () => {
+  const h = createHarness({ captureHeld: true, isInputSender: event => event.sender === "sender-web-contents" });
+  h.ipcMain.listeners.get("drag-end")({ sender: "foreign-window" });
+  assert.deepStrictEqual(h.calls, []);
+  h.ipcMain.send("drag-end");
+  assert.ok(h.calls.some(call => call[0] === "setPetHeld" && call[1] === false));
+  h.runtime.dispose();
+});
+
+function heldPollingHarness(currentState='idle') {
+ let locked=false,id=0;const jobs=new Map();
+ const timers={setInterval(fn){const key=++id;jobs.set(key,fn);return key},clearInterval(key){jobs.delete(key)}};
+ const h=createHarness({state:{currentState},getDragLocked:()=>locked,onDragLock:value=>{locked=value},timers});
+ return {...h,jobs,poll:()=>{for(const fn of [...jobs.values()])fn()},cancelExternally:()=>{locked=false}};
+}
+for(const currentState of ['idle','roam','working'])test(`main drag polling follows cursor in ${currentState} without renderer move packets`,()=>{
+ const h=heldPollingHarness(currentState);
+ try{
+  h.ipcMain.send('drag-lock',true);h.poll();assert.ok(h.calls.some(call=>call[0]==='moveWindowForDrag'));
+  h.ipcMain.send('drag-lock',false);assert.equal(h.jobs.size,0);
+  const count=h.calls.filter(call=>call[0]==='moveWindowForDrag').length;h.poll();assert.equal(h.calls.filter(call=>call[0]==='moveWindowForDrag').length,count);
+ }finally{h.runtime.dispose()}
+});
+test('main drag polling stops after external cancellation, drag end, window loss and disposal',()=>{
+ const h=heldPollingHarness();try{
+  h.ipcMain.send('drag-lock',true);assert.equal(h.jobs.size,1);h.cancelExternally();h.poll();assert.equal(h.jobs.size,0);assert.ok(!h.calls.some(call=>call[0]==='moveWindowForDrag'));
+  h.ipcMain.send('drag-lock',true);h.ipcMain.send('drag-end');assert.equal(h.jobs.size,0);
+  h.ipcMain.send('drag-lock',true);h.state.hasPetWindow=false;h.poll();assert.equal(h.jobs.size,0);
+  h.state.hasPetWindow=true;h.ipcMain.send('drag-lock',true);h.runtime.dispose();assert.equal(h.jobs.size,0);
+ }finally{h.runtime.dispose()}
+});
+
+test('press locks the input geometry and cancels autonomous roam before capturing drag position',()=>{
+ const h=createHarness({cancelRoam:()=>h.calls.push(['cancelRoam'])});try{
+  h.ipcMain.send('drag-lock',true);
+  const order=h.calls.map(call=>call[0]);assert.ok(order.includes('cancelRoam'));
+  assert.ok(order.indexOf('setDragLocked')<order.indexOf('cancelRoam'),'input hitbox must stay stable before the pose changes');
+  assert.ok(order.indexOf('cancelRoam')<order.indexOf('beginDragSnapshot'),'the walk must stop before its position is captured');
+ }finally{h.runtime.dispose()}
+});
+
+test('release samples the final cursor position even when a short drag had no polling tick',()=>{
+ const h=heldPollingHarness();try{
+  h.ipcMain.send('drag-lock',true);
+  assert.ok(!h.calls.some(call=>call[0]==='moveWindowForDrag'));
+  h.ipcMain.send('drag-lock',false);
+  assert.equal(h.calls.filter(call=>call[0]==='moveWindowForDrag').length,1,'final movement must be sampled before the drag lock is released');
+  assert.equal(h.jobs.size,0);
+ }finally{h.runtime.dispose()}
 });

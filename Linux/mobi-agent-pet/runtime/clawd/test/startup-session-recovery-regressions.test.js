@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { EventEmitter } = require("node:events");
 
 const themeLoader = require("../src/theme-loader");
 const {
@@ -13,11 +14,12 @@ const {
   updateRecoveryLeaseFromStateBody,
 } = require("../hooks/session-recovery-lease");
 const { restoreSessionsFromRecoveryLeases } = require("../src/session-recovery-loader");
+const { handleStatePost } = require("../src/server-route-state");
 
 themeLoader.init(path.join(__dirname, "..", "src"));
 const defaultTheme = themeLoader.loadTheme("clawd");
 
-function makeState() {
+function makeState(overrides = {}) {
   return require("../src/state")({
     lang: "en",
     theme: defaultTheme,
@@ -44,6 +46,35 @@ function makeState() {
     focusTerminalWindow: () => {},
     processKill: () => true,
     getCursorScreenPoint: () => ({ x: 100, y: 100 }),
+    ...overrides,
+  });
+}
+
+function postHook(state, body, remoteProfile = null) {
+  return new Promise((resolve) => {
+    const req = new EventEmitter();
+    const res = {
+      statusCode: null,
+      writeHead(statusCode) { this.statusCode = statusCode; },
+      end() { resolve(this.statusCode); },
+    };
+    handleStatePost(req, res, {
+      ctx: {
+        ...state,
+        STATE_SVGS: { thinking: "x.svg", working: "x.svg", idle: "x.svg", sleeping: "x.svg" },
+        pendingPermissions: [],
+        isAgentEnabled: () => true,
+      },
+      createRequestHookRecorder: () => ({
+        acceptedUnlessDnd() {}, droppedByDisabled() {}, droppedByDnd() {}, droppedInvalidAgent() {},
+      }),
+      shouldDropForDnd: () => false,
+      codexOfficialTurns: new Map(),
+      isWinHost: false,
+      remoteProfile,
+    });
+    req.emit("data", Buffer.from(JSON.stringify(body)));
+    req.emit("end");
   });
 }
 
@@ -61,13 +92,13 @@ function leaseBody(overrides = {}) {
   };
 }
 
-function leaseOptions(recoveryDir, eventAt) {
+function leaseOptions(recoveryDir, eventAt, platform = "win32") {
   return {
     recoveryDir,
     eventAt,
-    platform: "win32",
+    platform,
     getProcessStartIdentities: (pids) => new Map(
-      pids.filter(Boolean).map((pid) => [pid, `win32:test-${pid}`]),
+      pids.filter(Boolean).map((pid) => [pid, `${platform}:test-${pid}`]),
     ),
   };
 }
@@ -82,6 +113,71 @@ describe("startup session recovery regressions", () => {
     if (recoveryDir) fs.rmSync(recoveryDir, { recursive: true, force: true });
     recoveryDir = null;
   });
+
+  for (const platform of ["linux", "darwin", "win32"]) {
+    for (const hookFirst of [false, true]) {
+      it(`${platform}: keeps one session when ${hookFirst ? "HTTP hook precedes recovery" : "recovery precedes HTTP hook"}`, async () => {
+        state = makeState({ focusHostPlatform: platform, resolveRecoveredClaudeFocus: () => null });
+        recoveryDir = fs.mkdtempSync(path.join(os.tmpdir(), "clawd-recovery-identity-"));
+        const cwd = platform === "win32" ? "C:/work/project" : "/work/project";
+        const body = leaseBody({ cwd, platform });
+        const eventAt = Date.now() - 1000;
+        const options = leaseOptions(recoveryDir, eventAt, platform);
+        assert.strictEqual(updateRecoveryLeaseFromStateBody(body, options).written, true);
+
+        if (hookFirst) assert.strictEqual(await postHook(state, body), 200);
+        const restored = restoreSessionsFromRecoveryLeases(state, {
+          ...options, now: eventAt + 500, processKill: () => true,
+        });
+        assert.strictEqual(restored.length, hookFirst ? 0 : 1);
+        if (!hookFirst) assert.strictEqual(await postHook(state, body), 200);
+
+        const entries = state.buildSessionSnapshot().sessions;
+        assert.strictEqual(entries.length, 1);
+        assert.strictEqual(entries[0].startupRecovered, false);
+        assert.strictEqual(entries[0].state, "thinking");
+        assert.strictEqual(entries[0].cwd, cwd);
+        assert.strictEqual(state.sessions.size, 1);
+      });
+    }
+
+    it(`${platform}: preserves distinct Claude sessions sharing a process and directory`, async () => {
+      state = makeState({ focusHostPlatform: platform, resolveRecoveredClaudeFocus: () => null });
+      recoveryDir = fs.mkdtempSync(path.join(os.tmpdir(), "clawd-recovery-distinct-"));
+      const eventAt = Date.now() - 1000;
+      const options = leaseOptions(recoveryDir, eventAt, platform);
+      for (const session_id of ["conversation-a", "conversation-b"]) {
+        const body = leaseBody({ session_id, platform });
+        assert.strictEqual(updateRecoveryLeaseFromStateBody(body, options).written, true);
+      }
+      assert.strictEqual(restoreSessionsFromRecoveryLeases(state, {
+        ...options, now: eventAt + 500, processKill: () => true,
+      }).length, 2);
+      for (const session_id of ["conversation-a", "conversation-b"]) {
+        assert.strictEqual(await postHook(state, leaseBody({ session_id, platform })), 200);
+      }
+      const entries = state.buildSessionSnapshot().sessions;
+      assert.strictEqual(entries.length, 2);
+      assert.deepStrictEqual(entries.map((entry) => entry.rawSessionId).sort(), ["conversation-a", "conversation-b"]);
+    });
+
+    it(`${platform}: separates local recovery from remote profiles with the same raw id`, async () => {
+      state = makeState({ focusHostPlatform: platform, resolveRecoveredClaudeFocus: () => null });
+      const body = leaseBody({ platform });
+      assert.strictEqual(state.restoreSessionFromLease({
+        agentId: "claude-code", sessionId: body.session_id, active: true, state: "thinking",
+        eventAt: Date.now() - 1000, validUntil: null, pid: process.pid, sourcePid: process.pid,
+        cwd: body.cwd,
+      }), true);
+      assert.strictEqual(await postHook(state, body), 200);
+      for (const profileId of ["remote-a", "remote-b"]) {
+        assert.strictEqual(await postHook(state, body, { profileId, displayHost: "shared-host" }), 200);
+      }
+      const entries = state.buildSessionSnapshot().sessions;
+      assert.strictEqual(entries.length, 3);
+      assert.deepStrictEqual(entries.map((entry) => entry.profileId).sort(), ["local", "remote-a", "remote-b"]);
+    });
+  }
 
   it("does not evict any real session when recovery starts at capacity", () => {
     state = makeState();

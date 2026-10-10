@@ -550,11 +550,8 @@ describe("server-route-permission POST", () => {
     const normalSavedMode = createAutomaticPermissionHarness({ savedPermissionMode: "unattended" });
     const normalSavedRequest = startPermissionPostWithHarness(normalSavedMode);
     const normalSavedResult = await finishPermissionPost(normalSavedRequest, body);
-    assert.equal(normalSavedResult.statusCode, 200);
-    assert.equal(
-      JSON.parse(normalSavedResult.body).hookSpecificOutput.decision.behavior,
-      "allow"
-    );
+    assert.equal(normalSavedResult.statusCode, 204);
+    assert.equal(normalSavedResult.body, "");
     assert.equal(normalSavedMode.permission.pendingPermissions.length, 0);
   });
 

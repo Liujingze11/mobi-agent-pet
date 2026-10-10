@@ -53,14 +53,21 @@ test("opens a fresh AgentLog database with Phase 2 schema and pragmas", () => {
     "agent_active_intervals",
     "human_sessions",
     "human_pause_intervals",
+    "providers",
+    "provider_active",
+    "provider_enabled",
+    "provider_file_transactions",
+    "provider_originals",
+    "provider_balances",
   ]) {
     assert.ok(tables.includes(name), name);
   }
   assert.equal(
     db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get()
       .version,
-    1
+    8
   );
+  assert.ok(db.prepare("PRAGMA table_info(agent_sessions)").all().some((column) => column.name === "project_assignment_source"));
 
   closeAgentLogDatabase(db);
   fs.rmSync(tmp, { recursive: true, force: true });
@@ -84,10 +91,32 @@ test("reopens an already migrated database without duplicate schema work", () =>
     secondDb
       .prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table'")
       .get().count,
-    8
+    14
   );
 
   closeAgentLogDatabase(secondDb);
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test("upgrades a version 2 database without changing recorded sessions", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "agentlog-database-v2-"));
+  const databasePath = path.join(tmp, "agentlog.db");
+  const DatabaseCtor = loadDatabaseConstructor();
+  const old = new DatabaseCtor(databasePath);
+  old.exec("CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
+  old.exec(fs.readFileSync(path.join(__dirname, "../../runtime/agentlog/storage/schema-v1.sql"), "utf8"));
+  old.exec(fs.readFileSync(path.join(__dirname, "../../runtime/agentlog/storage/schema-v2.sql"), "utf8"));
+  old.prepare("INSERT INTO schema_migrations(version,applied_at) VALUES(?,?)").run(1, 1);
+  old.prepare("INSERT INTO schema_migrations(version,applied_at) VALUES(?,?)").run(2, 2);
+  old.prepare("INSERT INTO agent_sessions(id,agent_id,source_session_id,started_at,last_event_at,latest_state,disposition,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)")
+    .run("old-session", "codex", "source-1", 1, 2, "completed", "completed", 1, 2);
+  old.close();
+
+  const upgraded = openAgentLogDatabase({ databasePath });
+  assert.equal(upgraded.prepare("SELECT id FROM agent_sessions").get().id, "old-session");
+  assert.equal(upgraded.prepare("SELECT MAX(version) AS version FROM schema_migrations").get().version, 8);
+  assert.ok(upgraded.prepare("PRAGMA table_info(providers)").all().some((column) => column.name === "universal_source_id"));
+  closeAgentLogDatabase(upgraded);
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -100,6 +129,26 @@ test("cleanly closes an AgentLog database", () => {
 
   assert.throws(() => db.prepare("SELECT 1").get(), /closed|not open/i);
   fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+test("upgrades enabled provider keys from version 7 without renaming live entries", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mobi-database-v7-"));
+  const databasePath = path.join(tmp, "agentlog.db");
+  const Constructor = loadDatabaseConstructor();
+  const old = new Constructor(databasePath);
+  old.exec("CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)");
+  for (let version = 1; version <= 7; version++) {
+    old.exec(fs.readFileSync(path.join(__dirname, `../../runtime/agentlog/storage/schema-v${version}.sql`), "utf8"));
+    old.prepare("INSERT INTO schema_migrations VALUES(?,?)").run(version, version);
+  }
+  old.prepare("INSERT INTO providers(id,app_id,name,activation,config_cipher,created_at,updated_at) VALUES(?,?,?,?,?,?,?)")
+    .run("legacy-id", "pi", "Legacy", "available", Buffer.from("fixture"), 1, 1);
+  old.prepare("INSERT INTO provider_enabled VALUES(?,?)").run("pi", "legacy-id");
+  old.close();
+  const upgraded = openAgentLogDatabase({ databasePath });
+  try {
+    assert.equal(upgraded.prepare("SELECT native_key FROM provider_enabled").get().native_key, "legacy-id");
+  } finally { closeAgentLogDatabase(upgraded); fs.rmSync(tmp, { recursive: true, force: true }); }
 });
 
 test("closes a constructed database handle once when pragma initialization fails", () => {

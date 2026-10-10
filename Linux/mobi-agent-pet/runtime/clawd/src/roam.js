@@ -12,10 +12,11 @@
 //   • Each animation step re-checks isRoamAllowed() so a state change to working /
 //     notification / permission cancels the roam immediately — no "pet drifting while
 //     working" regression.
-//   • The first roam after entering idle uses ROAM_IDLE_DELAY_MS (8s); subsequent
-//     roams use ROAM_BETWEEN_DELAY_MS (4s).
+//   • The host supplies the fixed preset or saved Custom roaming interval.
+//     Standalone legacy callers retain the first/subsequent 8s/4s fallback.
+//     Waiting also respects the current idle playback duration.
 //   • When the state changes away from idle/roam (detected in tick or step),
-//     firstRoam is reset so the next idle entry waits the full 8s delay.
+//     firstRoam is reset so the next idle entry uses the initial delay.
 
 const ROAM_IDLE_DELAY_MS = 8000;     // first roam after entering idle
 const ROAM_BETWEEN_DELAY_MS = 4000;  // delay between consecutive roams
@@ -153,7 +154,6 @@ module.exports = function initRoam(ctx) {
 
     roamActive = true;
     const startTime = Date.now();
-    let frameCount = 0;
 
     function step() {
       // ── Per-frame cancellation checks ──
@@ -183,10 +183,7 @@ module.exports = function initRoam(ctx) {
       ctx.applyPetWindowBounds({ x: vx, y: vy, width: roamW, height: roamH });
       if (typeof ctx.syncHitWin === "function") ctx.syncHitWin();
       if (typeof ctx.repositionAnchoredSurfaces === "function") ctx.repositionAnchoredSurfaces();
-      // Throttle bubble reposition to every 3rd frame (~20fps) — same as mini.js
-      if (typeof ctx.repositionBubbles === "function" && ctx.bubbleFollowPet && ctx.pendingPermissions.length && (++frameCount % 3 === 0 || t >= 1)) {
-        ctx.repositionBubbles();
-      }
+
 
       if (t < 1 && roamActive) {
         roamAnimTimer = setTimeout(step, ROAM_FRAME_MS);
@@ -207,7 +204,15 @@ module.exports = function initRoam(ctx) {
   function scheduleNextRoam() {
     if (roamPauseTimer) { clearTimeout(roamPauseTimer); roamPauseTimer = null; }
     if (!enabled) return;
-    const delay = firstRoam ? ROAM_IDLE_DELAY_MS : ROAM_BETWEEN_DELAY_MS;
+    const modeIntervalMs = typeof ctx.getRoamIntervalMs === "function" ? ctx.getRoamIntervalMs() : null;
+    const baseDelay = Number.isFinite(modeIntervalMs) && modeIntervalMs > 0
+      ? Math.ceil(modeIntervalMs)
+      : (firstRoam ? ROAM_IDLE_DELAY_MS : ROAM_BETWEEN_DELAY_MS);
+    const idlePlaybackMs = typeof ctx.getIdlePlaybackDuration === "function"
+      ? ctx.getIdlePlaybackDuration() : null;
+    const delay = Number.isFinite(idlePlaybackMs) && idlePlaybackMs > 0
+      ? Math.max(baseDelay, Math.ceil(idlePlaybackMs) + ROAM_FRAME_MS)
+      : baseDelay;
     firstRoam = false;
     roamPauseTimer = setTimeout(() => {
       roamPauseTimer = null;

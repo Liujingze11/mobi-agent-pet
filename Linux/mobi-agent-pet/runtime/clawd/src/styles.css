@@ -114,3 +114,18 @@ html, body {
     translate: 3px 0;
   }
 }
+
+/* The grab point stays high while the character gently hangs below it. */
+#pet-container.pet-lifted #pet-media-layer,
+#pet-container.pet-lifted #pet-accessory-layer {
+  transform-origin: 50% 28%;
+  animation: pet-held-sway 1.6s ease-in-out infinite alternate;
+}
+@keyframes pet-held-sway {
+  from { transform: translateY(-3px) rotate(-3deg); }
+  to { transform: translateY(-3px) rotate(3deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #pet-container.pet-lifted #pet-media-layer,
+  #pet-container.pet-lifted #pet-accessory-layer { animation: none; transform: translateY(-3px); }
+}

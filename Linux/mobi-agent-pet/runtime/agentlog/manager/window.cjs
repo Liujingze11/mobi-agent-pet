@@ -57,6 +57,7 @@ function createManagerWindowController({ app, BrowserWindow, iconPath, preloadPa
     shouldShow = true;
     if (window) {
       if (readyToShow) {
+        if (window.isMinimized?.()) window.restore();
         window.show();
         focus();
       }
@@ -81,6 +82,7 @@ function createManagerWindowController({ app, BrowserWindow, iconPath, preloadPa
       },
     });
     managerWindow = window;
+    window.setMenuBarVisibility(false);
 
     window.once("ready-to-show", () => {
       if (destroyed || managerWindow !== window || isDestroyed(window)) return;

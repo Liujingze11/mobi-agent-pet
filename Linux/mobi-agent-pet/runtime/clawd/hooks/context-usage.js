@@ -107,10 +107,27 @@ function extractClaudeContextUsageFromEntries(entries, sessionId) {
   return null;
 }
 
+function extractClaudeModelFromEntries(entries, sessionId) {
+  if (!Array.isArray(entries)) return null;
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i];
+    if (!entry || entry.type !== "assistant" || entry.isApiErrorMessage === true) continue;
+    if (!entryMatchesSession(entry, sessionId) || entryLooksSubagent(entry)) continue;
+    const model = entry.message && typeof entry.message.model === "string"
+      ? entry.message.model.trim()
+      : "";
+    if (!model || model === "<synthetic>" || model === "unknown" || model.length > 120
+      || /[\u0000-\u001F\u007F\s<>]/.test(model)) continue;
+    return model;
+  }
+  return null;
+}
+
 module.exports = {
   CLAUDE_1M_CONTEXT_LIMIT,
   DEFAULT_CLAUDE_CONTEXT_LIMIT,
   computeClaudeUsageFromEntry,
   extractClaudeContextUsageFromEntries,
+  extractClaudeModelFromEntries,
   resolveClaudeContextLimit,
 };

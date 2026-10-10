@@ -41,8 +41,8 @@ const LOW_POWER_MINI_IDLE_TICK_MS = 2000;
 const REACTION_TICK_MS = 500;
 const BACKGROUND_TICK_MS = 750;
 const RECENT_MOUSE_MS = 2000;
-const POINTER_BRIDGE_STATES = new Set(["idle", "mini-idle", "mini-peek"]);
-const LOW_POWER_PAUSE_STATES = new Set(["idle", "mini-idle", "dozing"]);
+const POINTER_BRIDGE_STATES = new Set(["idle"]);
+const LOW_POWER_PAUSE_STATES = new Set(["idle"]);
 const POINTER_BRIDGE_EPSILON = 0.001;
 
 // ── Theme-driven state (refreshed on hot theme switch) ──
@@ -91,6 +91,7 @@ function startMainTick() {
 }
 
 function getBaseTickDelay(idleNow, miniIdleNow) {
+  if (ctx.miniMode && ctx.miniPeeked) return FAST_TICK_MS;
   if (ctx.dragLocked || ctx.menuOpen || ctx.miniTransitioning) return FAST_TICK_MS;
   if (ctx.lowPowerIdlePaused && idleNow) return LOW_POWER_IDLE_TICK_MS;
   if (ctx.lowPowerIdlePaused && miniIdleNow) return LOW_POWER_MINI_IDLE_TICK_MS;
@@ -183,7 +184,7 @@ function runMainTickOnce() {
 
     // ── Idle state edge detection (must run every tick for timer cleanup) ──
     const idleNow = ctx.currentState === "idle" && !ctx.idlePaused;
-    const miniIdleNow = ctx.currentState === "mini-idle" && !ctx.idlePaused && !ctx.miniTransitioning;
+    const miniIdleNow = ctx.miniMode && ctx.currentState === "idle" && !ctx.idlePaused && !ctx.miniTransitioning;
     // #569: an active roam walk runs in state "roam", so it must keep polling
     // the cursor as well — otherwise the "cancel roaming when mouse moves"
     // block below is unreachable mid-walk, and a user interaction that resizes
@@ -246,25 +247,13 @@ function runMainTickOnce() {
 
     // ── Mini mode peek hover ──
     if (ctx.miniMode && !ctx.miniTransitioning && !ctx.dragLocked && !ctx.menuOpen) {
-      const canPeek = ctx.currentState === "mini-idle" || ctx.currentState === "mini-peek"
-        || ctx.currentState === "mini-sleep";
+      const canPeek = ctx.currentState === "idle";
       if (!ctx.isAnimating && canPeek) {
-        if (ctx.mouseOverPet && ctx.currentState === "mini-sleep" && !ctx.miniSleepPeeked) {
-          ctx.miniPeekIn();
-          ctx.miniSleepPeeked = true;
-        } else if (!ctx.mouseOverPet && ctx.currentState === "mini-sleep" && ctx.miniSleepPeeked) {
-          ctx.miniPeekOut();
-          ctx.miniSleepPeeked = false;
-        } else if (ctx.mouseOverPet && ctx.currentState !== "mini-peek" && ctx.currentState !== "mini-sleep" && !ctx.miniPeeked) {
-          ctx.miniPeekIn();
-          ctx.applyState("mini-peek");
-        } else if (!ctx.mouseOverPet && (ctx.currentState === "mini-peek" || ctx.miniPeeked)) {
-          ctx.miniPeekOut();
-          ctx.miniPeeked = false;
-          if (ctx.currentState !== "mini-idle") ctx.applyState("mini-idle");
-        }
+        if (ctx.mouseOverPet && !ctx.miniPeeked) { ctx.miniPeekIn(); ctx.miniPeeked = true; }
+        else if (!ctx.mouseOverPet && ctx.miniPeeked) { ctx.miniPeekOut(); ctx.miniPeeked = false; }
       }
     }
+
 
     sendPointerBridge(cursor, bounds);
 
@@ -300,56 +289,7 @@ function runMainTickOnce() {
         mouseStillSince = Date.now();
       }
 
-      // 60s no mouse movement → yawning → dozing
-      if (!hasTriggeredYawn && elapsed >= MOUSE_SLEEP_TIMEOUT) {
-        hasTriggeredYawn = true;
-        if (!isMouseIdle && !shouldSuppressPassiveIpc()) ctx.sendToRenderer("eye-move", 0, 0);
-        if (SLEEP_MODE === "direct") {
-          if (ctx.currentState === "idle") ctx.setState("sleeping");
-        } else {
-          yawnDelayTimer = setTimeout(() => {
-            yawnDelayTimer = null;
-            if (ctx.currentState === "idle") ctx.setState("yawning");
-          }, isMouseIdle ? 50 : 250);
-        }
-        return nextDelay();
-      }
-
-      // 20s no mouse movement → random idle animation (play once, then return
-      // to the resting idle visual). A user-chosen resting sprite is excluded
-      // from the pool — "playing" it would be an invisible no-op that eats the
-      // once-per-idle-period slot. With no choice set the pool is untouched:
-      // a theme may deliberately list its follow sprite as a stay-at-rest beat.
-      if (IDLE_ANIMS.length > 0 && !isMouseIdle && !hasTriggeredYawn && !idleLookPlayed && elapsed >= MOUSE_IDLE_TIMEOUT) {
-        const choice = typeof ctx.getIdleVisualChoice === "function" ? ctx.getIdleVisualChoice() : null;
-        const pool = choice ? IDLE_ANIMS.filter((a) => a.svg !== choice) : IDLE_ANIMS;
-        if (pool.length === 0) {
-          idleLookPlayed = true;
-          return nextDelay();
-        }
-        isMouseIdle = true;
-        idleLookPlayed = true;
-        const pick = pool[Math.floor(Math.random() * pool.length)];
-        if (!shouldSuppressPassiveIpc()) ctx.sendToRenderer("eye-move", 0, 0);
-        setTimeout(() => {
-          if (isMouseIdle && ctx.currentState === "idle") {
-            ctx.sendToRenderer("state-change", "idle", pick.svg);
-            ctx.sendToHitWin("hit-state-sync", { currentSvg: pick.svg });
-          }
-        }, 250);
-        idleLookReturnTimer = setTimeout(() => {
-          idleLookReturnTimer = null;
-          if (isMouseIdle && ctx.currentState === "idle") {
-            isMouseIdle = false;
-            const returnSvg = idleRestSvg();
-            ctx.sendToRenderer("state-change", "idle", returnSvg);
-            ctx.sendToHitWin("hit-state-sync", { currentSvg: returnSvg });
-            setTimeout(() => { ctx.forceEyeResend = true; }, 200);
-          }
-        }, 250 + pick.duration);
-        return nextDelay();
-      }
-
+      // Idle actions and their order are owned by the effective action plan.
       // Free roam tick: wander around when idle long enough
       if (ctx.roam) ctx.roam.tick();
     }
@@ -409,51 +349,6 @@ function runMainTickOnce() {
       lastEyeDx = eyeDx;
       lastEyeDy = eyeDy;
       ctx.sendToRenderer("eye-move", eyeDx, eyeDy);
-    }
-
-    // --- Spin detection: detect sustained circling around the pet to trigger dizzy ---
-    // Only active during normal idle eye-follow (not mini-idle, not idle-look), and only
-    // when the active theme actually supports dizzy (THEME_SUPPORTS_DIZZY) — so unsupported
-    // themes (Calico, Cloudling) skip the math entirely and keep normal idle behavior.
-    //
-    // We accumulate SIGNED angular displacement: circling one way keeps the same sign and
-    // builds toward the threshold, while back-and-forth wiggling cancels out. The meter
-    // resets on a pause, or when the cursor is too close to the eye-tracking origin (where
-    // the angle is dominated by sub-pixel jitter), instead of decaying every tick — so a
-    // genuine two-circle gesture reaches ±SPIN_THRESHOLD precisely.
-    if (idleNow && !miniIdleNow && !isMouseIdle && moved && THEME_SUPPORTS_DIZZY) {
-      const now = Date.now();
-
-      if (dist < SPIN_MIN_RADIUS) {
-        // Too close to the center — angle is unreliable; break the accumulation chain.
-        lastCursorAngle = null;
-        accumulatedSpin = 0;
-      } else {
-        const angle = Math.atan2(relY, relX);
-        const stalled = lastSpinTickAt > 0 && (now - lastSpinTickAt) > SPIN_IDLE_RESET_MS;
-        if (lastCursorAngle === null || stalled) {
-          // First sample, or resumed after a pause → (re)start the meter.
-          accumulatedSpin = 0;
-        } else {
-          let delta = angle - lastCursorAngle;
-          if (delta > Math.PI) delta -= 2 * Math.PI;
-          if (delta < -Math.PI) delta += 2 * Math.PI;
-          accumulatedSpin += delta; // signed: reversing direction cancels progress
-
-          if (Math.abs(accumulatedSpin) >= SPIN_THRESHOLD && now > dizzyCooldownUntil) {
-            accumulatedSpin = 0;
-            lastCursorAngle = null;
-            lastSpinTickAt = 0;
-            dizzyCooldownUntil = now + DIZZY_COOLDOWN_MS;
-            lastEyeDx = 0;
-            lastEyeDy = 0;
-            ctx.setState("dizzy");
-            return nextDelay();
-          }
-        }
-        lastCursorAngle = angle;
-      }
-      lastSpinTickAt = now;
     }
 
     return nextDelay();

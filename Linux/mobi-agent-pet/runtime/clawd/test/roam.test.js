@@ -741,3 +741,48 @@ describe("roam runtime mode gate", () => {
     );
   });
 });
+
+it('main mode movement gate blocks Automatic roam and resumes it in Normal',()=>{
+ const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
+ const {resolveAppModePolicy}=require('../src/app-mode');
+ let mode='automatic';
+ const source=fs.readFileSync(path.join(__dirname,'../src/main.js'),'utf8');
+ const expression=source.match(/isModeMovementAllowed: (.*),/)[1];
+ const runtime={getEffectiveAppModePolicy:()=>resolveAppModePolicy(mode)};
+ const gate=vm.runInNewContext('('+expression+')',runtime);
+ const interval=vm.runInNewContext('('+source.match(/getRoamIntervalMs: (.*),/)[1]+')',runtime);
+ mock.timers.enable({apis:['setTimeout','Date']});
+ const ctx=makeCtx({isModeMovementAllowed:gate,getRoamIntervalMs:interval}),roam=roamModule(ctx);roam.setEnabled(true);
+ try{
+  roam.tick();mock.timers.tick(9000);assert.deepEqual(ctx._stateLog,[]);
+  mode='normal';roam.tick();mock.timers.tick(119999);
+  assert.ok(!ctx._stateLog.some(entry=>entry.state==='roam'));mock.timers.tick(1);
+  assert.ok(ctx._stateLog.some(entry=>entry.state==='roam'));
+ }finally{roam.setEnabled(false);mock.timers.reset();}
+});
+
+it('rest between walks allows the configured idle action playback to finish',()=>{
+ mock.timers.enable({apis:['setTimeout','Date']});mock.method(Math,'random',()=>0.9);
+ const ctx=makeCtx({getIdlePlaybackDuration:()=>12000}),roam=roamModule(ctx);roam.setEnabled(true);
+ try{
+  roam.tick();mock.timers.tick(8000);assert.equal(ctx.getCurrentState(),'idle','long idle actions are not cut by the initial eight seconds');
+  mock.timers.tick(4100);assert.equal(ctx.getCurrentState(),'roam');
+  for(let i=0;i<2000&&ctx.getCurrentState()==='roam';i++)mock.timers.tick(16);
+  assert.equal(ctx.getCurrentState(),'idle');
+  const walkCount=ctx._stateLog.filter(entry=>entry.state==='roam').length;
+  mock.timers.tick(11999);assert.equal(ctx._stateLog.filter(entry=>entry.state==='roam').length,walkCount,'four-second rest must not interrupt a twelve-second idle playback');
+  mock.timers.tick(100);assert.equal(ctx.getCurrentState(),'roam');
+ }finally{roam.setEnabled(false);mock.timers.reset();mock.reset()}
+});
+
+it('mode-owned interval delays initial and subsequent roaming without shortening idle playback',()=>{
+ mock.timers.enable({apis:['setTimeout','Date']});mock.method(Math,'random',()=>0.9);
+ const ctx=makeCtx({getRoamIntervalMs:()=>120000,getIdlePlaybackDuration:()=>8000}),roam=roamModule(ctx);roam.setEnabled(true);
+ try{
+  roam.tick();mock.timers.tick(119999);assert.equal(ctx.getCurrentState(),'idle');mock.timers.tick(1);assert.equal(ctx.getCurrentState(),'roam');
+  for(let i=0;i<2000&&ctx.getCurrentState()==='roam';i++)mock.timers.tick(16);
+  assert.equal(ctx.getCurrentState(),'idle');const walks=ctx._stateLog.filter(entry=>entry.state==='roam').length;
+  mock.timers.tick(119999);assert.equal(ctx._stateLog.filter(entry=>entry.state==='roam').length,walks);
+  mock.timers.tick(1);assert.equal(ctx.getCurrentState(),'roam');
+ }finally{roam.setEnabled(false);mock.timers.reset();mock.reset()}
+});

@@ -22,7 +22,11 @@ const {
 const {
   extractLastAssistantTextFromTranscript,
 } = require("./codex-assistant-output");
-const { readCodexThreadName } = require("./codex-session-index");
+const {
+  readCodexThreadName,
+  extractCodexSessionIdFromTranscriptPath,
+  normalizeCodexSessionId: normalizeCodexSessionIdentity,
+} = require("./codex-session-index");
 const { isCodexDesktopOriginator } = require("./codex-originator");
 const { fitStateBodyToByteBudget } = require("./state-payload-size");
 
@@ -50,20 +54,8 @@ function getCodexPermissionTimeoutMs() {
   return CODEX_PERMISSION_TIMEOUT_MS;
 }
 
-function extractCodexSessionIdFromTranscriptPath(transcriptPath) {
-  if (typeof transcriptPath !== "string" || !transcriptPath.trim()) return null;
-  const fileName = path.basename(transcriptPath.replace(/\\/g, "/"));
-  const match = fileName.match(
-    /^rollout-.+-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i
-  );
-  return match ? match[1] : null;
-}
-
-function normalizeCodexSessionId(value, transcriptPath = "") {
-  const transcriptSessionId = extractCodexSessionIdFromTranscriptPath(transcriptPath);
-  const raw = transcriptSessionId
-    || (typeof value === "string" && value.trim() ? value.trim() : "default");
-  return raw.startsWith("codex:") ? raw : `codex:${raw}`;
+function normalizeCodexSessionId(value, transcriptPath = "", sessionMeta = readFirstSessionMeta(transcriptPath)) {
+  return normalizeCodexSessionIdentity(value, transcriptPath, sessionMeta);
 }
 
 function normalizeToolUseId(value) {
@@ -282,7 +274,7 @@ function buildPermissionBody(payload, resolve) {
   const body = {
     agent_id: "codex",
     hook_source: "codex-official",
-    session_id: normalizeCodexSessionId(payload.session_id, payload.transcript_path),
+    session_id: normalizeCodexSessionId(payload.session_id, payload.transcript_path, sessionMeta),
     tool_name: toolName,
     tool_input: normalizeToolMatchValue(rawToolInput) || {},
   };
@@ -332,7 +324,8 @@ function buildStateBody(payload, resolve) {
   if (!state) return null;
   if (event === "Stop" && payload.stop_hook_active === true) return null;
 
-  const sessionId = normalizeCodexSessionId(payload.session_id, payload.transcript_path);
+  const sessionMeta = readFirstSessionMeta(payload.transcript_path);
+  const sessionId = normalizeCodexSessionId(payload.session_id, payload.transcript_path, sessionMeta);
   const body = {
     state,
     session_id: sessionId,
@@ -362,7 +355,6 @@ function buildStateBody(payload, resolve) {
     }
   }
 
-  const sessionMeta = readFirstSessionMeta(payload.transcript_path);
   const threadName = readCodexThreadName(sessionId);
   if (threadName) body.session_title = threadName;
   const codexRole = resolveCodexSessionRole(payload, sessionMeta);

@@ -24,12 +24,17 @@ class FakeBrowserWindow extends EventEmitter {
     this.showCalls = 0;
     this.focusCalls = 0;
     this.loadFileCalls = [];
+    this.menuBarVisibilityCalls = [];
     FakeBrowserWindow.instances.push(this);
   }
 
   loadFile(filePath) {
     this.loadFileCalls.push(filePath);
     return FakeBrowserWindow.loadFileResults.shift();
+  }
+
+  setMenuBarVisibility(visible) {
+    this.menuBarVisibilityCalls.push(visible);
   }
 
   show() {
@@ -80,6 +85,7 @@ test("show creates one secure manager window and waits for ready-to-show", () =>
   assert.equal(first.options.icon, "/app/assets/brand/icon.png");
   assert.equal(first.options.show, false);
   assert.equal(first.options.backgroundColor, "#f6f8fc");
+  assert.deepEqual(first.menuBarVisibilityCalls, [false]);
   assert.deepEqual(first.options.webPreferences, {
     preload: "/app/runtime/agentlog/manager/preload.cjs",
     contextIsolation: true,
@@ -196,4 +202,17 @@ test("a stale load failure cannot destroy a newer manager window", async () => {
 
   assert.equal(controller.getWindow(), replacement);
   assert.equal(replacement.destroyed, false);
+});
+
+test("opening a minimized Manager restores it before showing and focusing", () => {
+  const controller = createController();
+  const window = controller.show();
+  window.emit("ready-to-show");
+  let minimized = true;
+  window.isMinimized = () => minimized;
+  window.restore = () => { minimized = false; };
+  window.focus = () => assert.equal(minimized, false, "a minimized window cannot be focused into view");
+  controller.show();
+  assert.equal(minimized, false);
+  assert.equal(FakeBrowserWindow.instances.length, 1);
 });

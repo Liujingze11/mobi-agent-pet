@@ -144,8 +144,8 @@ describe("hit-renderer input layer", () => {
     h.pointerup({});
     h.pointerup({});
     h.fireTimer((t) => t.ms === 400);
-    assert.ok(h.apiCalls.some((call) => call[0] === "playClickReaction"),
-      "double click should keep the pet reaction");
+    assert.ok(!h.apiCalls.some((call) => call[0] === "playClickReaction"),
+      "double click cannot play unassigned theme reactions");
     assert.ok(!h.apiCalls.some((call) => call[0] === "showContextMenu"),
       "double click should not open the single-click menu");
   });
@@ -246,15 +246,9 @@ describe("hit-renderer input layer", () => {
     h.pointermove({ clientX: 80, clientY: 100 });
     h.pointermove({ clientX: 95, clientY: 100 });
 
-    assert.deepStrictEqual(
-      h.apiCalls.filter((call) => call[0] === "startDragReaction"),
-      [
-        ["startDragReaction", "left"],
-        ["startDragReaction", "right"],
-      ]
-    );
-  });
-});
+    assert.ok(h.apiCalls.some(call => call[0] === "dragLock" && call[1] === true));
+    assert.deepStrictEqual(h.apiCalls.filter(call => call[0] === "startDragReaction"), []);
+  });});
 
 describe("hit-renderer OS file drop (#459)", () => {
   function makeDragEvent({ types = ["Files"], files = [] } = {}) {
@@ -320,30 +314,9 @@ describe("hit-renderer OS file drop (#459)", () => {
     assert.deepStrictEqual(h.apiCalls.filter((c) => c[0] === "dropPaths"), []);
   });
 
-  it("accepted drop plays the double reaction through the local isReacting gate", () => {
-    const h = createHarness();
-    h.apiHandlers.dropAccepted();
-    assert.deepStrictEqual(
-      h.apiCalls.filter((c) => c[0] === "playClickReaction"),
-      [["playClickReaction", "flail.svg", 3500]]
-    );
-    // While reacting, a second accept must not stack another animation.
-    h.apiHandlers.dropAccepted();
-    assert.strictEqual(h.apiCalls.filter((c) => c[0] === "playClickReaction").length, 1);
-  });
-
-  it("accepted drop falls back to the click poke for double-less themes (Calico)", () => {
-    const h = createHarness();
-    h.apiHandlers.themeConfig({ reactions: {
-      clickLeft: { file: "left.svg", duration: 2500 },
-      clickRight: { file: "right.svg", duration: 2500 },
-      drag: { file: "drag.svg" },
-    } });
-    h.apiHandlers.dropAccepted();
-    const plays = h.apiCalls.filter((c) => c[0] === "playClickReaction");
-    assert.strictEqual(plays.length, 1);
-    assert.ok(["left.svg", "right.svg"].includes(plays[0][1]), plays[0][1]);
-    assert.strictEqual(plays[0][2], 2500);
+  it("accepted drops cannot play unassigned reaction assets", () => {
+    const h=createHarness();h.apiHandlers.dropAccepted();h.apiHandlers.dropAccepted();
+    assert.deepStrictEqual(h.apiCalls.filter(c=>c[0] === "playClickReaction"), []);
   });
 
   it("accepted drop stays silent for drag-only themes (Cloudling) or a busy pet", () => {
@@ -356,4 +329,11 @@ describe("hit-renderer OS file drop (#459)", () => {
     busy.apiHandlers.dropAccepted();
     assert.deepStrictEqual(busy.apiCalls.filter((c) => c[0] === "playClickReaction"), []);
   });
+});
+
+it('pointer press lifts the pet before movement and releases after an Agent state update',()=>{
+  const h=createHarness();h.pointerdown({});
+  assert.ok(h.apiCalls.some(c=>c[0]==='dragLock' && c[1]===true),'press should lift without crossing the drag threshold');
+  h.apiHandlers.cancelReaction();h.pointerup({});
+  assert.ok(h.apiCalls.some(c=>c[0]==='dragLock' && c[1]===false),'state changes while held must not strand the lift');
 });

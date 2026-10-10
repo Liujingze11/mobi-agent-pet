@@ -59,6 +59,15 @@ describe("buildStateBody", () => {
     assert.strictEqual(body.cwd, "/tmp/p");
   });
 
+  it("reports the model used by the latest main Claude response", () => {
+    const file = writeTmpJsonl([
+      { type: "assistant", sessionId: "sid-1", message: { model: "claude-sonnet-4-6" } },
+      { type: "assistant", sessionId: "other", message: { model: "claude-opus-4-6" } },
+    ]);
+    const body = buildStateBody("Stop", { session_id: "sid-1", transcript_path: file }, mockResolve);
+    assert.strictEqual(body.model, "claude-sonnet-4-6");
+  });
+
   it("preserves Claude subagent provenance without replacing the canonical agent id", () => {
     const body = buildStateBody(
       "SessionEnd",

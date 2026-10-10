@@ -24,6 +24,7 @@ function createShortcutRuntime(options = {}) {
   const settingsController = requiredDependency(options.settingsController, "settingsController");
   const getSettingsWindow = requiredDependency(options.getSettingsWindow, "getSettingsWindow");
   const shortcutHandlers = requiredDependency(options.shortcutHandlers, "shortcutHandlers");
+  const disabledActions = new Set(options.disabledActionIds || []);
   const ipcMain = options.ipcMain || null;
   const failures = new Map();
   const disposers = [];
@@ -70,7 +71,7 @@ function createShortcutRuntime(options = {}) {
     const shortcuts = getSnapshotShortcuts();
     for (const actionId of SHORTCUT_ACTION_IDS) {
       const meta = SHORTCUT_ACTIONS[actionId];
-      if (!meta || !meta.persistent) continue;
+      if (!meta || !meta.persistent || disabledActions.has(actionId)) continue;
       const accelerator = shortcuts[actionId];
       if (!accelerator) {
         clearFailure(actionId);
@@ -120,6 +121,7 @@ function createShortcutRuntime(options = {}) {
   }
 
   function startRecording(actionId) {
+    if (disabledActions.has(actionId)) return { status: "error", message: "shortcut is controlled by app mode" };
     if (!SHORTCUT_ACTIONS[actionId]) {
       return { status: "error", message: "unknown shortcut action" };
     }

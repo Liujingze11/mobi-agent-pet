@@ -51,6 +51,8 @@ html, body {
 .sidebar {
   width: 200px;
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
   background: var(--sidebar-bg);
   border-right: 1px solid var(--border);
   padding: 16px 8px;
@@ -63,6 +65,7 @@ html, body {
 
 .sidebar-item {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 10px;
   padding: 8px 12px;
@@ -105,7 +108,8 @@ html, body {
   letter-spacing: 0.04em;
 }
 .doctor-indicator {
-  margin-bottom: 10px;
+  margin-top: auto;
+  margin-bottom: 0;
   border: 1px solid var(--border);
   background: var(--panel-bg);
 }
@@ -146,6 +150,88 @@ html, body {
   font-size: 10px;
   color: var(--text-tertiary);
   font-weight: 600;
+}
+
+.self-check-content {
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+  grid-template-areas: "agents features" "agents problems";
+  align-content: start;
+  gap: 10px;
+  padding: 2px 2px 10px;
+}
+.self-check-section:nth-child(1) { grid-area: agents; }
+.self-check-section:nth-child(2) { grid-area: features; }
+.self-check-section:nth-child(3) { grid-area: problems; }
+.self-check-section {
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 13px 14px;
+}
+.self-check-section h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.self-check-section p {
+  margin: 4px 0 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.self-check-item,
+.self-check-feature,
+.self-check-problem {
+  border-top: 1px solid var(--row-border);
+  padding: 10px 0;
+}
+.self-check-item-top,
+.self-check-feature,
+.self-check-problem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.self-check-item-top strong { flex: 1; font-size: 13px; }
+.self-check-item-sub,
+.self-check-last,
+.self-check-empty {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.self-check-item-sub { margin-top: 5px; }
+.self-check-last { display: block; margin-top: 2px; }
+.self-check-separator { margin: 0 7px; color: var(--text-tertiary); }
+.self-check-feature > span:first-of-type,
+.self-check-problem > span { flex: 1; }
+.self-check-feature .self-check-pill { margin-left: auto; }
+.self-check-test-button { min-width: 0; white-space: nowrap; }
+.self-check-logo { width: 24px; height: 24px; object-fit: contain; }
+.self-check-pill {
+  border-radius: 999px;
+  background: var(--sidebar-hover);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  white-space: nowrap;
+}
+.self-check-item.ok .self-check-pill,
+.self-check-feature.ok .self-check-pill { background: #e9f6ee; color: #237348; }
+.self-check-item.issue .self-check-pill,
+.self-check-feature.issue .self-check-pill { background: #fff0e3; color: #a65313; }
+.self-check-problem time { color: var(--text-tertiary); font-size: 11px; white-space: nowrap; }
+.self-check-empty { padding: 9px 0 3px; }
+@media (max-width: 700px) {
+  .self-check-content {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "agents" "features" "problems";
+  }
 }
 
 /* ── Content panel ── */
@@ -3817,3 +3903,10 @@ html, body {
 .mobile-action-btn:hover { background: var(--accent); color: #fff; }
 .mobile-action-danger { border-color: var(--red); color: var(--red); }
 .mobile-action-danger:hover { background: var(--red); color: #fff; }
+
+.custom-mode-form { max-width: 720px; }
+.custom-mode-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.custom-mode-row input[type="number"] { width: 100px; }
+.custom-mode-form fieldset { margin: 18px 0; padding: 12px; }
+.custom-mode-state { display: inline-flex; align-items: center; gap: 6px; margin: 8px 12px 8px 0; }
+.custom-mode-form > button { margin: 16px 10px 0 0; }

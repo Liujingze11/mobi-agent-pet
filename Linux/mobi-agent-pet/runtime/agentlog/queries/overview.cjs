@@ -4,6 +4,7 @@ const {
   sumIntervalDuration,
   unionIntervalDuration,
 } = require("../time/intervals.cjs");
+const { periodBounds, summarizeIntervalBuckets } = require("../analytics/usage-report.cjs");
 
 function createOverviewQueries(db, { now = Date.now } = {}) {
   if (!db || typeof db.prepare !== "function") {
@@ -25,6 +26,15 @@ function createOverviewQueries(db, { now = Date.now } = {}) {
   );
   const selectAgentIntervals = db.prepare(
     "SELECT i.started_at, i.ended_at FROM agent_active_intervals i LEFT JOIN projects p ON p.id = i.project_id WHERE i.project_id IS NULL OR p.lifecycle = 'active'"
+  );
+  const selectUsageIntervals = db.prepare(
+    "SELECT i.agent_session_id, i.project_id, p.name AS project_name, i.started_at, i.ended_at, i.close_reason, (SELECT MAX(e.occurred_at) FROM agent_events e WHERE e.agent_session_row_id = i.agent_session_id AND e.occurred_at >= i.started_at AND e.occurred_at <= i.ended_at) AS last_observed_at FROM agent_active_intervals i LEFT JOIN projects p ON p.id = i.project_id WHERE i.started_at < ? AND (i.ended_at IS NULL OR i.ended_at > ?)"
+  );
+  const selectUsageSessions = db.prepare(
+    "SELECT s.id, s.agent_id, s.source_session_id, s.transcript_path, CASE WHEN (s.started_at < ? AND s.last_event_at >= ?) OR EXISTS (SELECT 1 FROM agent_active_intervals i WHERE i.agent_session_id = s.id AND i.started_at < ? AND (i.ended_at IS NULL OR i.ended_at > ?)) THEN 1 ELSE 0 END AS expected_in_period FROM agent_sessions s WHERE s.agent_id IN ('codex', 'claude-code') ORDER BY s.started_at, s.id"
+  );
+  const selectUsageSession = db.prepare(
+    "SELECT id, agent_id, source_session_id, transcript_path FROM agent_sessions WHERE id = ?"
   );
   const selectProjectAgentIntervals = db.prepare(
     "SELECT started_at, ended_at FROM agent_active_intervals WHERE project_id = ?"
@@ -53,11 +63,14 @@ function createOverviewQueries(db, { now = Date.now } = {}) {
   const selectRecentActivity = db.prepare(
     "SELECT e.*, p.name AS project_name FROM agent_events e LEFT JOIN projects p ON p.id = e.project_id WHERE e.project_id IS NULL OR p.lifecycle = 'active' ORDER BY e.occurred_at DESC, e.id DESC LIMIT ?"
   );
+  const selectLatestAgentRecords = db.prepare(
+    "SELECT agent_id, MAX(received_at) AS last_recorded_at FROM agent_events GROUP BY agent_id"
+  );
   const selectProjectTimeline = db.prepare(
     "SELECT e.*, p.name AS project_name FROM agent_events e JOIN projects p ON p.id = e.project_id WHERE e.project_id = ? AND (? IS NULL OR e.agent_id = ?) AND (? IS NULL OR e.category = ?) AND (? IS NULL OR e.type = ?) ORDER BY e.occurred_at DESC, e.id DESC LIMIT ?"
   );
   const selectSessionIntervals = db.prepare(
-    "SELECT started_at, ended_at FROM agent_active_intervals WHERE agent_session_id = ?"
+    "SELECT i.started_at, i.ended_at, i.close_reason, (SELECT MAX(e.occurred_at) FROM agent_events e WHERE e.agent_session_row_id = i.agent_session_id AND e.occurred_at >= i.started_at AND e.occurred_at <= i.ended_at) AS last_observed_at FROM agent_active_intervals i WHERE i.agent_session_id = ?"
   );
 
   function timestamp() {
@@ -107,6 +120,19 @@ function createOverviewQueries(db, { now = Date.now } = {}) {
     return rows.map((row) => ({ startedAt: row.started_at, endedAt: row.ended_at }));
   }
 
+  function confirmedIntervals(rows, end = Infinity) {
+    return rows.filter((row) => row.ended_at != null).map((row) => ({
+      startedAt: row.started_at,
+      endedAt: Math.min(end, confirmedEnd(row)),
+    }));
+  }
+
+  function confirmedEnd(row) {
+    return row.close_reason === "interrupted"
+      ? Math.max(row.started_at, Math.min(row.ended_at, row.last_observed_at ?? row.started_at))
+      : row.ended_at;
+  }
+
   function humanEffectiveMs(row, at, range) {
     if (!Number.isFinite(row.started_at)) return 0;
     const nominalEnd = row.status === "paused"
@@ -124,7 +150,7 @@ function createOverviewQueries(db, { now = Date.now } = {}) {
   }
 
   function mapAgentSession(row, at) {
-    const activeMs = sumIntervalDuration(mapIntervals(selectSessionIntervals.all(row.id)), { end: at });
+    const activeMs = sumIntervalDuration(confirmedIntervals(selectSessionIntervals.all(row.id), at));
     return {
       id: row.id,
       source: "agent",
@@ -133,6 +159,7 @@ function createOverviewQueries(db, { now = Date.now } = {}) {
       parentSourceSessionId: row.parent_source_session_id,
       projectId: row.project_id,
       projectName: row.project_name || null,
+      projectAssignmentSource: row.project_assignment_source,
       cwd: row.cwd,
       title: row.title,
       startedAt: row.started_at,
@@ -242,6 +269,57 @@ function createOverviewQueries(db, { now = Date.now } = {}) {
     };
   }
 
+  function getLatestAgentRecords() {
+    return selectLatestAgentRecords.all().map((row) => ({
+      agentId: row.agent_id,
+      lastRecordedAt: Number(row.last_recorded_at) || 0,
+    }));
+  }
+
+  function getUsageReport({ period = "day", anchor = timestamp() } = {}) {
+    const at = timestamp();
+    const bounds = periodBounds(period, anchor, at);
+    const intervalRows = selectUsageIntervals.all(bounds.end, bounds.previousStart);
+    const intervals = intervalRows.filter((row) => row.ended_at != null).map((row) => ({
+      sessionId: row.agent_session_id,
+      projectId: row.project_id,
+      startedAt: row.started_at,
+      endedAt: Math.min(bounds.end, confirmedEnd(row)),
+    }));
+    const summary = summarizeIntervalBuckets(intervals, bounds.boundaries);
+    const previousEnd = bounds.previousStart + (bounds.end - bounds.start);
+    const previous = summarizeIntervalBuckets(intervals, [bounds.previousStart, previousEnd]);
+    const names = new Map(intervalRows.map((row) => [row.project_id, row.project_name]));
+    return {
+      period,
+      start: bounds.start,
+      end: bounds.end,
+      previousMs: previous.totalMs,
+      totalMs: summary.totalMs,
+      ongoingSessions: new Set(intervalRows.filter((row) => row.ended_at == null).map((row) => row.agent_session_id)).size,
+      sessionCount: summary.sessionCount,
+      buckets: summary.buckets,
+      projects: summary.projects.map((item) => ({
+        ...item,
+        name: names.get(item.projectId) || null,
+      })),
+    };
+  }
+
+  function listUsageSessions(start, end) {
+    return selectUsageSessions.all(end, start, end, start).map((row) => ({
+      id: row.id, agentId: row.agent_id,
+      sourceSessionId: row.source_session_id, transcriptPath: row.transcript_path,
+      expectedInPeriod: Boolean(row.expected_in_period),
+    }));
+  }
+
+  function getUsageSession(id) {
+    const row = selectUsageSession.get(id);
+    return row ? { id: row.id, agentId: row.agent_id,
+      sourceSessionId: row.source_session_id, transcriptPath: row.transcript_path } : null;
+  }
+
   function listProjects(filters = {}) {
     const { source, confirmation, lifecycle } = projectFilters(filters);
     return selectProjects.all(
@@ -318,6 +396,10 @@ function createOverviewQueries(db, { now = Date.now } = {}) {
 
   return {
     getOverview,
+    getLatestAgentRecords,
+    getUsageReport,
+    listUsageSessions,
+    getUsageSession,
     listProjects,
     getProjectDetail,
     listSessions,

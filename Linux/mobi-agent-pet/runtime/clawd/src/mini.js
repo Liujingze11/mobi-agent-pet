@@ -64,7 +64,6 @@ function animateWindowX(targetX, durationMs, onDone) {
   const snapY = miniSnap ? miniSnap.y : bounds.y;
   const snapW = miniSnap ? miniSnap.width : bounds.width;
   const snapH = miniSnap ? miniSnap.height : bounds.height;
-  let frameCount = 0;
   const step = () => {
     if (!ctx.win || ctx.win.isDestroyed()) {
       peekAnimTimer = null;
@@ -93,7 +92,6 @@ function animateWindowX(targetX, durationMs, onDone) {
     repositionSessionHud();
     syncContainedClip();
     // Throttle bubble reposition to every 3rd frame (~20fps) — visually identical, less overhead
-    if (ctx.bubbleFollowPet && ctx.pendingPermissions.length && (++frameCount % 3 === 0 || t >= 1)) ctx.repositionBubbles();
     if (t < 1) {
       peekAnimTimer = setTimeout(step, 16);
     } else {
@@ -116,7 +114,6 @@ function animateWindowParabola(targetX, targetY, durationMs, onDone) {
   }
   isAnimating = true;
   const startTime = Date.now();
-  let frameCount = 0;
   const step = () => {
     if (!ctx.win || ctx.win.isDestroyed()) {
       peekAnimTimer = null;
@@ -147,7 +144,6 @@ function animateWindowParabola(targetX, targetY, durationMs, onDone) {
     repositionSessionHud();
     syncContainedClip();
     // Throttle bubble reposition to every 3rd frame (~20fps) — visually identical, less overhead
-    if (ctx.bubbleFollowPet && ctx.pendingPermissions.length && (++frameCount % 3 === 0 || t >= 1)) ctx.repositionBubbles();
     if (t < 1) {
       peekAnimTimer = setTimeout(step, 16);
     } else {
@@ -222,17 +218,8 @@ function getMiniStateFile(state) {
   return Array.isArray(files) && files[0] ? files[0] : null;
 }
 
-function getMiniEnterDurationMs(state) {
-  const file = getMiniStateFile(state);
-  const cycleMs = typeof ctx.getAnimationAssetCycleMs === "function"
-    ? ctx.getAnimationAssetCycleMs(file)
-    : null;
-  return Number.isFinite(cycleMs) && cycleMs > 0 ? cycleMs : MINI_ENTER_FALLBACK_MS;
-}
-
-function getMiniRestState() {
-  return ctx.doNotDisturb ? "mini-sleep" : "mini-idle";
-}
+function getMiniEnterDurationMs() { return 0; }
+function getMiniRestState() { return ctx.doNotDisturb ? "idle" : ctx.resolveDisplayState(); }
 
 function finishMiniEntry(delayMs) {
   if (miniTransitionTimer) { clearTimeout(miniTransitionTimer); miniTransitionTimer = null; }
@@ -240,7 +227,6 @@ function finishMiniEntry(delayMs) {
   miniTransitionTimer = setTimeout(() => {
     miniTransitionTimer = null;
     miniTransitioning = false;
-    ctx.applyState(getMiniRestState());
   }, settleMs);
 }
 
@@ -346,7 +332,7 @@ function enterMiniMode(wa, viaMenu, edge) {
     }
     animateWindowParabola(jumpTarget, bounds.y, JUMP_DURATION, () => {
       const enterDurationMs = getMiniEnterDurationMs(enterSvgState);
-      ctx.applyState(enterSvgState);
+      // Geometry transition does not change pet state.
       if (MINI_ENTER_PRELOAD_MS <= 0) {
         miniSnap = { y: bounds.y, width: size.width, height: size.height };
         ctx.win.setBounds({ x: currentMiniX, y: miniSnap.y, width: miniSnap.width, height: miniSnap.height });
@@ -375,7 +361,7 @@ function enterMiniMode(wa, viaMenu, edge) {
     // the via-menu path: window settles, then the full entry animation
     // plays in place and reads clearly.
     animateWindowX(currentMiniX, 100, () => {
-      ctx.applyState(enterSvgState);
+      // Geometry transition does not change pet state.
       finishMiniEntry(getMiniEnterDurationMs(enterSvgState));
     });
   }
@@ -429,10 +415,7 @@ function exitMiniMode() {
       ctx.sendToHitWin("hit-state-sync", { dndEnabled: false });
       ctx.buildContextMenu();
       ctx.buildTrayMenu();
-      ctx.applyState("waking");
-    } else {
-      const resolved = ctx.resolveDisplayState();
-      ctx.applyState(resolved, ctx.getSvgOverride(resolved));
+      ctx.applyState(ctx.resolveDisplayState());
     }
   });
 }
@@ -464,7 +447,7 @@ function enterMiniViaMenu() {
   ctx.sendToRenderer("mini-mode-change", true, edge, { preEntry: true });
   ctx.sendToHitWin("hit-state-sync", { miniMode: true });
 
-  ctx.applyState("mini-crabwalk");
+  // Manual edge relocation preserves the task state.
 
   const adjacent = seamBoundary(wa, bounds.y + size.height / 2, edge) != null;
   let edgeX;

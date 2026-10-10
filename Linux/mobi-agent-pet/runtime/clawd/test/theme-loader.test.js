@@ -23,6 +23,7 @@ function makeFixture(themes) {
   const appDir = path.join(tmp, "src");
   fs.mkdirSync(appDir, { recursive: true });
   fs.mkdirSync(path.join(tmp, "assets", "svg"), { recursive: true });
+  fs.writeFileSync(path.join(tmp, "assets", "svg", "idle.svg"), '<svg xmlns="http://www.w3.org/2000/svg"/>');
   fs.mkdirSync(path.join(tmp, "assets", "sounds"), { recursive: true });
   fs.mkdirSync(path.join(tmp, "themes"), { recursive: true });
   const userData = path.join(tmp, "userData");
@@ -198,7 +199,7 @@ describe("theme-loader trusted runtime and schema v1 defaults", () => {
             viewBox: { x: -10, y: -10, width: 40, height: 40 },
           }),
         }),
-        assets: {},
+        assets: { "idle.svg": '<svg xmlns="http://www.w3.org/2000/svg"/>' },
       },
       {
         id: "forced-object",
@@ -395,6 +396,7 @@ describe("theme-loader preview sound selection", () => {
 
     for (const themeId of ["preview-theme", "fallback-theme", "silent-theme"]) {
       fs.mkdirSync(path.join(fixture.tmp, "userData", "themes", themeId, "assets"), { recursive: true });
+      fs.writeFileSync(path.join(fixture.tmp, "userData", "themes", themeId, "assets", "idle.svg"), '<svg xmlns="http://www.w3.org/2000/svg"/>');
     }
 
     const previewSoundsDir = path.join(fixture.tmp, "userData", "themes", "preview-theme", "sounds");
@@ -793,7 +795,7 @@ describe("theme-loader capability metadata", () => {
           name: "Forged Scripted Power",
           trustedRuntime: { scriptedSvgFiles: ["idle.svg"] },
         }),
-        assets: {},
+        assets: { "idle.svg": '<svg xmlns="http://www.w3.org/2000/svg"/>' },
       },
       {
         id: "forcedObjectPower",
@@ -802,7 +804,7 @@ describe("theme-loader capability metadata", () => {
           name: "Forced Object Power",
           rendering: { svgChannel: "object" },
         }),
-        assets: {},
+        assets: { "idle.svg": '<svg xmlns="http://www.w3.org/2000/svg"/>' },
       },
       {
         id: "badMini",
@@ -965,11 +967,11 @@ describe("theme-loader fallback + sleepSequence", () => {
     const theme = themeLoader.loadTheme("directSleep", { strict: true });
     assert.strictEqual(theme.sleepSequence.mode, "direct");
     assert.deepStrictEqual(theme.states.error, []);
-    assert.deepStrictEqual(theme._stateBindings.error, {
+    assert.deepStrictEqual(theme._sourcePetStateBindings.error, {
       files: [],
       fallbackTo: "attention",
     });
-    assert.deepStrictEqual(theme._stateBindings.sleeping, {
+    assert.deepStrictEqual(theme._sourcePetStateBindings.sleeping, {
       files: [],
       fallbackTo: "idle",
     });
@@ -992,7 +994,7 @@ describe("theme-loader fallback + sleepSequence", () => {
       },
     });
     assert.deepStrictEqual(theme.states.error, ["custom-error.svg"]);
-    assert.deepStrictEqual(theme._stateBindings.error, {
+    assert.deepStrictEqual(theme._sourcePetStateBindings.error, {
       files: ["custom-error.svg"],
       fallbackTo: "attention",
     });
@@ -1194,7 +1196,7 @@ describe("theme-loader variant loading", () => {
         },
       },
     });
-    assert.strictEqual(theme.states.thinking[0], "custom-thinking.svg");
+    assert.strictEqual(theme._sourcePetBindings.thinking[0], "custom-thinking.svg");
     assert.deepStrictEqual(
       theme.workingTiers.map((t) => t.file),
       ["custom-working.svg", "pose-b.svg"]

@@ -9,8 +9,17 @@ const userDataPath = legacyUserDataPath(app.getPath("appData"));
 fs.mkdirSync(userDataPath, { recursive: true });
 app.setPath("userData", userDataPath);
 app.setName(BRAND.productName);
+// The development desktop entry has its own ID. Using the packaged ID here
+// leaves GNOME with a window-backed app that it cannot launch again reliably.
+if (process.platform === "linux" && !app.isPackaged) {
+  app.setDesktopName("mobi-agent-pet-dev.desktop");
+}
 
 const agentLogApp = require("./app-runtime.cjs");
+require("../clawd/src/theme-loader").setThemePolicy({
+  defaultThemeId: "mobi-a",
+  excludedBuiltinThemeIds: ["clawd", "calico", "cloudling"],
+});
 agentLogApp.install();
 
 require("../clawd/src/main.js");

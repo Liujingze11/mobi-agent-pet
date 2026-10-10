@@ -49,7 +49,7 @@ function createHarness(overrides = {}) {
     getThemeMarginBox,
     computeThemeAnchorRect,
     getActiveTheme: () => overrides.theme === undefined ? THEME : overrides.theme,
-    getCurrentState: () => overrides.state || "thinking",
+    getCurrentState: () => overrides.state || "working",
     getCurrentSvg: () => overrides.svg === undefined ? "thinking.svg" : overrides.svg,
     getCurrentHitBox: () => overrides.hitBox || { left: 1, top: 2, right: 3, bottom: 4 },
     getMiniMode: () => !!overrides.miniMode,
@@ -65,8 +65,9 @@ test("getObjRect delegates asset rect calculation and falls back to the full win
     "getAssetRectScreen",
     THEME,
     BOUNDS,
-    "thinking",
+    "working",
     "thinking.svg",
+    { miniMode: false },
   ]);
 
   const fallback = createHarness({ assetRect: null });
@@ -85,8 +86,9 @@ test("getObjRect falls back from missing current SVG to idle and tolerates malfo
     "getAssetRectScreen",
     THEME,
     BOUNDS,
-    "thinking",
+    "working",
     "idle.svg",
+    { miniMode: false },
   ]);
 
   const malformedIdle = createHarness({ theme: { _id: "broken", states: {} }, svg: null, assetRect: null });
@@ -107,9 +109,10 @@ test("getAssetPointerPayload delegates with current file and returns null withou
     "getAssetPointerPayload",
     THEME,
     BOUNDS,
-    "thinking",
+    "working",
     "thinking.svg",
     point,
+    { miniMode: false },
   ]);
 
   const missingTheme = createHarness({ theme: null });
@@ -133,10 +136,10 @@ test("getHitRectScreen passes hitbox and mini padding, with a full-window fallba
     "getHitRectScreen",
     THEME,
     BOUNDS,
-    "thinking",
+    "working",
     "thinking.svg",
     { left: 1, top: 2, right: 3, bottom: 4 },
-    { padX: 24, padY: 8 },
+    { miniMode: true, padX: 24, padY: 8 },
   ]);
 
   const fallback = createHarness({ hitRect: null });
@@ -149,7 +152,7 @@ test("getHitRectScreen passes hitbox and mini padding, with a full-window fallba
 
   const normal = createHarness({ miniMode: false });
   normal.runtime.getHitRectScreen(BOUNDS);
-  assert.deepStrictEqual(normal.calls[0][6], { padX: 0, padY: 0 });
+  assert.deepStrictEqual(normal.calls[0][6], { miniMode: false, padX: 0, padY: 0 });
   assert.strictEqual(normal.runtime.getHitRectScreen(null), null);
 });
 

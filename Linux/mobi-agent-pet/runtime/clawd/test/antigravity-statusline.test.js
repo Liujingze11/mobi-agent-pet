@@ -49,6 +49,11 @@ describe("Antigravity statusline adapter", () => {
     assert.strictEqual(Object.prototype.hasOwnProperty.call(body, "antigravity_quota"), false);
   });
 
+  it("forwards the reported model even when there is no quota or context data", () => {
+    const body = buildStateBody({ conversation_id: "c1", model: { id: "gemini-3.1-pro", display_name: "Gemini 3.1 Pro" } }, null, null);
+    assert.strictEqual(body.model, "Gemini 3.1 Pro");
+  });
+
   it("returns null when the payload has no conversation id", () => {
     assert.strictEqual(buildStateBody({}, null, null), null);
     assert.strictEqual(buildStateBody(null, null, null), null);

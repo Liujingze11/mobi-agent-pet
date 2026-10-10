@@ -69,7 +69,7 @@ describe("Kimi permission hold by session", () => {
     api.updateSession("kimi-b", "working", "PreToolUse", { agentId: "kimi-cli" });
 
     assert.strictEqual(api.sessions.get("kimi-b").state, "working");
-    assert.strictEqual(api.resolveDisplayState(), "notification");
+    assert.strictEqual(api.resolveDisplayState(), "waiting");
   });
 
   it("clears only the matching session hold on terminal events", () => {
@@ -78,7 +78,7 @@ describe("Kimi permission hold by session", () => {
 
     // kimi-a's user answers (PostToolUse arrives) — kimi-b's hold must remain.
     api.updateSession("kimi-a", "working", "PostToolUse", { agentId: "kimi-cli" });
-    assert.strictEqual(api.resolveDisplayState(), "notification");
+    assert.strictEqual(api.resolveDisplayState(), "waiting");
 
     // Then kimi-b answers — display falls back to working.
     api.updateSession("kimi-b", "working", "PostToolUse", { agentId: "kimi-cli" });
@@ -87,12 +87,12 @@ describe("Kimi permission hold by session", () => {
 
   it("hold persists for tens of seconds while user thinks (no premature clear)", () => {
     api.updateSession("kimi-a", "notification", "PermissionRequest", { agentId: "kimi-cli" });
-    assert.strictEqual(api.resolveDisplayState(), "notification");
+    assert.strictEqual(api.resolveDisplayState(), "waiting");
 
     // User stares at the TUI for 90 seconds (phone, lunch, deciding).
     // The hold MUST still be active.
     mock.timers.tick(90 * 1000);
-    assert.strictEqual(api.resolveDisplayState(), "notification");
+    assert.strictEqual(api.resolveDisplayState(), "waiting");
 
     // After 10 minutes the safety cap finally releases.
     mock.timers.tick(10 * 60 * 1000);
@@ -108,11 +108,11 @@ describe("Kimi permission hold by session", () => {
       api = require("../src/state")(ctx);
 
       api.updateSession("kimi-a", "notification", "PermissionRequest", { agentId: "kimi-cli" });
-      assert.strictEqual(api.resolveDisplayState(), "notification");
+      assert.strictEqual(api.resolveDisplayState(), "waiting");
 
       // Even an absurdly long wait should keep the hold.
       mock.timers.tick(60 * 60 * 1000); // 1h
-      assert.strictEqual(api.resolveDisplayState(), "notification");
+      assert.strictEqual(api.resolveDisplayState(), "waiting");
     } finally {
       if (old == null) delete process.env.CLAWD_KIMI_PERMISSION_MAX_MS;
       else process.env.CLAWD_KIMI_PERMISSION_MAX_MS = old;
@@ -121,21 +121,21 @@ describe("Kimi permission hold by session", () => {
 
   it("UserPromptSubmit clears the hold (Reject + tell-the-model path)", () => {
     api.updateSession("kimi-a", "notification", "PermissionRequest", { agentId: "kimi-cli" });
-    assert.strictEqual(api.resolveDisplayState(), "notification");
+    assert.strictEqual(api.resolveDisplayState(), "waiting");
 
     api.updateSession("kimi-a", "thinking", "UserPromptSubmit", { agentId: "kimi-cli" });
-    assert.notStrictEqual(api.resolveDisplayState(), "notification");
+    assert.notStrictEqual(api.resolveDisplayState(), "waiting");
   });
 
   it("StopFailure clears the hold", () => {
     api.updateSession("kimi-a", "notification", "PermissionRequest", { agentId: "kimi-cli" });
     api.updateSession("kimi-a", "error", "StopFailure", { agentId: "kimi-cli" });
-    assert.notStrictEqual(api.resolveDisplayState(), "notification");
+    assert.notStrictEqual(api.resolveDisplayState(), "waiting");
   });
 
   it("a new PreToolUse for the same session drops the previous hold", () => {
     api.updateSession("kimi-a", "notification", "PermissionRequest", { agentId: "kimi-cli" });
-    assert.strictEqual(api.resolveDisplayState(), "notification");
+    assert.strictEqual(api.resolveDisplayState(), "waiting");
 
     // New round starts: stale hold from the previous tool must not bleed in.
     api.updateSession("kimi-a", "working", "PreToolUse", {
@@ -224,18 +224,18 @@ describe("Kimi permission hold by session", () => {
 
     // Turn DND off and confirm the pet does not pin notification.
     api.disableDoNotDisturb();
-    assert.notStrictEqual(api.resolveDisplayState(), "notification");
+    assert.notStrictEqual(api.resolveDisplayState(), "waiting");
   });
 
   it("clears existing Kimi holds when DND is enabled", () => {
     api.updateSession("kimi-a", "notification", "PermissionRequest", { agentId: "kimi-cli" });
-    assert.strictEqual(api.resolveDisplayState(), "notification");
+    assert.strictEqual(api.resolveDisplayState(), "waiting");
     api.enableDoNotDisturb();
     // The hold must have been dropped by enableDoNotDisturb. After turning
     // DND off the pet should not snap back to a permanent notification
     // animation with no bubble to show.
     api.disableDoNotDisturb();
-    assert.notStrictEqual(api.resolveDisplayState(), "notification");
+    assert.notStrictEqual(api.resolveDisplayState(), "waiting");
   });
 
   it("does not create a hold when Kimi permissions are disabled", () => {
@@ -246,19 +246,19 @@ describe("Kimi permission hold by session", () => {
     // when the user had disabled Kimi permissions in Settings. Asserting
     // currentState (not just resolveDisplayState) catches that regression.
     assert.deepStrictEqual(ctx._kimiNotifyShown, []);
-    assert.notStrictEqual(api.resolveDisplayState(), "notification");
-    assert.notStrictEqual(api.getCurrentState(), "notification");
+    assert.notStrictEqual(api.resolveDisplayState(), "waiting");
+    assert.notStrictEqual(api.getCurrentState(), "waiting");
   });
 
   it("disposeAllKimiPermissionState clears holds without triggering a state resolve", () => {
     api.updateSession("kimi-a", "notification", "PermissionRequest", { agentId: "kimi-cli" });
-    assert.strictEqual(api.resolveDisplayState(), "notification");
+    assert.strictEqual(api.resolveDisplayState(), "waiting");
     const disposed = api.disposeAllKimiPermissionState();
     assert.strictEqual(disposed, true);
     // After disposal the lock must be gone — this is the function main.js
     // calls from _deferredDismissPermissionsByAgent when the user toggles
     // permissionsEnabled=false for Kimi.
-    assert.notStrictEqual(api.resolveDisplayState(), "notification");
+    assert.notStrictEqual(api.resolveDisplayState(), "waiting");
     // Idempotent: calling again with nothing to clear returns false.
     assert.strictEqual(api.disposeAllKimiPermissionState(), false);
   });
@@ -310,8 +310,8 @@ describe("Kimi permission suspect heuristic", () => {
     });
     // Default suspect window is 800ms; let it expire.
     mock.timers.tick(1000);
-    assert.strictEqual(api.getCurrentState(), "notification");
-    assert.strictEqual(api.resolveDisplayState(), "notification");
+    assert.strictEqual(api.getCurrentState(), "waiting");
+    assert.strictEqual(api.resolveDisplayState(), "waiting");
   });
 
   it("does not let a heuristic Kimi hold swallow another agent's one-shot", () => {
@@ -320,19 +320,19 @@ describe("Kimi permission suspect heuristic", () => {
       permissionSuspect: true,
     });
     mock.timers.tick(1000);
-    assert.strictEqual(api.getCurrentState(), "notification");
+    assert.strictEqual(api.getCurrentState(), "waiting");
 
     api.updateSession("claude-a", "attention", "Stop", { agentId: "claude-code" });
     // The current notification finishes its minimum display interval, then
     // the external one-shot plays instead of being dropped.
     mock.timers.tick(5000);
-    assert.strictEqual(api.getCurrentState(), "attention");
+    assert.strictEqual(api.getCurrentState(), "waiting");
 
     // Once the one-shot finishes, the still-pending Kimi cue becomes visible
     // again instead of being lost permanently.
     mock.timers.tick(5000);
-    assert.strictEqual(api.getCurrentState(), "notification");
-    assert.strictEqual(api.resolveDisplayState(), "notification");
+    assert.strictEqual(api.getCurrentState(), "waiting");
+    assert.strictEqual(api.resolveDisplayState(), "waiting");
   });
 
   it("PostToolUseFailure also cancels suspect (error path is treated as auto-approved)", () => {
@@ -344,7 +344,7 @@ describe("Kimi permission suspect heuristic", () => {
     api.updateSession("kimi-a", "error", "PostToolUseFailure", { agentId: "kimi-cli" });
     mock.timers.tick(5000);
     // Error state wins but notification must not have triggered.
-    assert.notStrictEqual(api.getCurrentState(), "notification");
+    assert.notStrictEqual(api.getCurrentState(), "waiting");
   });
 
   it("SessionEnd cancels any pending suspect timer", () => {
@@ -355,7 +355,7 @@ describe("Kimi permission suspect heuristic", () => {
     api.updateSession("kimi-a", "sleeping", "SessionEnd", { agentId: "kimi-cli" });
     mock.timers.tick(5000);
     // Session is gone and suspect should not have promoted.
-    assert.notStrictEqual(api.getCurrentState(), "notification");
+    assert.notStrictEqual(api.getCurrentState(), "waiting");
     assert.strictEqual(api.sessions.has("kimi-a"), false);
   });
 });
@@ -380,21 +380,21 @@ describe("Global permission animation lock", () => {
     assert.strictEqual(api.resolveDisplayState(), "working");
 
     api.updateSession("k1", "notification", "PermissionRequest", { agentId: "kimi-cli" });
-    assert.strictEqual(api.resolveDisplayState(), "notification");
+    assert.strictEqual(api.resolveDisplayState(), "waiting");
   });
 
   it("blocks oneshot state transitions while Kimi hold is pending", () => {
     api.updateSession("k1", "notification", "PermissionRequest", { agentId: "kimi-cli" });
-    assert.strictEqual(api.getCurrentState(), "notification");
+    assert.strictEqual(api.getCurrentState(), "waiting");
 
     api.updateSession("s1", "attention", "Stop", { agentId: "claude-code" });
-    assert.strictEqual(api.getCurrentState(), "notification");
+    assert.strictEqual(api.getCurrentState(), "waiting");
   });
 
   it("resumes normal state resolution after Kimi hold is cleared", () => {
     api.sessions.set("s1", { state: "working", updatedAt: Date.now(), headless: false });
     api.updateSession("k1", "notification", "PermissionRequest", { agentId: "kimi-cli" });
-    assert.strictEqual(api.resolveDisplayState(), "notification");
+    assert.strictEqual(api.resolveDisplayState(), "waiting");
 
     api.updateSession("k1", "working", "PostToolUse", { agentId: "kimi-cli" });
     assert.strictEqual(api.resolveDisplayState(), "working");
@@ -445,7 +445,7 @@ describe("Kimi permission gate ledger (batched approvals)", () => {
     // Suspect window expires -> first cue, described by the OLDEST gate (t1),
     // not by the PreToolUse that happened to arrive last.
     mock.timers.tick(1000);
-    assert.strictEqual(api.resolveDisplayState(), "notification");
+    assert.strictEqual(api.resolveDisplayState(), "waiting");
     assert.strictEqual(ctx._kimiNotifyShown.length, 1);
     assert.strictEqual(ctx._kimiNotifyDetails[0].toolName, "write_file");
 
@@ -454,7 +454,7 @@ describe("Kimi permission gate ledger (batched approvals)", () => {
     gatedPost("kimi-a", "t1");
     assert.strictEqual(api.resolveDisplayState(), "working");
     mock.timers.tick(1000);
-    assert.strictEqual(api.resolveDisplayState(), "notification");
+    assert.strictEqual(api.resolveDisplayState(), "waiting");
     assert.strictEqual(ctx._kimiNotifyShown.length, 2);
     assert.strictEqual(ctx._kimiNotifyDetails[1].toolName, "shell");
     assert.deepStrictEqual(ctx._kimiNotifyDetails[1].permissionToolInput, { command: "Remove-Item a.txt" });
@@ -486,7 +486,7 @@ describe("Kimi permission gate ledger (batched approvals)", () => {
     });
 
     mock.timers.tick(1000);
-    assert.strictEqual(api.resolveDisplayState(), "notification");
+    assert.strictEqual(api.resolveDisplayState(), "waiting");
     assert.strictEqual(ctx._kimiNotifyShown.length, 1);
     assert.strictEqual(ctx._kimiNotifyDetails[0].toolName, "shell");
   });
@@ -500,7 +500,7 @@ describe("Kimi permission gate ledger (batched approvals)", () => {
     gatedPost("kimi-a", "t2");
     mock.timers.tick(5000);
     assert.strictEqual(ctx._kimiNotifyShown.length, 0);
-    assert.notStrictEqual(api.getCurrentState(), "notification");
+    assert.notStrictEqual(api.getCurrentState(), "waiting");
   });
 
   it("synthesized immediate PermissionRequests join the ledger, keep the cue on the queue head, and re-arm after each answer", () => {
@@ -642,7 +642,7 @@ describe("Kimi permission gate ledger (batched approvals)", () => {
     api.updateSession("kimi-a", "thinking", "UserPromptSubmit", { agentId: "kimi-cli" });
     mock.timers.tick(5000);
     assert.strictEqual(ctx._kimiNotifyShown.length, 1);
-    assert.notStrictEqual(api.getCurrentState(), "notification");
+    assert.notStrictEqual(api.getCurrentState(), "waiting");
 
     // A later gated Post must not resurrect anything either.
     gatedPost("kimi-a", "t1");
@@ -678,7 +678,7 @@ describe("Kimi permission gate ledger (batched approvals)", () => {
     // Every release signal is lost; the 10-minute cap fires and must take the
     // stale ledger with it.
     mock.timers.tick(10 * 60 * 1000);
-    assert.notStrictEqual(api.getCurrentState(), "notification");
+    assert.notStrictEqual(api.getCurrentState(), "waiting");
 
     // A straggler Post can no longer re-arm anything.
     gatedPost("kimi-a", "t1");

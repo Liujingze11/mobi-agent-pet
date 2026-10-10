@@ -108,6 +108,8 @@ contextBridge.exposeInMainWorld("settingsAPI", {
   // Capability flag: true when a default Discord App ID is hardcoded (maintainer-
   // shipped), so the presence enable switch can be ready without a user-saved App ID.
   discordDefaultAppIdPresent,
+  getModeConfig: () => ipcRenderer.invoke("settings:get-mode-config"),
+  saveCustomMode: (profile, options = {}) => ipcRenderer.invoke("settings:save-custom-mode", {profile, confirmed: options.confirmed === true}),
   getSnapshot: () => ipcRenderer.invoke("settings:get-snapshot"),
   getPetHidden: () => ipcRenderer.invoke("settings:get-pet-hidden"),
   setPetHidden: (hidden) => ipcRenderer.invoke("settings:set-pet-hidden", hidden),
@@ -140,7 +142,7 @@ contextBridge.exposeInMainWorld("settingsAPI", {
   update: (key, value) => ipcRenderer.invoke("settings:update", { key, value }),
   getPreviewSoundUrl: () => ipcRenderer.invoke("settings:get-preview-sound-url"),
   command: (action, payload) => ipcRenderer.invoke("settings:command", { action, payload }),
-  openDashboard: () => ipcRenderer.send("settings:open-dashboard"),
+  openDashboard: (page) => ipcRenderer.send("settings:open-dashboard", page),
   listAgents: () => ipcRenderer.invoke("settings:list-agents"),
   pickAgentDiscoveryPath: (kind) => ipcRenderer.invoke("settings:pick-agent-discovery-path", { kind }),
   detectAgentInstallations: (opts) => ipcRenderer.invoke("settings:detect-agent-installations", opts),
@@ -206,6 +208,7 @@ contextBridge.exposeInMainWorld("doctor", {
   runChecks: () => ipcRenderer.invoke("doctor:run-checks"),
   getReport: () => ipcRenderer.invoke("doctor:get-report"),
   testConnection: (durationMs) => ipcRenderer.invoke("doctor:test-connection", { durationMs }),
+  testConversationJump: () => ipcRenderer.invoke("doctor:test-conversation-jump"),
   openClawdLog: () => ipcRenderer.invoke("doctor:open-clawd-log"),
   codexHookHealth: () => ipcRenderer.invoke("doctor:codex-hook-health"),
 });

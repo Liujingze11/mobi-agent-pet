@@ -62,6 +62,8 @@ function buildStateBody(payload, contextUsage, quota, options = {}) {
   if (cwd) body.cwd = cwd;
   if (contextUsage) body.context_usage = contextUsage;
   if (quota) body.antigravity_quota = quota;
+  const model = resolveAntigravityModelLabel(payload);
+  if (model) body.model = model;
   if (options.remote) {
     body.host = options.host || readHostPrefix();
   }

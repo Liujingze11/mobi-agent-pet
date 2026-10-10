@@ -1,7 +1,7 @@
 "use strict";
 
 // Installs a desktop shortcut that launches Mobi Agent Pet in development mode
-// (`npm run dev`, via scripts/launch-dev.sh) with the brand logo as its icon.
+// in the background (via scripts/launch-dev.sh) with the brand logo as its icon.
 // The entry is written to ~/.local/share/applications so it appears in the
 // application menu (search for "Mobi Agent Pet"), and is copied to the desktop
 // directory when one exists.
@@ -10,6 +10,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
+const { randomUUID } = require("node:crypto");
 
 const ENTRY_FILENAME = "mobi-agent-pet-dev.desktop";
 const LEGACY_ENTRY_FILENAME = "agentlog-pet-dev.desktop";
@@ -28,12 +29,13 @@ function buildDesktopEntry({ repoRoot }) {
     "Name[zh_CN]=莫比 Pet（开发版）",
     "Name[zh_TW]=莫比 Pet（開發版）",
     `Comment=${ENTRY_COMMENT}`,
-    `Exec="${launcherPath}"`,
+    `Exec="${launcherPath}" --desktop`,
     // Icon theme name, not an absolute path: GNOME Shell resolves absolute
     // Icon= paths unreliably, so the brand icons are installed into the
     // user's hicolor theme below and referenced by name.
     `Icon=${ENTRY_ICON_NAME}`,
-    "Terminal=true",
+    "Terminal=false",
+    "StartupWMClass=mobi-agent-pet-dev",
     "Categories=Development;",
     "Keywords=mobi;agent;pet;dev;",
     "StartupNotify=false",
@@ -107,20 +109,32 @@ function removeOwnedLegacyEntry(directory, launcherPath) {
   }
 }
 
+function publishDesktopEntry(entryPath, content) {
+  // Desktop menus watch this directory. Never expose a truncated entry while
+  // updating it, and let the replacement produce a clean file-change event.
+  const temporaryPath = `${entryPath}.${randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(temporaryPath, content, { flag: "wx", mode: 0o755 });
+    fs.renameSync(temporaryPath, entryPath);
+  } finally {
+    fs.rmSync(temporaryPath, { force: true });
+  }
+}
+
 function installDesktopEntry({ repoRoot, homeDir, desktopDir = findDesktopDir(homeDir) }) {
   const applicationsDir = path.join(homeDir, ".local", "share", "applications");
   const entryPath = path.join(applicationsDir, ENTRY_FILENAME);
   const launcherPath = path.join(repoRoot, "scripts", "launch-dev.sh");
   fs.mkdirSync(applicationsDir, { recursive: true });
   removeOwnedLegacyEntry(applicationsDir, launcherPath);
-  fs.writeFileSync(entryPath, buildDesktopEntry({ repoRoot }), { mode: 0o755 });
+  const content = buildDesktopEntry({ repoRoot });
+  publishDesktopEntry(entryPath, content);
 
   let desktopCopyPath = null;
   if (desktopDir) {
     removeOwnedLegacyEntry(desktopDir, launcherPath);
     desktopCopyPath = path.join(desktopDir, ENTRY_FILENAME);
-    fs.copyFileSync(entryPath, desktopCopyPath);
-    fs.chmodSync(desktopCopyPath, 0o755);
+    publishDesktopEntry(desktopCopyPath, content);
     trustEntry(desktopCopyPath);
   }
   refreshDesktopDatabase(applicationsDir);

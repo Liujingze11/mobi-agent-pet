@@ -15,19 +15,19 @@ describe("checkPermissionBubblePolicy", () => {
     );
   });
 
-  it("warns when split permission bubbles are disabled", () => {
+  it("treats intentionally disabled permission bubbles as neutral", () => {
     const result = checkPermissionBubblePolicy({ prefs: { permissionBubblesEnabled: false } });
-    assert.strictEqual(result.status, "fail");
-    assert.strictEqual(result.level, "warning");
-    assert.deepStrictEqual(result.fixAction, { type: "permission-bubble-policy" });
+    assert.strictEqual(result.status, "disabled-by-user");
+    assert.strictEqual(result.level, "info");
+    assert.strictEqual(result.fixAction, undefined);
   });
 
-  it("warns when legacy hideBubbles disables all bubbles", () => {
+  it("treats the all-bubbles-hidden setting as neutral", () => {
     const result = checkPermissionBubblePolicy({
       prefs: { hideBubbles: true, permissionBubblesEnabled: true },
     });
-    assert.strictEqual(result.status, "fail");
-    assert.strictEqual(result.level, "warning");
+    assert.strictEqual(result.status, "disabled-by-user");
+    assert.strictEqual(result.level, "info");
   });
 
   it("returns info when DND suppresses otherwise enabled bubbles", () => {

@@ -1,9 +1,14 @@
 "use strict";
+const { PET_STATE_IDS } = require("./pet-states");
+const { defaultCustomModeProfile, normalizeCustomModeProfile } = require("./custom-mode-profile");
+const AUTOMATIC_PET_STATES = Object.freeze(PET_STATE_IDS.filter(state => state !== "roam"));
+const HIDDEN_PET_STATES = Object.freeze([]);
 
 const APP_MODE = Object.freeze({
   NORMAL: "normal",
   BACKGROUND: "background",
   AUTOMATIC: "automatic",
+  CUSTOM: "custom",
 });
 
 const PERMISSION_AUTOMATION_MODES = new Set([
@@ -17,34 +22,57 @@ function isAppMode(value) {
 }
 
 function resolveAppModePolicy(mode, snapshot = {}) {
-  const savedPermissionMode = PERMISSION_AUTOMATION_MODES.has(
-    snapshot.permissionAutomationMode
-  ) ? snapshot.permissionAutomationMode : "off";
-  const quiet = mode === APP_MODE.BACKGROUND || mode === APP_MODE.AUTOMATIC;
+  let profile = defaultCustomModeProfile();
+  if (mode === APP_MODE.CUSTOM) profile = normalizeCustomModeProfile(snapshot.customModeProfile);
+  else if (mode === APP_MODE.BACKGROUND || mode === APP_MODE.AUTOMATIC) {
+    profile = {...profile, petVisible: mode !== APP_MODE.BACKGROUND,
+      states: mode === APP_MODE.AUTOMATIC ? AUTOMATIC_PET_STATES : PET_STATE_IDS,
+      trayAlerts: true, agentBubbles: mode === APP_MODE.BACKGROUND, sessionHud: false,
+      permissionAutomationMode: mode === APP_MODE.AUTOMATIC ? "unattended" : "off"};
+  }
+  const states = profile.petVisible ? Object.freeze([...profile.states]) : HIDDEN_PET_STATES;
   return {
-    muteSound: quiet,
-    suppressTrayFlash: quiet,
-    suppressPermissionBubbles: quiet,
-    suppressNotificationBubbles: quiet,
-    suppressSessionHud: quiet,
-    freezePet: mode === APP_MODE.BACKGROUND,
-    hidePet: mode === APP_MODE.BACKGROUND,
-    allowWorkAnimations: mode !== APP_MODE.BACKGROUND,
-    allowNotificationAnimation: mode === APP_MODE.NORMAL,
-    allowCompletionAnimation: mode !== APP_MODE.BACKGROUND,
-    forceCompletionAnimation: mode === APP_MODE.AUTOMATIC,
-    permissionAutomationMode: mode === APP_MODE.AUTOMATIC
-      ? "unattended"
-      : (mode === APP_MODE.BACKGROUND ? "off" : savedPermissionMode),
+    muteSound: true,
+    suppressTrayFlash: !profile.trayAlerts,
+    agentBubblesEnabled: profile.agentBubbles,
+    suppressPermissionBubbles: !profile.agentBubbles,
+    suppressNotificationBubbles: !profile.agentBubbles,
+    suppressSessionHud: !profile.sessionHud,
+    freezePet: !profile.petVisible,
+    hidePet: !profile.petVisible,
+    allowedPetStates: states,
+    allowRoamAnimation: states.includes("roam"),
+    allowWorkAnimations: states.includes("working"),
+    allowNotificationAnimation: states.includes("waiting"),
+    allowCompletionAnimation: states.includes("complete"),
+    forceCompletionAnimation: states.includes("complete"),
+    permissionAutomationMode: profile.permissionAutomationMode,
+    permissionBubblePolicy: {enabled: profile.agentBubbles, autoCloseMs: profile.agentBubbles ? profile.permissionSeconds * 1000 : 0},
+    notificationBubblePolicy: {enabled: profile.agentBubbles, autoCloseMs: profile.agentBubbles ? profile.notificationSeconds * 1000 : 0},
+    disableMiniMode: !profile.miniModeEnabled,
+    fullscreenOverlay: profile.fullscreenOverlay,
+    roamIntervalMs: profile.roamIntervalSeconds * 1000,
+    trayAlerts: profile.trayAlerts,
+    flashIntervalMs: profile.flashIntervalMs,
+    flashDurationMs: profile.flashDurationMs,
+    sessionHudEnabled: profile.sessionHud,
+    sessionHudShowStateLabels: profile.hudStateLabels,
+    sessionHudShowElapsed: profile.hudElapsed,
+    sessionHudShowContextUsage: profile.hudContext,
+    sessionHudShowQuota: profile.hudQuota,
+    lowPowerIdleMode: profile.lowPowerIdle,
+    keepAwakeWhileWorking: profile.keepAwake,
+    allowEdgePinning: profile.allowEdgePinning,
+    keepSizeAcrossDisplays: profile.keepSizeAcrossDisplays,
   };
 }
 
 function resolveEffectiveSoundMuted(savedMuted, policy = {}) {
-  return savedMuted === true || policy.muteSound === true;
+  return true;
 }
 
 function resolveEffectiveTrayFlashEnabled(savedEnabled, policy = {}) {
-  return savedEnabled === true && policy.suppressTrayFlash !== true;
+  return policy.trayAlerts === true;
 }
 
 function resolveEffectiveBubblePolicy(basePolicy, suppressed) {
@@ -52,116 +80,69 @@ function resolveEffectiveBubblePolicy(basePolicy, suppressed) {
   return basePolicy;
 }
 
-function createAppModeRuntime({
-  applyMode = async () => {},
-  onModeCommitted = async () => {},
-} = {}) {
-  let mode = APP_MODE.NORMAL;
-  let generation = 0;
-  let automaticAuthorized = false;
-  let transitionQueue = Promise.resolve();
-
-  function isAutomaticPermissionRequestCurrent(requestContext) {
-    return !!requestContext
-      && requestContext.mode === APP_MODE.AUTOMATIC
-      && requestContext.generation === generation
-      && mode === APP_MODE.AUTOMATIC;
+function createAppModeRuntime({applyMode = async () => {}, onModeCommitted = async () => {}, getCustomModeProfile = defaultCustomModeProfile} = {}) {
+  let mode = APP_MODE.NORMAL, generation = 0, transitionQueue = Promise.resolve();
+  const authorized = new Set();
+  let committedCustomSignature = null;
+  const profile = () => normalizeCustomModeProfile(getCustomModeProfile());
+  const signature = () => JSON.stringify(profile());
+  const approvalFor = target => target === APP_MODE.AUTOMATIC ? "unattended" : (target === APP_MODE.CUSTOM ? profile().permissionAutomationMode : "off");
+  const isAuthorized = level => level === "off" || authorized.has(level) || (level === "auto-tools" && authorized.has("unattended"));
+  function isAutomaticPermissionRequestCurrent(ticket) {
+    return !!ticket && ticket.mode === mode && ticket.generation === generation
+      && (mode === APP_MODE.AUTOMATIC || (mode === APP_MODE.CUSTOM && ticket.customProfileSignature === signature()));
   }
-
-  function resolvePermissionAutomationMode(requestContext, savedPermissionMode) {
-    const savedMode = PERMISSION_AUTOMATION_MODES.has(savedPermissionMode)
-      ? savedPermissionMode
-      : "off";
-    if (!requestContext || !isAppMode(requestContext.mode)) return "off";
-    if (requestContext.mode === APP_MODE.NORMAL) return savedMode;
-    return isAutomaticPermissionRequestCurrent(requestContext) ? "unattended" : "off";
+  function resolvePermissionAutomationMode(ticket) {
+    if (!isAutomaticPermissionRequestCurrent(ticket)) return "off";
+    const level = ticket.mode === APP_MODE.AUTOMATIC ? "unattended" : ticket.permissionAutomationMode;
+    return PERMISSION_AUTOMATION_MODES.has(level) && isAuthorized(level) ? level : "off";
   }
-
-  async function setModeInternal(targetMode, { confirmed = false } = {}) {
-    if (!isAppMode(targetMode)) {
-      return {
-        status: "error",
-        mode,
-        message: `Invalid app mode: ${String(targetMode)}`,
-      };
-    }
-
-    if (targetMode === mode) {
-      return { status: "ok", mode };
-    }
-
-    if (
-      targetMode === APP_MODE.AUTOMATIC &&
-      !automaticAuthorized &&
-      !confirmed
-    ) {
-      return { status: "confirmation-required", mode };
-    }
-
-    const previousMode = mode;
-    const previousAuthorization = automaticAuthorized;
-    if (targetMode === APP_MODE.AUTOMATIC) {
-      automaticAuthorized = true;
-    }
-
+  async function setModeInternal(target, {confirmed = false, confirmationToken, force = false} = {}) {
+    if (!isAppMode(target)) return {status:"error", mode, message:`Invalid app mode: ${String(target)}`};
+    const level = approvalFor(target);
+    const customSignature = target === APP_MODE.CUSTOM ? signature() : null;
+    const changedConsent = target === APP_MODE.CUSTOM && confirmed
+      && confirmationToken !== undefined && confirmationToken !== customSignature;
+    if ((!isAuthorized(level) && !confirmed) || changedConsent) return {
+      status:"confirmation-required", mode,
+      ...(target === APP_MODE.CUSTOM ? {confirmationToken:customSignature} : {}),
+    };
+    if (target === mode && !force && (target !== APP_MODE.CUSTOM || committedCustomSignature === signature())) return {status:"ok", mode};
+    const previous = mode, previousAuthorization = new Set(authorized);
+    if (confirmed && level !== "off") authorized.add(level);
     try {
-      await applyMode(targetMode, previousMode, { rollback: false });
-      mode = targetMode;
-      generation += 1;
-      try {
-        await onModeCommitted(targetMode, previousMode);
-      } catch {
-        // A post-commit observer must not roll back a completed user transition.
+      await applyMode(target, previous, {rollback:false});
+      if (target === APP_MODE.CUSTOM && customSignature !== signature()) {
+        throw new Error("Custom mode configuration changed during the transition. Select the mode again.");
       }
-      return { status: "ok", mode };
+      mode = target; generation++;
+      committedCustomSignature = target === APP_MODE.CUSTOM ? signature() : null;
+      try { await onModeCommitted(target, previous); } catch {}
+      return {status:"ok", mode};
     } catch (error) {
-      mode = previousMode;
-      automaticAuthorized = previousAuthorization;
-      try {
-        await applyMode(previousMode, targetMode, { rollback: true });
-      } catch {
-        // Preserve the original transition error for the caller.
-      }
-      return {
-        status: "error",
-        mode,
-        message: error instanceof Error ? error.message : String(error),
-      };
+      mode = previous; authorized.clear();for(const entry of previousAuthorization)authorized.add(entry);
+      try { await applyMode(previous, target, {rollback:true}); } catch {}
+      return {status:"error", mode, message:error instanceof Error ? error.message : String(error)};
     }
   }
-
   return {
-    capturePermissionRequest() {
-      return Object.freeze({ mode, generation });
-    },
-
-    getMode() {
-      return mode;
-    },
-
+    capturePermissionRequest() {return Object.freeze({mode,generation,permissionAutomationMode:approvalFor(mode),...(mode === APP_MODE.CUSTOM ? {customProfileSignature:signature()} : {})});},
+    getMode:()=>mode,
     isAutomaticPermissionRequestCurrent,
-
     resolvePermissionAutomationMode,
-
-    isAutomaticAuthorized() {
-      return automaticAuthorized;
-    },
-
-    setMode(targetMode, options) {
-      const transition = transitionQueue.then(() => setModeInternal(targetMode, options));
-      transitionQueue = transition.catch(() => {});
-      return transition;
-    },
+    isAutomaticAuthorized:()=>authorized.has("unattended"),
+    setMode(target, options) {const operation=transitionQueue.then(()=>setModeInternal(target,options));transitionQueue=operation.catch(()=>{});return operation;},
   };
 }
 
 function createAppModeController(options = {}) {
   const getSettingsSnapshot = options.getSettingsSnapshot || (() => ({}));
+  const syncModeFeatures = options.syncModeFeatures || (() => {});
   const stopTrayFlash = options.stopTrayFlash || (() => {});
   const dismissPermissionsForDnd = options.dismissPermissionsForDnd || (() => {});
   const syncSessionHudVisibility = options.syncSessionHudVisibility || (() => {});
   const cancelRoam = options.cancelRoam || (() => {});
-  const enableDoNotDisturb = options.enableDoNotDisturb || (() => {});
+  const cancelPetHeld = options.cancelPetHeld || (() => {});
   const clearQuietModePermissionState = options.clearQuietModePermissionState || (() => {});
   const disableDoNotDisturb = options.disableDoNotDisturb || (() => {});
   const resolveDisplayState = options.resolveDisplayState || (() => "idle");
@@ -171,7 +152,6 @@ function createAppModeController(options = {}) {
   const showPet = options.showPet || (() => {});
   const isPetHidden = options.isPetHidden || (() => false);
   let transitionMode = null;
-  let petVisibleOnBackgroundEnter = null;
 
   async function applyModeTransition(mode) {
     stopTrayFlash();
@@ -179,29 +159,22 @@ function createAppModeController(options = {}) {
     syncSessionHudVisibility();
     cancelRoam();
 
-    if (mode === APP_MODE.BACKGROUND) {
-      // Background mode owns pet visibility: remember whether the user had
-      // the pet visible so leaving the mode restores it only when it was
-      // not manually hidden beforehand.
-      petVisibleOnBackgroundEnter = !isPetHidden();
-      hidePet();
-      enableDoNotDisturb();
-      return;
-    }
-
-    if (mode === APP_MODE.AUTOMATIC) {
-      clearQuietModePermissionState();
-    }
+    const policy = resolveAppModePolicy(mode, getSettingsSnapshot());
+    if (!policy.allowedPetStates.includes("held")) cancelPetHeld();
+    if (policy.hidePet) hidePet();
+    if (mode === APP_MODE.BACKGROUND || mode === APP_MODE.AUTOMATIC || mode === APP_MODE.CUSTOM) clearQuietModePermissionState();
     disableDoNotDisturb();
-    if (petVisibleOnBackgroundEnter === true && isPetHidden()) {
-      showPet();
-    }
-    petVisibleOnBackgroundEnter = null;
+    if (policy.hidePet) {await syncModeFeatures();return;}
+    if (!policy.hidePet && isPetHidden()) showPet();
     const resolved = resolveDisplayState();
-    applyState(resolved, getSvgOverride(resolved));
+    const shown = policy.allowedPetStates.includes(resolved) ? resolved : "idle";
+    applyState(shown, getSvgOverride(shown));
+    await syncModeFeatures();
   }
 
   const runtime = createAppModeRuntime({
+    getCustomModeProfile: () => getSettingsSnapshot().customModeProfile,
+    onModeCommitted: options.onModeCommitted,
     applyMode: async (targetMode, previousMode, transitionOptions) => {
       transitionMode = targetMode;
       try {
@@ -226,6 +199,7 @@ function createAppModeController(options = {}) {
     isAutomaticPermissionRequestCurrent: runtime.isAutomaticPermissionRequestCurrent,
     resolvePermissionAutomationMode: runtime.resolvePermissionAutomationMode,
     setActiveAppMode,
+    refreshCustomMode: options => runtime.getMode() === APP_MODE.CUSTOM ? runtime.setMode(APP_MODE.CUSTOM, {...options, force:true}) : Promise.resolve({status:"ok",mode:runtime.getMode()}),
   };
 }
 

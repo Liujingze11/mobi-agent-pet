@@ -70,6 +70,26 @@ function registerPetInteractionIpc(options = {}) {
     ? !!options.isMacPlatform
     : process.platform === "darwin";
   const disposers = [];
+  const getDragLocked = typeof options.getDragLocked === "function" ? options.getDragLocked : null;
+  const timers = options.timers || globalThis;
+  let dragPollTimer = null;
+
+  function stopDragPolling() {
+    if (dragPollTimer !== null) timers.clearInterval(dragPollTimer);
+    dragPollTimer = null;
+  }
+
+  function startDragPolling() {
+    stopDragPolling();
+    if (!getDragLocked) return;
+    // Transparent input windows can stop compositor frames and coalesce
+    // pointermove until release. Follow the global cursor in main while held.
+    dragPollTimer = timers.setInterval(() => {
+      if (!getDragLocked() || !hasPetWindow()) { stopDragPolling(); return; }
+      moveWindowForDrag();
+    }, 16);
+    dragPollTimer?.unref?.();
+  }
 
   function on(channel, listener) {
     ipcMain.on(channel, listener);
@@ -77,8 +97,11 @@ function registerPetInteractionIpc(options = {}) {
   }
 
   on("show-context-menu", showContextMenu);
-  on("drag-move", () => moveWindowForDrag());
+  on("drag-move", () => { if (dragPollTimer === null) moveWindowForDrag(); });
   on("pet-visual-ready", (event) => recoverVisiblePetAfterRendererLoad(event));
+  on("pet-action-frame", (event, payload) => {
+    if (typeof options.updateActionVisual === "function") options.updateActionVisual(event, payload);
+  });
 
   on("pause-cursor-polling", () => {
     setIdlePaused(true);
@@ -92,12 +115,19 @@ function registerPetInteractionIpc(options = {}) {
     setLowPowerIdlePaused(!!paused);
   });
 
-  on("drag-lock", (_event, locked) => {
+  on("drag-lock", (event, locked) => {
+    if (options.isInputSender && !options.isInputSender(event)) return;
+    if (locked && options.isPetHeldAllowed && !options.isPetHeldAllowed()) return;
+    if (!locked && getDragLocked?.() && hasPetWindow()) moveWindowForDrag();
     setDragLocked(!!locked);
+    if (locked && typeof options.cancelRoam === "function") options.cancelRoam();
+    if (options.setPetHeld) options.setPetHeld(!!locked);
     if (locked) {
       setMouseOverPet(true);
       beginDragSnapshot();
+      startDragPolling();
     } else {
+      stopDragPolling();
       clearDragSnapshot();
       syncHitWin();
       syncImeEditingPetDodge();
@@ -105,14 +135,17 @@ function registerPetInteractionIpc(options = {}) {
   });
 
   on("start-drag-reaction", (_event, direction) => {
-    sendToRenderer("start-drag-reaction", direction === "left" || direction === "right" ? direction : null);
+    // Old callers are supported, but no file playback bypass is allowed.
   });
-  on("end-drag-reaction", () => sendToRenderer("end-drag-reaction"));
+  on("end-drag-reaction", () => {});
   on("play-click-reaction", (_event, svg, duration) => {
-    sendToRenderer("play-click-reaction", svg, duration);
+    // Retired: the state controller and configured player own all visuals.
   });
 
-  on("drag-end", () => {
+  on("drag-end", (event) => {
+    if (options.isInputSender && !options.isInputSender(event)) return;
+    if (getDragLocked?.() && hasPetWindow()) moveWindowForDrag();
+    stopDragPolling();
     try {
       if (!isMiniMode() && !isMiniTransitioning()) {
         if (!getDisableMiniMode()) checkMiniModeSnap();
@@ -133,6 +166,7 @@ function registerPetInteractionIpc(options = {}) {
       }
     } finally {
       setDragLocked(false);
+      if (options.setPetHeld) options.setPetHeld(false);
       clearDragSnapshot();
       // Normally the preceding drag-lock(false) already re-ran the dodge, but
       // this handler also releases the lock defensively — mirror the re-run so
@@ -207,6 +241,7 @@ function registerPetInteractionIpc(options = {}) {
 
   return {
     dispose() {
+      stopDragPolling();
       while (disposers.length) {
         const dispose = disposers.pop();
         dispose();

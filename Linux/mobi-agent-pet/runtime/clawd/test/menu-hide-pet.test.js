@@ -107,38 +107,15 @@ function toTrayTemplate(snapshot) {
 }
 
 describe("context menu hide pet action (#460)", () => {
-  it("exposes a Hide Pet item right before Quit that toggles visibility", () => {
-    const initMenu = loadMenuWithElectron(fakeElectron());
-    let toggles = 0;
-    const ctx = buildBaseCtx({
-      togglePetVisibility: () => { toggles += 1; },
-    });
-
-    const menu = initMenu(ctx);
-    menu.buildContextMenu();
-
-    const labels = ctx.contextMenu.template.map((item) => item.label);
-    const hideIdx = labels.indexOf("Hide Pet");
-    const quitIdx = labels.indexOf("Quit");
-    assert.ok(hideIdx !== -1, "context menu should expose Hide Pet");
-    assert.strictEqual(quitIdx, labels.length - 1, "Quit should stay the last item");
-    assert.strictEqual(hideIdx, quitIdx - 2, "Hide Pet should sit just above Quit");
-    assert.strictEqual(ctx.contextMenu.template[hideIdx + 1].type, "separator");
-
-    ctx.contextMenu.template[hideIdx].click();
-    assert.strictEqual(toggles, 1);
-  });
-
-  it("labels the item Show Pet while the pet is hidden", () => {
-    const initMenu = loadMenuWithElectron(fakeElectron());
-    const ctx = buildBaseCtx({ petHidden: true });
-
-    const menu = initMenu(ctx);
-    menu.buildContextMenu();
-
-    const labels = ctx.contextMenu.template.map((item) => item.label);
-    assert.ok(labels.includes("Show Pet"), "hidden pet should flip the label to Show Pet");
-    assert.ok(!labels.includes("Hide Pet"));
+  it("offers mode selection without independent Hide or Show controls",()=>{
+    const initMenu=loadMenuWithElectron(fakeElectron());
+    for(const petHidden of [false,true]){
+      const ctx=buildBaseCtx({petHidden});const menu=initMenu(ctx);menu.buildContextMenu();
+      const labels=ctx.contextMenu.template.map(item=>item.label);
+      assert.ok(!labels.includes("Hide Pet"));assert.ok(!labels.includes("Show Pet"));
+      assert.equal(labels.at(-1),"Quit");
+      assert.ok(ctx.contextMenu.template.some(item=>item.submenu && item.submenu.some(option=>option.type==='radio')));
+    }
   });
 
   it("popup close callback does not resurrect a pet the menu just hid", () => {
@@ -326,8 +303,8 @@ describe("mode menu module", () => {
       );
       assert.strictEqual(mode.submenu[0].type, "radio");
       assert.strictEqual(mode.submenu[2].checked, true, "DND and mini state must not choose the mode");
-      assert.strictEqual(mode.submenu[3].enabled, false);
-      assert.strictEqual(mode.submenu[5].enabled, false);
+      assert.strictEqual(mode.submenu[3].enabled === false, false);
+      assert.strictEqual(mode.submenu[5].enabled === false, false);
       assert.ok(!template.some((item) => item.label === "休眠（免打扰）"));
       assert.ok(!template.some((item) => item.label === "极简模式"));
     }

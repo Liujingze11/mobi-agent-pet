@@ -251,6 +251,7 @@ test("smoke mode reports only ready Mobi Agent Pet and tray diagnostics", async 
       if (request === "./smoke-tray-diagnostics.cjs") {
         return require(path.join(root, "runtime/agentlog/smoke-tray-diagnostics.cjs"));
       }
+      if (request === "../clawd/src/theme-loader") return { setThemePolicy() {} };
       if (request === "../clawd/src/main.js") return {};
       throw new Error(`Unexpected require: ${request}`);
     },
@@ -323,6 +324,7 @@ test("manager smoke mode opens the real manager and reports only safe rendered m
       if (request === "electron") return { app: fakeApp };
       if (request === "./brand.cjs") return { BRAND: { productName: "Mobi Agent Pet" }, legacyUserDataPath: (dir) => path.join(dir, "AgentLog Pet") };
       if (request === "./app-runtime.cjs") return agentLogApp;
+      if (request === "../clawd/src/theme-loader") return { setThemePolicy() {} };
       if (request === "../clawd/src/main.js") return {};
       throw new Error(`Unexpected require: ${request}`);
     },
@@ -481,10 +483,17 @@ test("Linux smoke waits through the packaged X11 relaunch handoff", () => {
 });
 
 test("development launcher removes Electron's Node compatibility mode", () => {
-  const launcher = fs.readFileSync(path.join(root, "scripts", "launch-electron.cjs"), "utf8");
-
-  assert.match(launcher, /delete env\.ELECTRON_RUN_AS_NODE/);
-  assert.match(launcher, /env,?\s*\n/);
+  const { EventEmitter } = require("node:events");
+  const { launchElectron } = require("../../scripts/launch-electron.cjs");
+  const parent = new EventEmitter(), child = new EventEmitter();
+  const sourceEnv = { ELECTRON_RUN_AS_NODE: "1", KEEP_SETTING: "ok" };
+  let childEnv;
+  launchElectron({ root, electronPath: "/fixture-electron", env: sourceEnv, processRef: parent,
+    spawnFn: (_file, _args, options) => { childEnv = options.env; return child; } });
+  assert.equal(childEnv.ELECTRON_RUN_AS_NODE, undefined);
+  assert.equal(childEnv.KEEP_SETTING, "ok");
+  assert.equal(sourceEnv.ELECTRON_RUN_AS_NODE, "1");
+  child.emit("close", 0, null);
 });
 
 test("postinstall verifies the root Electron installation", () => {
@@ -497,4 +506,29 @@ test("postinstall verifies the root Electron installation", () => {
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Verified Electron \d+\.\d+\.\d+ installation\./);
   assert.doesNotMatch(result.stdout, /Skipped Electron install verification/);
+});
+
+test("Linux development windows identify as the installed development desktop entry", () => {
+  const events = [];
+  const app = {
+    isPackaged: false,
+    getPath: () => "/private/user",
+    setPath() {},
+    setName() {},
+    setDesktopName(name) { events.push(["desktop", name]); },
+  };
+  const context = vm.createContext({
+    process: { platform: "linux", env: {} },
+    require(request) {
+      if (request === "electron") return { app };
+      if (request === "node:fs") return { mkdirSync() {} };
+      if (request === "./brand.cjs") return { BRAND: { productName: "Mobi Agent Pet" }, legacyUserDataPath: () => "/private/user/AgentLog Pet" };
+      if (request === "./app-runtime.cjs") return { install() { events.push(["install"]); } };
+      if (request === "../clawd/src/theme-loader") return { setThemePolicy(value) { events.push(["catalog", JSON.parse(JSON.stringify(value))]); } };
+      if (request === "../clawd/src/main.js") { events.push(["host-main"]); return {}; }
+      throw new Error(`Unexpected require: ${request}`);
+    },
+  });
+  vm.runInContext(productMain, context);
+  assert.deepEqual(events, [["desktop", "mobi-agent-pet-dev.desktop"], ["catalog", { defaultThemeId: "mobi-a", excludedBuiltinThemeIds: ["clawd", "calico", "cloudling"] }], ["install"], ["host-main"]]);
 });

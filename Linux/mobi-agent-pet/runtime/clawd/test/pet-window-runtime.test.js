@@ -89,6 +89,7 @@ function createRuntime(overrides = {}) {
     getCurrentState: () => "idle",
     getCurrentSvg: () => "idle.svg",
     getCurrentHitBox: () => overrides.hitBox || null,
+    getForcedPetHidden: overrides.getForcedPetHidden,
     getMiniMode: () => overrides.miniMode || false,
     getMiniTransitioning: () => overrides.miniTransitioning || false,
     getMiniContainedSeam: () => overrides.miniContainedSeam || null,
@@ -889,4 +890,33 @@ describe("pet-window-runtime cloak self-heal (#525)", () => {
     clock += 10_001;                                         // fresh 10s window, not 20s
     assert.equal(h.runtime.recoverIfCloaked(), "failed");
   });
+});
+
+it("mode-owned visibility ignores manual toggles and hides even during mini transition",()=>{
+ let hiddenByMode=false;
+ const h=createRuntime({getForcedPetHidden:()=>hiddenByMode,miniTransitioning:true});
+ h.runtime.setPetHidden(true);
+ assert.equal(h.runtime.isPetHidden(),false);
+ hiddenByMode=true;
+ h.runtime.setPetHidden(false);
+ assert.equal(h.runtime.isPetHidden(),true);
+ const showCount=h.renderWin.calls.filter(call=>call[0]==='showInactive').length;
+ assert.equal(h.runtime.recoverVisiblePetAfterRendererLoad(),"hidden");
+ assert.equal(h.renderWin.calls.filter(call=>call[0]==='showInactive').length,showCount);
+ hiddenByMode=false;
+ h.runtime.setPetHidden(true);
+ assert.equal(h.runtime.isPetHidden(),false);
+});
+
+it('Linux close recovery cannot show a pet hidden by Background mode',()=>{
+ let forced=false;
+ const h=createRuntime({isWin:false,isLinux:true,getForcedPetHidden:()=>forced});
+ const windows=[];
+ h.runtime.createRenderWindow({BrowserWindow:makeBrowserWindow(windows),size:{width:100,height:100},initialWindowBounds:{x:10,y:20,width:100,height:100},initialVirtualBounds:{x:10,y:20,width:100,height:100},setRenderWindow:h.setRenderWin,isQuitting:()=>false,themeConfig:{}});
+ forced=true;h.runtime.setPetHidden(true);h.renderWin.visible=false;
+ const count=()=>h.renderWin.calls.filter(call=>call[0]==='showInactive').length;
+ const before=count();h.renderWin.emit('close',{preventDefault(){}});
+ assert.equal(count(),before);assert.equal(h.runtime.isPetHidden(),true);
+ forced=false;h.runtime.setPetHidden(false);h.renderWin.visible=false;
+ const normalBefore=count();h.renderWin.emit('close',{preventDefault(){}});assert.equal(count(),normalBefore+1);
 });

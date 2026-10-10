@@ -48,10 +48,18 @@ function createHarness(overrides = {}) {
   const runtime = registerSessionIpc({
     ipcMain,
     getSessionSnapshot: overrides.getSessionSnapshot || (() => ({ sessions: [{ id: "s1" }] })),
+    getPetScene: overrides.getPetScene || (() => ({ themeId: "calico", name: "Calico", imageUrl: "file:///calico.svg" })),
+    getPetBehaviorSettings: overrides.getPetBehaviorSettings || (() => ({ freeRoam: false, allowEdgePinning: true, keepSizeAcrossDisplays: true })),
+    updatePetBehaviorSetting: overrides.updatePetBehaviorSetting || ((key, value) => {
+      calls.push(["updatePetBehaviorSetting", key, value]);
+      return { status: "ok" };
+    }),
     getI18n: overrides.getI18n || (() => ({ lang: "en", translations: { title: "Sessions" } })),
     focusSession: overrides.focusSession || ((sessionId, options) => {
       calls.push(["focusSession", sessionId, options]);
+      return true;
     }),
+    onConversationJumpResult: overrides.onConversationJumpResult,
     hideSession: overrides.hideSession || ((sessionId) => {
       calls.push(["hideSession", sessionId]);
       return { status: "ok", hidden: sessionId };
@@ -82,17 +90,21 @@ test("session IPC registers owned channels and disposes them", () => {
   const { ipcMain, runtime } = createHarness();
 
   assert.deepStrictEqual([...ipcMain.handlers.keys()].sort(), [
+    "dashboard:edit-custom-mode",
+    "dashboard:focus-session",
     "dashboard:get-i18n",
+    "dashboard:get-pet-behavior",
+    "dashboard:get-pet-scene",
     "dashboard:get-snapshot",
     "dashboard:hide-session",
     "dashboard:open-session-folder",
     "dashboard:set-session-alias",
+    "dashboard:update-pet-behavior",
     "session-hud:get-i18n",
     "session-hud:open-session-folder",
     "session:ack-completion",
   ]);
   assert.deepStrictEqual([...ipcMain.listeners.keys()].sort(), [
-    "dashboard:focus-session",
     "session-hud:focus-session",
     "session-hud:open-dashboard",
     "session-hud:set-pinned",
@@ -106,6 +118,22 @@ test("session IPC registers owned channels and disposes them", () => {
   assert.strictEqual(ipcMain.listeners.size, 0);
 });
 
+test("dashboard pet behavior keeps placement updates and rejects mode-owned roaming", async () => {
+  const { ipcMain, calls } = createHarness();
+  assert.deepStrictEqual(await ipcMain.invoke("dashboard:get-pet-behavior"), {
+    freeRoam: false,
+    allowEdgePinning: true,
+    keepSizeAcrossDisplays: true,
+  });
+  assert.equal((await ipcMain.invoke("dashboard:update-pet-behavior", { key: "freeRoam", value: true })).status, "error");
+  assert.equal((await ipcMain.invoke("dashboard:update-pet-behavior", { key: "allowEdgePinning", value: false })).status, "error");
+  assert.equal((await ipcMain.invoke("dashboard:update-pet-behavior", { key: "keepSizeAcrossDisplays", value: false })).status, "error");
+  assert.equal((await ipcMain.invoke("dashboard:update-pet-behavior", { key: "openAtLogin", value: true })).status, "error");
+  assert.equal((await ipcMain.invoke("dashboard:update-pet-behavior", { key: "disableMiniMode", value: true })).status, "error");
+  assert.equal((await ipcMain.invoke("dashboard:update-pet-behavior", { key: "freeRoam", value: "true" })).status, "error");
+  assert.deepStrictEqual(calls, []);
+});
+
 test("session IPC delegates dashboard and HUD behavior", async () => {
   const { ipcMain, calls } = createHarness();
 
@@ -116,11 +144,16 @@ test("session IPC delegates dashboard and HUD behavior", async () => {
     lang: "en",
     translations: { title: "Sessions" },
   });
+  assert.deepStrictEqual(await ipcMain.invoke("dashboard:get-pet-scene"), {
+    themeId: "calico", name: "Calico", imageUrl: "file:///calico.svg",
+  });
   assert.deepStrictEqual(await ipcMain.invoke("session-hud:get-i18n"), {
     lang: "en",
     translations: { title: "Sessions" },
   });
-  ipcMain.send("dashboard:focus-session", "dash-session");
+  assert.deepStrictEqual(await ipcMain.invoke("dashboard:focus-session", "dash-session"), {
+    status: "submitted",
+  });
   ipcMain.send("session-hud:focus-session", "hud-session");
   ipcMain.send("session-hud:set-pinned", true);
   ipcMain.send("session-hud:set-pinned", 0);
@@ -151,6 +184,16 @@ test("session IPC delegates dashboard and HUD behavior", async () => {
     ["openSessionFolder", "folder-session"],
     ["openSessionFolder", "hud-folder-session"],
   ]);
+});
+
+test("dashboard jump reports the confirmed result for the Settings check", async () => {
+  const recorded = [];
+  const { ipcMain } = createHarness({
+    focusSession: async () => ({ confirmed: true, status: "confirmed" }),
+    onConversationJumpResult: (result) => recorded.push(result),
+  });
+  assert.deepStrictEqual(await ipcMain.invoke("dashboard:focus-session", "claude"), { status: "ok" });
+  assert.deepStrictEqual(recorded, [{ status: "ok" }]);
 });
 
 test("dashboard and HUD open-folder IPC accept only a sessionId string", async () => {
@@ -220,6 +263,7 @@ test("registerSessionIpc requires ackSessionCompletion dep", () => {
     () => registerSessionIpc({
       ipcMain: new FakeIpcMain(),
       getSessionSnapshot: () => ({}),
+      getPetScene: () => ({}),
       getI18n: () => ({}),
       focusSession: () => {},
       hideSession: () => {},

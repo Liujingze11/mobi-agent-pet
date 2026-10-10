@@ -50,6 +50,7 @@ let isDragReacting = false;
 
 // Cancel signal from main (e.g. state change)
 window.hitAPI.onCancelReaction(() => {
+  if (isDragging) return;
   if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; clickCount = 0; firstClickDir = null; }
   isReacting = false;
   isDragReacting = false;
@@ -84,6 +85,7 @@ area.addEventListener("pointerdown", (e) => {
     dragReactionDirection = null;
     window.hitAPI.dragLock(true);
     area.classList.add("dragging");
+    startDragReaction(null);
   }
 });
 
@@ -222,13 +224,7 @@ function handleClick(clientX) {
   }
 }
 
-function playReaction(svg, duration) {
-  if (!svg) return;
-  isReacting = true;
-  window.hitAPI.playClickReaction(svg, duration);
-  // Local timer to ungate input after duration
-  setTimeout(() => { isReacting = false; }, duration);
-}
+function playReaction() {} // Legacy click feedback cannot select an unassigned file.
 
 // --- Drag reaction ---
 function startDragReaction(direction) {
@@ -241,14 +237,14 @@ function startDragReaction(direction) {
 
   isDragReacting = true;
   dragReactionDirection = direction;
-  window.hitAPI.startDragReaction(direction);
+  // drag-lock informs the main-process state controller.
 }
 
 function endDragReaction() {
   if (!isDragReacting) return;
   isDragReacting = false;
   dragReactionDirection = null;
-  window.hitAPI.endDragReaction();
+  // drag-lock release restores the latest main-process state.
 }
 
 // --- OS file drop → open terminal at that directory (#459, Windows/Linux only) ---

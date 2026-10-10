@@ -77,7 +77,7 @@ describe("hit geometry", () => {
   });
 
   it("matches APNG layout with file scale and offsets for calico mini idle", () => {
-    const rect = hitGeometry.getAssetRectScreen(calico, bounds, "mini-idle", "calico-mini-idle.apng");
+    const rect = hitGeometry.getAssetRectScreen(calico, bounds, "idle", "calico-mini-idle.apng", { miniMode: true });
     approx(rect.x, 42);
     approx(rect.y, 21.24);
     approx(rect.w, 138);
@@ -137,11 +137,11 @@ describe("hit geometry", () => {
       rootViewBox
     );
     assert.deepStrictEqual(
-      hitGeometry.resolveViewBox(theme, "mini-idle", "cloudling-mini-idle.svg"),
+      hitGeometry.resolveViewBox(theme, "idle", "cloudling-mini-idle.svg", { miniMode: true }),
       miniViewBox
     );
     assert.deepStrictEqual(
-      hitGeometry.resolveViewBox(theme, "mini-crabwalk", "cloudling-mini-crabwalk.svg"),
+      hitGeometry.resolveViewBox(theme, "roam", "cloudling-mini-crabwalk.svg", { miniMode: true }),
       rootViewBox
     );
   });
@@ -169,20 +169,20 @@ describe("hit geometry", () => {
     };
 
     assert.strictEqual(
-      hitGeometry.usesNormalizedLayout(theme, "mini-crabwalk", "cloudling-mini-crabwalk.svg"),
+      hitGeometry.usesNormalizedLayout(theme, "roam", "cloudling-mini-crabwalk.svg", { miniMode: true }),
       true
     );
     assert.strictEqual(
-      hitGeometry.usesNormalizedLayout(theme, "mini-idle", "cloudling-mini-idle.svg"),
+      hitGeometry.usesNormalizedLayout(theme, "idle", "cloudling-mini-idle.svg", { miniMode: true }),
       false
     );
 
     const rect = hitGeometry.getAssetRectScreen(
       theme,
       bounds,
-      "mini-crabwalk",
+      "roam",
       "cloudling-mini-crabwalk.svg"
-    );
+    , { miniMode: true });
 
     approx(rect.w, 425.33);
     approx(rect.h, 348);
@@ -285,9 +285,9 @@ describe("hit geometry", () => {
     const rect = hitGeometry.getAssetRectScreen(
       theme,
       bounds,
-      "mini-idle",
+      "idle",
       "cloudling-mini-idle.svg"
-    );
+    , { miniMode: true });
     const payload = hitGeometry.getAssetPointerPayload(
       theme,
       bounds,
@@ -308,4 +308,8 @@ describe("hit geometry", () => {
     assert.strictEqual(payload.inside, true);
     assert.strictEqual(outside.inside, false);
   });
+});
+it('mini geometry uses explicit display form with a canonical working state',()=>{
+ const theme={viewBox:{x:0,y:0,width:100,height:100},miniMode:{viewBox:{x:0,y:0,width:100,height:50}}};
+ assert.deepStrictEqual(hitGeometry.resolveViewBox(theme,'working','work.svg',{miniMode:true}),{x:0,y:0,width:100,height:50});
 });

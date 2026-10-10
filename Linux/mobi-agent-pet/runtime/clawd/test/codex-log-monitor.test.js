@@ -98,6 +98,60 @@ describe("CodexLogMonitor", () => {
     assert.strictEqual(events[0].extra.codexSource, "vscode");
   });
 
+  it("uses one logical session for ordinary and suffixed Desktop rollout copies", () => {
+    const id = "019d23d4-f1a9-7633-b9c7-758327137228";
+    const copy = `rollout-2026-03-25T15-10-51-${id}_019d23d4-f1a9-7633-b9c7-758327137229.jsonl`;
+    const lines = [
+      JSON.stringify({ type: "session_meta", payload: { id, cwd: "/repo", originator: "Codex Desktop", source: "vscode" } }),
+      JSON.stringify({ type: "event_msg", payload: { type: "task_started" } }),
+    ].join("\n") + "\n";
+    const events = [];
+    monitor = new CodexLogMonitor(makeConfig(tmpDir), (sid) => events.push(sid));
+    monitor._findCodexWriterPid = () => null;
+    for (const fileName of [TEST_FILENAME, copy]) {
+      const filePath = path.join(dateDir, fileName);
+      fs.writeFileSync(filePath, lines);
+      monitor._pollFile(filePath, fileName);
+    }
+    assert.deepStrictEqual([...new Set(events)], [EXPECTED_SID]);
+  });
+
+  it("preserves distinct metadata session ids even when rollout copies share a filename prefix", () => {
+    const ids = ["019d23d4-f1a9-7633-b9c7-758327137228", "019d23d4-f1a9-7633-b9c7-758327137229"];
+    const events = [];
+    monitor = new CodexLogMonitor(makeConfig(tmpDir), (sid) => events.push(sid));
+    monitor._findCodexWriterPid = () => null;
+    for (const id of ids) {
+      const fileName = `rollout-2026-03-25T15-10-51-${ids[0]}_${id}.jsonl`;
+      const filePath = path.join(dateDir, fileName);
+      fs.writeFileSync(filePath, JSON.stringify({ type: "session_meta", payload: { id, cwd: "/repo", originator: "Codex Desktop" } }) + "\n");
+      monitor._pollFile(filePath, fileName);
+    }
+    assert.deepStrictEqual([...new Set(events)].sort(), ids.map((id) => `codex:${id}`).sort());
+  });
+
+  it("preserves metadata identity and subagent role when resuming after tracked metadata was evicted", () => {
+    const id = "019d23d4-f1a9-7633-b9c7-758327137229";
+    const fileName = `rollout-2026-03-25T15-10-51-019d23d4-f1a9-7633-b9c7-758327137228_${id}.jsonl`;
+    const filePath = path.join(dateDir, fileName);
+    fs.writeFileSync(filePath, [
+      JSON.stringify({ type: "session_meta", payload: {
+        id, cwd: "/repo", source: { subagent: { thread_spawn: { parent_thread_id: "parent" } } },
+      } }),
+      JSON.stringify({ type: "event_msg", payload: { type: "task_started" } }),
+    ].join("\n") + "\n");
+    const events = [];
+    monitor = new CodexLogMonitor(makeConfig(tmpDir), (sid, state, event, extra) => events.push({ sid, headless: extra.headless }));
+    monitor._findCodexWriterPid = () => null;
+    monitor._pollFile(filePath, fileName);
+    monitor._retireTrackedFile(filePath, monitor._tracked.get(filePath));
+    monitor._retiredTracked.clear();
+    events.length = 0;
+    fs.appendFileSync(filePath, JSON.stringify({ type: "response_item", payload: { type: "function_call", name: "shell_command" } }) + "\n");
+    monitor._pollFile(filePath, fileName);
+    assert.deepStrictEqual(events, [{ sid: `codex:${id}`, headless: true }]);
+  });
+
   it("emits request_user_input and closes only the matching call", () => {
     const testFile = path.join(dateDir, TEST_FILENAME);
     fs.writeFileSync(testFile, [
@@ -2719,6 +2773,19 @@ describe("CodexLogMonitor", () => {
   });
 
   describe("session title extraction (turn_context.summary)", () => {
+    it("carries the model from turn_context into the next session update", () => {
+      const testFile = path.join(dateDir, TEST_FILENAME);
+      fs.writeFileSync(testFile, [
+        '{"type":"turn_context","payload":{"model":"gpt-5.4-codex"}}',
+        '{"type":"session_meta","payload":{"cwd":"/projects/foo"}}',
+      ].join("\n") + "\n");
+      const events = [];
+      monitor = new CodexLogMonitor(makeConfig(tmpDir), (_sid, _state, _event, extra) => events.push(extra));
+      monitor._pollFile(testFile, path.basename(testFile));
+      assert.strictEqual(events.length, 1);
+      assert.strictEqual(events[0].model, "gpt-5.4-codex");
+    });
+
     it("captures sessionTitle on next state emit after turn_context", (_, done) => {
       const testFile = path.join(dateDir, TEST_FILENAME);
       // turn_context carries the summary; session_meta (emitted after) triggers idle

@@ -10,6 +10,8 @@ const EXPECTED_COMMAND_IDS = [
   "mode.normal",
   "mode.background",
   "mode.automatic",
+  "mode.custom",
+  "mode.custom.edit",
   "dashboard.open",
   "agentlog.open",
   "settings.open",
@@ -61,15 +63,15 @@ describe("tray menu model", () => {
     assert.ok(flattened.filter((item) => item.kind === "separator").every((item) => !item.id));
     assert.deepStrictEqual(
       flattened.filter((item) => item.id && item.id.startsWith("mode.")).map((item) => item.kind),
-      ["radio", "radio", "radio"]
+      ["radio", "radio", "radio", "radio", "command"]
     );
     assert.ok(flattened.every((item) => (
       Object.keys(item).every((key) => ["id", "kind", "label", "enabled", "checked", "items"].includes(key))
     )));
     const customMode = flattened.find((item) => item.label === "Custom");
     const editCustomMode = flattened.find((item) => item.label === "Edit custom...");
-    assert.strictEqual(customMode.enabled, false);
-    assert.strictEqual(editCustomMode.enabled, false);
+    assert.strictEqual(customMode.enabled === false, false);
+    assert.strictEqual(editCustomMode.enabled === false, false);
     assert.doesNotThrow(() => JSON.stringify(items));
     assert.strictEqual(commands.has("mode.automatic"), true);
   });

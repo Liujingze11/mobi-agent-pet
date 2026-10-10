@@ -42,7 +42,16 @@ function runMigrations(db) {
   db.exec(
     "CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL)"
   );
-  const migrations = [{ version: 1, file: "schema-v1.sql" }];
+  const migrations = [
+    { version: 1, file: "schema-v1.sql" },
+    { version: 2, file: "schema-v2.sql" },
+    { version: 3, file: "schema-v3.sql" },
+    { version: 4, file: "schema-v4.sql" },
+    { version: 5, file: "schema-v5.sql" },
+    { version: 6, file: "schema-v6.sql" },
+    { version: 7, file: "schema-v7.sql" },
+    { version: 8, file: "schema-v8.sql" },
+  ];
   const applied = new Set(
     db.prepare("SELECT version FROM schema_migrations").all().map((row) => row.version)
   );

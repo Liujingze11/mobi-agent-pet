@@ -4,11 +4,11 @@ const { BrowserWindow } = require("electron");
 const path = require("path");
 const { clampTextScale, scaleWidth, scaleHeight, applyZoomToWindow } = require("./text-scale");
 
-const DEFAULT_WIDTH = 480;
-const DEFAULT_HEIGHT = 600;
-const MIN_WIDTH = 320;
-const MIN_HEIGHT = 400;
-const DASHBOARD_BACKGROUND = "#f6f8fc";
+const DEFAULT_WIDTH = 1180;
+const DEFAULT_HEIGHT = 820;
+const MIN_WIDTH = 680;
+const MIN_HEIGHT = 500;
+const DASHBOARD_BACKGROUND = "#f5f7fb";
 
 function isUsableBounds(bounds) {
   return !!bounds
@@ -70,8 +70,8 @@ module.exports = function initDashboard(ctx) {
       ? ctx.getNearestWorkArea(cx, cy)
       : { x: 0, y: 0, width: 1280, height: 800 };
     const metrics = getScaledMetrics();
-    const width = Math.min(metrics.defaultWidth, Math.max(metrics.minWidth, workArea.width));
-    const height = Math.min(metrics.defaultHeight, Math.max(metrics.minHeight, workArea.height));
+    const width = Math.min(metrics.defaultWidth, workArea.width);
+    const height = Math.min(metrics.defaultHeight, workArea.height);
     return {
       x: Math.round(workArea.x + (workArea.width - width) / 2),
       y: Math.round(workArea.y + (workArea.height - height) / 2),
@@ -164,13 +164,19 @@ module.exports = function initDashboard(ctx) {
     dashboardWindow.webContents.send("dashboard:lang-change", ctx.getI18n());
   }
 
+  function sendRequestedPage(page) {
+    if (page !== "theme" || !dashboardWindow || dashboardWindow.isDestroyed()) return;
+    if (!dashboardWindow.webContents || dashboardWindow.webContents.isDestroyed()) return;
+    dashboardWindow.webContents.send("dashboard:select-page", page);
+  }
+
   function createDashboardWindow(options = {}) {
     const placement = getDashboardPlacement(options);
     const metrics = getScaledMetrics();
     const opts = {
       ...placement.bounds,
-      minWidth: metrics.minWidth,
-      minHeight: metrics.minHeight,
+      minWidth: Math.min(metrics.minWidth, placement.bounds.width),
+      minHeight: Math.min(metrics.minHeight, placement.bounds.height),
       show: false,
       frame: true,
       transparent: false,
@@ -179,7 +185,7 @@ module.exports = function initDashboard(ctx) {
       maximizable: true,
       skipTaskbar: false,
       alwaysOnTop: false,
-      title: typeof ctx.t === "function" ? ctx.t("dashboardWindowTitle") : "Sessions",
+      title: typeof ctx.t === "function" ? ctx.t("dashboardWindowTitle") : "Desktop Pet",
       backgroundColor: DASHBOARD_BACKGROUND,
       webPreferences: {
         preload: path.join(__dirname, "preload-dashboard.js"),
@@ -206,6 +212,7 @@ module.exports = function initDashboard(ctx) {
       applyZoomToWindow(dashboardWindow, getTextScale());
       sendI18n();
       sendSnapshot();
+      sendRequestedPage(options.page);
     });
     dashboardWindow.once("ready-to-show", () => {
       if (!dashboardWindow || dashboardWindow.isDestroyed()) return;
@@ -229,6 +236,7 @@ module.exports = function initDashboard(ctx) {
       dashboardWindow.focus();
       sendI18n();
       sendSnapshot();
+      sendRequestedPage(options.page);
       return dashboardWindow;
     }
     return createDashboardWindow(options);
@@ -238,25 +246,22 @@ module.exports = function initDashboard(ctx) {
     sendSnapshot(snapshot);
   }
 
-  // textScale changed while the dashboard is open: re-zoom, raise the minimum
-  // size, and only grow the window if it now sits below that minimum — never
-  // touch a user-chosen size otherwise.
+  // Refresh zoom and minimums for the current display. Preserve user sizing
+  // while keeping the window inside the display's usable work area.
   function applyTextScaleToWindow() {
     if (!dashboardWindow || dashboardWindow.isDestroyed()) return;
     const metrics = getScaledMetrics();
     applyZoomToWindow(dashboardWindow, getTextScale());
-    if (typeof dashboardWindow.setMinimumSize === "function") {
-      dashboardWindow.setMinimumSize(metrics.minWidth, metrics.minHeight);
-    }
     if (typeof dashboardWindow.getBounds !== "function") return;
     const bounds = dashboardWindow.getBounds();
-    if (bounds.width < metrics.minWidth || bounds.height < metrics.minHeight) {
-      dashboardWindow.setBounds({
-        ...bounds,
-        width: Math.max(bounds.width, metrics.minWidth),
-        height: Math.max(bounds.height, metrics.minHeight),
-      });
-    }
+    const workArea = typeof ctx.getNearestWorkArea === "function"
+      ? ctx.getNearestWorkArea(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)
+      : { x: 0, y: 0, width: 1280, height: 800 };
+    const minWidth = Math.min(metrics.minWidth, workArea.width);
+    const minHeight = Math.min(metrics.minHeight, workArea.height);
+    if (typeof dashboardWindow.setMinimumSize === "function") dashboardWindow.setMinimumSize(minWidth, minHeight);
+    const nextBounds = clampBoundsToWorkArea({ ...bounds, width: Math.max(bounds.width, minWidth), height: Math.max(bounds.height, minHeight) }, workArea);
+    if (Object.keys(nextBounds).some(key => nextBounds[key] !== bounds[key])) dashboardWindow.setBounds(nextBounds);
   }
 
   return {

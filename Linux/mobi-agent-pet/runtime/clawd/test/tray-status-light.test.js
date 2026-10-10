@@ -306,3 +306,10 @@ test("a new live state interrupts the completion cycle", () => {
     TRAY_STATUS_ICONS.error,
   ]);
 });
+
+test('completion timing follows the current mode profile including continuous flashing',()=>{
+ const clock=new FakeClock();let profile={flashIntervalMs:700,flashDurationMs:1400};
+ const controller=createTrayStatusLightController({setIcon(){},timers:clock,getCompletionPolicy:()=>profile});
+ controller.complete();clock.tick(1399);assert.equal(controller.getPhase(),'completion');clock.tick(1);assert.equal(controller.getPhase(),'quiet');
+ controller.stop();profile={flashIntervalMs:600,flashDurationMs:0};controller.complete();clock.tick(10000);assert.equal(controller.getPhase(),'completion');controller.stop();assert.equal(clock.tasks.size,0);
+});
