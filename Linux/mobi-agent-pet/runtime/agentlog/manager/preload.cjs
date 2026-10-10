@@ -34,8 +34,33 @@ function installPreload({ contextBridge, ipcRenderer } = {}) {
     ? await ipcRenderer.invoke(channel)
     : await ipcRenderer.invoke(channel, input));
   const api = Object.freeze({
+    providers: freezeGroup({
+      list: (appId) => invoke("agentlog:providers:list", { appId }),
+      getEditDraft: (id) => invoke("agentlog:providers:get-edit-draft", { id }),
+      create: (input) => invoke("agentlog:providers:create", input),
+      update: (input) => invoke("agentlog:providers:update", input),
+      remove: (id) => invoke("agentlog:providers:remove", { id }),
+      move: (id, beforeId) => invoke("agentlog:providers:move", { id, beforeId }),
+      exportData: () => invoke("agentlog:providers:export"),
+      importData: (document) => invoke("agentlog:providers:import", document),
+      getEditorView: (appId) => invoke("agentlog:providers:get-editor-view", { appId }),
+      fetchModels: (input) => invoke("agentlog:providers:fetch-models", input),
+      checkEndpoint: (input) => invoke("agentlog:providers:check-endpoint", input),
+      status: (appId) => invoke("agentlog:providers:status", { appId }),
+      activate: (id) => invoke("agentlog:providers:activate", { id }),
+      addToLive: (id) => invoke("agentlog:providers:add-to-live", { id }),
+      removeFromLive: (id) => invoke("agentlog:providers:remove-from-live", { id }),
+      restoreOriginal: (appId) => invoke("agentlog:providers:restore-original", { appId }),
+      balance: (id) => invoke("agentlog:providers:balance", { id }),
+      refreshBalance: (id) => invoke("agentlog:providers:refresh-balance", { id }),
+      getBalanceRule: (id) => invoke("agentlog:providers:get-balance-rule", { id }),
+      setBalanceRule: (id, rule) => invoke("agentlog:providers:set-balance-rule", { id, rule }),
+    }),
     overview: freezeGroup({
       get: () => invoke("agentlog:overview:get"),
+    }),
+    analytics: freezeGroup({
+      get: (input) => invoke("agentlog:analytics:get", input),
     }),
     projects: freezeGroup({
       list: (filters) => invoke("agentlog:projects:list", filters),
@@ -52,6 +77,8 @@ function installPreload({ contextBridge, ipcRenderer } = {}) {
     }),
     sessions: freezeGroup({
       list: (filters) => invoke("agentlog:sessions:list", filters),
+      usage: (id) => invoke("agentlog:sessions:usage", { id }),
+      assignProject: (input) => invoke("agentlog:sessions:assign-project", input),
       timeline: (input) => invoke("agentlog:sessions:timeline", input),
     }),
     humanTimer: freezeGroup({

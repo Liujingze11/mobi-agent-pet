@@ -2,34 +2,29 @@
 
 [Back to README](../../README.md)
 
-Most lifecycle events from agents (Claude Code hooks, Codex JSONL, Copilot hooks) map to the same animation states.
+The desktop pet has exactly seven logical states. Every state plays its enabled actions from the effective action plan, including the default plan before any settings are saved.
 
-Subagent events still map to the logical `juggling` state, but Clawd now chooses a tiered asset by live subagent count: 1 subagent uses `clawd-headphones-groove.svg`, while 2+ subagents use `clawd-working-juggling.svg`. The old Clawd conducting asset is retired; Calico and Cloudling still use their conducting animations for their 2+ subagent tier.
+| Desktop state | Meaning | Typical input |
+| --- | --- | --- |
+| `idle` | No active task | No activity or task display ends |
+| `roam` | Autonomous movement | Roam starts |
+| `working` | Active task | Thinking, tool execution, subagents, compaction, worktree activity |
+| `waiting` | Input or confirmation needed | Notification or permission request |
+| `complete` | Confirmed task completion | Stop or completion event |
+| `error` | Reported task failure | Tool or turn failure |
+| `held` | Pet is being lifted | Input window drag; release restores the latest task |
 
-The idle rows below describe the theme's stock behavior. Settings → Animation & Sound → Animations can instead choose any idle visual declared by the active theme as its persistent resting look. This changes only the visual shown while the logical state is `idle`: task, permission, completion, sleep, reaction, and roam states still take precedence and return to the selected look afterward. The choice is stored per theme and falls back to the theme default if the file disappears. Non-default idle visuals intentionally do not use cursor eye tracking or spin-to-dizzy.
+Action filenames do not define states. A sleeping action assigned to `working` still represents working. Empty non-idle slots use the enabled idle actions. Missing saved assets are filtered in memory; saved preferences are preserved.
 
-| Agent Event | State | Animation | Clawd | Calico | Cloudling |
-|---|---|---|---|---|---|
-| Idle (no activity) | idle | Eye-tracking follow | <img src="../../assets/gif/clawd-idle.gif" width="160"> | <img src="../../assets/gif/calico-idle.gif" width="130"> | <img src="../../assets/gif/cloudling-idle.gif" width="140"> |
-| Idle (random) | idle | Reading / patrol | <img src="../../assets/gif/clawd-idle-reading.gif" width="160"> | | <img src="../../assets/gif/cloudling-idle-reading.gif" width="140"> |
-| UserPromptSubmit | thinking | Thought bubble + spark | <img src="../../assets/gif/clawd-thinking.gif" width="160"> | <img src="../../assets/gif/calico-thinking.gif" width="130"> | <img src="../../assets/gif/cloudling-thinking.gif" width="140"> |
-| PreToolUse / PostToolUse (1 session) | working (typing) | Typing | <img src="../../assets/gif/clawd-typing.gif" width="160"> | <img src="../../assets/gif/calico-typing.gif" width="130"> | <img src="../../assets/gif/cloudling-typing.gif" width="140"> |
-| PreToolUse / PostToolUse (2 sessions) | working (2-session tier) | Headphones groove | <img src="../../assets/gif/clawd-headphones-groove.gif" width="160"> | <img src="../../assets/gif/calico-juggling.gif" width="130"> | <img src="../../assets/gif/cloudling-juggling.gif" width="140"> |
-| PreToolUse (3+ sessions) | working (building) | Building | <img src="../../assets/gif/clawd-building.gif" width="160"> | <img src="../../assets/gif/calico-building.gif" width="130"> | <img src="../../assets/gif/cloudling-building.gif" width="140"> |
-| SubagentStart (1) | juggling | Headphones groove | <img src="../../assets/gif/clawd-headphones-groove.gif" width="160"> | <img src="../../assets/gif/calico-juggling.gif" width="130"> | <img src="../../assets/gif/cloudling-juggling.gif" width="140"> |
-| SubagentStart (2+) | juggling (2+ tier) | Three-ball juggling | <img src="../../assets/gif/clawd-juggling.gif" width="160"> | <img src="../../assets/gif/calico-conducting.gif" width="130"> | <img src="../../assets/gif/cloudling-conducting.gif" width="140"> |
-| PostToolUseFailure | error | Error | <img src="../../assets/gif/clawd-error.gif" width="160"> | <img src="../../assets/gif/calico-error.gif" width="130"> | <img src="../../assets/gif/cloudling-error.gif" width="140"> |
-| Stop / PostCompact | attention | Happy | <img src="../../assets/gif/clawd-happy.gif" width="160"> | <img src="../../assets/gif/calico-happy.gif" width="130"> | <img src="../../assets/gif/cloudling-attention.gif" width="140"> |
-| PermissionRequest | notification | Alert | <img src="../../assets/gif/clawd-notification.gif" width="160"> | <img src="../../assets/gif/calico-notification.gif" width="130"> | <img src="../../assets/gif/cloudling-notification.gif" width="140"> |
-| Codex `request_user_input` | notification | Alert + read-only question card | <img src="../../assets/gif/clawd-notification.gif" width="160"> | <img src="../../assets/gif/calico-notification.gif" width="130"> | <img src="../../assets/gif/cloudling-notification.gif" width="140"> |
-| PreCompact | sweeping | Sweeping | <img src="../../assets/gif/clawd-sweeping.gif" width="160"> | <img src="../../assets/gif/calico-sweeping.gif" width="130"> | <img src="../../assets/gif/cloudling-sweeping.gif" width="140"> |
-| WorktreeCreate | carrying | Carrying | <img src="../../assets/gif/clawd-carrying.gif" width="160"> | <img src="../../assets/gif/calico-carrying.gif" width="130"> | <img src="../../assets/gif/cloudling-carrying.gif" width="140"> |
-| 60s mouse idle | sleeping | Sleep | <img src="../../assets/gif/clawd-sleeping.gif" width="160"> | <img src="../../assets/gif/calico-sleeping.gif" width="130"> | <img src="../../assets/gif/cloudling-sleeping.gif" width="140"> |
-| SessionEnd | remove session; idle if no live sessions | No sleep transition | | | |
+Mini mode changes clipping, position and hover geometry while retaining the same logical state and action plan. Mouse inactivity and cursor circles do not create sleep or dizzy states. Clicks and file drops do not inject unassigned reaction files. Action previews stay inside the action manager.
+
+Agent hooks and session history retain their original event and state values. At the desktop boundary, `thinking`, `juggling`, `sweeping` and `carrying` map to `working`; `notification` maps to `waiting`; `attention` maps to `complete`. Legacy sleep and mini resource names remain import metadata, rather than additional desktop states.
+
+The hook tables below describe raw Agent inputs. Apply the mapping above to obtain the desktop state; the action plan determines its visual.
 
 ## Kimi Code CLI (Kimi-CLI) Hook Events
 
-Kimi Code CLI (Kimi-CLI) now uses hook-only integration (`~/.kimi/config.toml`), and maps these 13 hook events to shared Clawd states:
+Kimi Code CLI (Kimi-CLI) now uses hook-only integration (`~/.kimi/config.toml`), and maps these 13 hook events to raw Agent session states:
 
 | Kimi Hook Event | State |
 |---|---|
@@ -49,16 +44,16 @@ Kimi Code CLI (Kimi-CLI) now uses hook-only integration (`~/.kimi/config.toml`),
 
 ## Gemini CLI Hook Notes
 
-Gemini CLI stays on hook-only integration, but two Gemini-native events are intentionally not forced into the shared Claude/Codex semantics:
+Gemini CLI stays on hook-only integration, but two Gemini-native events are intentionally not forced into the raw Claude/Codex semantics:
 
 | Gemini Hook Event | Clawd behavior |
 |---|---|
-| AfterAgent | Recorded as `AfterAgent` and the session returns to `idle`. It does not remap to shared `Stop`, so Gemini turns no longer auto-show the `attention` / done animation. |
-| PreCompress | Recorded as `PreCompress` in session history, but does not switch the pet to `sweeping`. The current visible state (usually `thinking` or `working`) stays in place. |
+| AfterAgent | Recorded as `AfterAgent` and the session returns to `idle`. It does not remap to shared `Stop`, so Gemini turns do not trigger a completion animation. |
+| PreCompress | Recorded as `PreCompress` in session history, but does not add a desktop state; the current task display stays in place. |
 
 ## Pi Extension Events
 
-Pi uses a global extension (`~/.pi/agent/extensions/clawd-on-desk`) and maps interactive-session lifecycle events to shared Clawd states:
+Pi uses a global extension (`~/.pi/agent/extensions/clawd-on-desk`) and maps interactive-session lifecycle events to raw Agent session states:
 
 | Pi Extension Event | Clawd Event | State |
 |---|---|---|
@@ -74,17 +69,21 @@ Pi uses a global extension (`~/.pi/agent/extensions/clawd-on-desk`) and maps int
 
 Pi is state-only in Clawd: Clawd does not intercept permissions or add confirmation prompts, so Pi keeps its default YOLO execution behavior.
 
-## Mini Mode
+## Display and playback lifecycle
 
-Drag to the right screen edge (or right-click → "Mini Mode") to enter mini mode — half-body visible at screen edge, peeking out on hover.
+The main process owns the held lock and completion/error display deadlines. Renderer action frames include state, theme generation and state revision; stale frames and files outside the active slot are rejected. Changing a role or action plan invalidates previous frames and timers. Low-power pause/resume changes playback only.
 
-| Trigger | Mini Reaction | Clawd | Calico | Cloudling |
-|---|---|---|---|---|
-| Default | Breathing + blinking + eye tracking | <img src="../../assets/gif/clawd-mini-idle.gif" width="100"> | <img src="../../assets/gif/calico-mini-idle.gif" width="80"> | <img src="../../assets/gif/cloudling-mini-idle.gif" width="90"> |
-| Hover | Peek out + wave | <img src="../../assets/gif/clawd-mini-peek.gif" width="100"> | <img src="../../assets/gif/calico-mini-peek.gif" width="80"> | <img src="../../assets/gif/cloudling-mini-peek.gif" width="90"> |
-| Notification | Alert pop | <img src="../../assets/gif/clawd-mini-alert.gif" width="100"> | <img src="../../assets/gif/calico-mini-alert.gif" width="80"> | <img src="../../assets/gif/cloudling-mini-alert.gif" width="90"> |
-| Task complete | Happy celebration | <img src="../../assets/gif/clawd-mini-happy.gif" width="100"> | <img src="../../assets/gif/calico-mini-happy.gif" width="80"> | <img src="../../assets/gif/cloudling-mini-happy.gif" width="90"> |
+## Mode policy
 
-## Click Reactions
+| Mode | Pet display | Available states | Alerts and approvals |
+| --- | --- | --- | --- |
+| Normal | Visible | All seven | Bubbles, HUD and tray alerts enabled; manual approvals |
+| Background | Hidden | No visible playback | Agent bubbles and tray alerts on; manual approval; session HUD off |
+| Automatic | Visible | Idle, working, waiting, complete, error, held | Agent bubbles and HUD off; tray alerts on; supported requests handled automatically |
+| Custom | Separate saved profile | Idle required; other states optional | Configure only in Edit Custom Mode |
 
-Easter eggs — try double-clicking, rapid 4-clicks, or poking Clawd repeatedly to discover hidden reactions.
+The first three modes use fixed rules and ignore legacy behavior switches. Automatic disables roam and retains waiting. Normal allows roam when eligible, after at least 120 seconds of idle/rest following a walk. Custom exposes a roaming interval of 10–3600 seconds (default 120) in Edit Custom Mode. Longer idle playback takes priority. Custom configuration is persisted separately; saving does not switch modes or change a preset. Disabled Custom states fall back to idle without changing raw Agent status or work records. Action assignments remain editable in the action manager.
+
+The app offers no sound settings, sound editor or playback. Legacy sound assets and preferences remain for compatibility but are inactive. Each launch starts in Normal. Automatic approvals require consent for the current run. Mode transitions and active Custom profile saves invalidate old approval requests; existing requests are never retroactively approved.
+
+Agent bubbles share one mode switch for approvals, notifications, questions and plan reviews. Cards stack at the bottom-right of the pet's display, use the same Agent palette as the overview, and do not follow the pet. Existing question/approval protocols and their individual timeout rules remain in place.

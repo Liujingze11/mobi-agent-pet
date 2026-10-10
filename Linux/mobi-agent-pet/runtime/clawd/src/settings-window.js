@@ -19,9 +19,8 @@ const SETTINGS_FRONT_LIFT_MS = 200;
 const FALLBACK_WORK_AREA = { x: 0, y: 0, width: 1280, height: 800 };
 const SETTINGS_TABS = new Set([
   "general",
+  "custom-mode",
   "agents",
-  "theme",
-  "animOverrides",
   "shortcuts",
   "telegram-approval",
   "discord-presence",

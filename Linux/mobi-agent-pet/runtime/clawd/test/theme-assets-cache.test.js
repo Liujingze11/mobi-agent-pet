@@ -140,19 +140,27 @@ describe("theme-assets-cache SVG and raster sync", () => {
       "b.webp": "raster-b",
       "idle.svg": "<svg xmlns=\"http://www.w3.org/2000/svg\"><image href=\"a.webp\"/></svg>",
     });
+    const sourceSvg = path.join(fixture.assetsDir, "idle.svg");
+    const initialStat = fs.statSync(sourceSvg);
+    fs.utimesSync(sourceSvg, initialStat.atime, new Date(Math.floor(initialStat.mtimeMs / 1000) * 1000));
     const cacheDir = resolveExternalAssetsDir(fixture.themeId, fixture.themeDir, {
       themeCacheDir: fixture.themeCacheDir,
       strict: true,
     });
     const cachedA = path.join(cacheDir, "a.webp");
     const cachedB = path.join(cacheDir, "b.webp");
+    const originalStat = fs.statSync(sourceSvg);
 
     assert.strictEqual(fs.readFileSync(cachedA, "utf8"), "raster-a");
     fs.writeFileSync(
-      path.join(fixture.assetsDir, "idle.svg"),
+      sourceSvg,
       "<svg xmlns=\"http://www.w3.org/2000/svg\"><image href=\"b.webp\"/></svg>",
       "utf8"
     );
+    fs.utimesSync(sourceSvg, originalStat.atime, originalStat.mtime);
+    const changedStat = fs.statSync(sourceSvg);
+    assert.strictEqual(changedStat.size, originalStat.size);
+    assert.strictEqual(changedStat.mtimeMs, originalStat.mtimeMs);
     resolveExternalAssetsDir(fixture.themeId, fixture.themeDir, {
       themeCacheDir: fixture.themeCacheDir,
       strict: true,

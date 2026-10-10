@@ -143,6 +143,7 @@ function scanMetadata(dir, builtin, themes, seen, options = {}) {
   try {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       if (!entry.isDirectory() || seen.has(entry.name)) continue;
+      if (builtin && Array.isArray(options.excludedBuiltinThemeIds) && options.excludedBuiltinThemeIds.includes(entry.name)) continue;
       const jsonPath = path.join(dir, entry.name, "theme.json");
       let raw;
       try { raw = JSON.parse(fs.readFileSync(jsonPath, "utf8")); } catch { continue; }

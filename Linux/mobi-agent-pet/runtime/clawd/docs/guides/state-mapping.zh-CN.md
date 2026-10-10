@@ -2,34 +2,29 @@
 
 [返回 README](../../README.zh-CN.md)
 
-大多数 agent 生命周期事件会映射到同一组 Clawd 状态。
+桌宠只有七个逻辑状态。每个状态播放有效动作方案中启用的动作；未保存设置时，默认方案也立即生效。
 
-Subagent 事件仍映射到逻辑 `juggling` 状态，但 Clawd 主题现在会按 live 子代理数量选择分层素材：1 个子代理使用 `clawd-headphones-groove.svg`，2 个以上使用 `clawd-working-juggling.svg`。旧版 Clawd conducting 素材已退役；Calico 和云宝的 2+ 子代理分层仍使用各自的 conducting 动画。
+| 桌宠状态 | 含义 | 常见触发 |
+| --- | --- | --- |
+| `idle` 空闲 | 没有活动任务 | 无活动，或任务展示结束 |
+| `roam` 漫游 | 自主移动 | 开始漫游 |
+| `working` 工作 | 任务进行中 | 思考、工具执行、子代理、上下文整理、工作树操作 |
+| `waiting` 等待 | 需要输入或确认 | 通知、权限请求 |
+| `complete` 完成 | 已确认一轮任务完成 | Stop 或完成事件 |
+| `error` 错误 | 已报告任务失败 | 工具或任务执行失败 |
+| `held` 被提起 | 用户正在提起桌宠 | 输入窗口拖动；释放后恢复最新任务 |
 
-下表的 idle 行描述主题原本的默认行为。用户也可以在“设置 → 动画 / 音效 → 动画”中，从当前主题声明的 idle 视觉里选择一个常驻静置造型。这个选项只改变逻辑状态为 `idle` 时显示的画面；任务、权限、完成、睡眠、互动反应和自由漫步仍会优先覆盖，结束后再回到所选造型。选择按主题分别保存，文件被主题更新删除时会回退到主题默认。非主题默认的 idle 视觉有意不启用鼠标眼球跟随或转圈头晕反应。
+动作的名称和画面不决定状态。例如把睡眠动作分配到工作槽后，逻辑仍然是工作。非空闲槽没有启用动作时回落到空闲动作；保存的素材消失时只在内存中剔除，保留磁盘偏好。
 
-| 事件 | 状态 | 动画 | Clawd | Calico | 云宝 |
-|---|---|---|---|---|---|
-| 无活动 | 待机 | 眼球跟踪 | <img src="../../assets/gif/clawd-idle.gif" width="160"> | <img src="../../assets/gif/calico-idle.gif" width="130"> | <img src="../../assets/gif/cloudling-idle.gif" width="140"> |
-| 无活动（随机） | 待机 | 看书 / 巡逻 | <img src="../../assets/gif/clawd-idle-reading.gif" width="160"> | | <img src="../../assets/gif/cloudling-idle-reading.gif" width="140"> |
-| UserPromptSubmit | 思考 | 思考泡泡 + 灵感闪光 | <img src="../../assets/gif/clawd-thinking.gif" width="160"> | <img src="../../assets/gif/calico-thinking.gif" width="130"> | <img src="../../assets/gif/cloudling-thinking.gif" width="140"> |
-| PreToolUse / PostToolUse（1 个会话） | 工作（打字） | 打字 | <img src="../../assets/gif/clawd-typing.gif" width="160"> | <img src="../../assets/gif/calico-typing.gif" width="130"> | <img src="../../assets/gif/cloudling-typing.gif" width="140"> |
-| PreToolUse / PostToolUse（2 个会话） | 工作（2 会话分层） | 耳机律动 | <img src="../../assets/gif/clawd-headphones-groove.gif" width="160"> | <img src="../../assets/gif/calico-juggling.gif" width="130"> | <img src="../../assets/gif/cloudling-juggling.gif" width="140"> |
-| PreToolUse（3+ 会话） | 工作（建造） | 建造 | <img src="../../assets/gif/clawd-building.gif" width="160"> | <img src="../../assets/gif/calico-building.gif" width="130"> | <img src="../../assets/gif/cloudling-building.gif" width="140"> |
-| SubagentStart（1 个） | 杂耍 | 耳机律动 | <img src="../../assets/gif/clawd-headphones-groove.gif" width="160"> | <img src="../../assets/gif/calico-juggling.gif" width="130"> | <img src="../../assets/gif/cloudling-juggling.gif" width="140"> |
-| SubagentStart（2+） | 杂耍（2+ 分层） | 三球杂耍 | <img src="../../assets/gif/clawd-juggling.gif" width="160"> | <img src="../../assets/gif/calico-conducting.gif" width="130"> | <img src="../../assets/gif/cloudling-conducting.gif" width="140"> |
-| PostToolUseFailure | 报错 | 报错 | <img src="../../assets/gif/clawd-error.gif" width="160"> | <img src="../../assets/gif/calico-error.gif" width="130"> | <img src="../../assets/gif/cloudling-error.gif" width="140"> |
-| Stop / PostCompact | 注意 | 开心 | <img src="../../assets/gif/clawd-happy.gif" width="160"> | <img src="../../assets/gif/calico-happy.gif" width="130"> | <img src="../../assets/gif/cloudling-attention.gif" width="140"> |
-| PermissionRequest | 通知 | 警报 | <img src="../../assets/gif/clawd-notification.gif" width="160"> | <img src="../../assets/gif/calico-notification.gif" width="130"> | <img src="../../assets/gif/cloudling-notification.gif" width="140"> |
-| Codex `request_user_input` | 通知 | 警报 + 只读问题卡片 | <img src="../../assets/gif/clawd-notification.gif" width="160"> | <img src="../../assets/gif/calico-notification.gif" width="130"> | <img src="../../assets/gif/cloudling-notification.gif" width="140"> |
-| PreCompact | 扫地 | 扫地 | <img src="../../assets/gif/clawd-sweeping.gif" width="160"> | <img src="../../assets/gif/calico-sweeping.gif" width="130"> | <img src="../../assets/gif/cloudling-sweeping.gif" width="140"> |
-| WorktreeCreate | 搬运 | 搬箱子 | <img src="../../assets/gif/clawd-carrying.gif" width="160"> | <img src="../../assets/gif/calico-carrying.gif" width="130"> | <img src="../../assets/gif/cloudling-carrying.gif" width="140"> |
-| 60 秒鼠标静止 | 睡觉 | 睡眠 | <img src="../../assets/gif/clawd-sleeping.gif" width="160"> | <img src="../../assets/gif/calico-sleeping.gif" width="130"> | <img src="../../assets/gif/cloudling-sleeping.gif" width="140"> |
-| SessionEnd | 删除会话；无其他 live 会话时回到 idle | 不触发睡眠过渡 | | | |
+贴边只改变裁切、位置和悬停几何，继续使用同一个状态和动作方案。鼠标静止、绕圈不再产生睡眠或眩晕状态；点击和文件拖入不能直接插播未分配动作。动作预览只在动作管理卡片中播放。
+
+Agent 上报、会话和历史记录保留原始事件及状态。在桌宠边界，`thinking`、`juggling`、`sweeping`、`carrying` 统一为工作；`notification` 统一为等待；`attention` 统一为完成。旧睡眠和 `mini-*` 资源名称只用于导入与素材元数据。
+
+下面的 Hook 表描述 Agent 原始输入。桌宠状态按上述规则映射，具体画面由动作方案决定。
 
 ## Kimi Code CLI（Kimi-CLI）Hook 事件
 
-Kimi Code CLI（Kimi-CLI）现已采用 hook-only 集成（`~/.kimi/config.toml`），下面这 13 个 hook 事件会映射到 Clawd 的共享状态：
+Kimi Code CLI（Kimi-CLI）现已采用 hook-only 集成（`~/.kimi/config.toml`），下面这 13 个 hook 事件会映射到 Agent 会话的原始状态：
 
 | Kimi Hook Event | 状态 |
 |---|---|
@@ -49,7 +44,7 @@ Kimi Code CLI（Kimi-CLI）现已采用 hook-only 集成（`~/.kimi/config.toml`
 
 ## Pi Extension 事件
 
-Pi 使用全局 extension（`~/.pi/agent/extensions/clawd-on-desk`），会把交互式会话生命周期事件映射到 Clawd 的共享状态：
+Pi 使用全局 extension（`~/.pi/agent/extensions/clawd-on-desk`），会把交互式会话生命周期事件映射到 Agent 会话的原始状态：
 
 | Pi Extension Event | Clawd Event | 状态 |
 |---|---|---|
@@ -65,17 +60,21 @@ Pi 使用全局 extension（`~/.pi/agent/extensions/clawd-on-desk`），会把�
 
 Pi 当前在 Clawd 中是 state-only 集成：Clawd 不接管权限、不新增确认弹窗，Pi 保持默认 YOLO 执行行为。
 
-## 极简模式
+## 显示与播放生命周期
 
-拖到屏幕右边缘（或右键 →"极简模式"）进入——半身露出在屏幕边缘，悬停时探出来。
+主进程管理提起锁和完成/错误展示期限。渲染帧携带状态、主题代数及状态修订号；旧帧和当前槽以外的文件被拒绝。切换角色或动作方案会使旧帧和计时器失效。省电暂停/恢复只影响播放。
 
-| 触发 | 极简反应 | Clawd | Calico | 云宝 |
-|---|---|---|---|---|
-| 默认 | 呼吸 + 眨眼 + 眼球追踪 | <img src="../../assets/gif/clawd-mini-idle.gif" width="100"> | <img src="../../assets/gif/calico-mini-idle.gif" width="80"> | <img src="../../assets/gif/cloudling-mini-idle.gif" width="90"> |
-| 鼠标悬停 | 探出身体 + 招手 | <img src="../../assets/gif/clawd-mini-peek.gif" width="100"> | <img src="../../assets/gif/calico-mini-peek.gif" width="80"> | <img src="../../assets/gif/cloudling-mini-peek.gif" width="90"> |
-| 通知 / 权限请求 | 警报弹出 | <img src="../../assets/gif/clawd-mini-alert.gif" width="100"> | <img src="../../assets/gif/calico-mini-alert.gif" width="80"> | <img src="../../assets/gif/cloudling-mini-alert.gif" width="90"> |
-| 任务完成 | 开心庆祝 | <img src="../../assets/gif/clawd-mini-happy.gif" width="100"> | <img src="../../assets/gif/calico-mini-happy.gif" width="80"> | <img src="../../assets/gif/cloudling-mini-happy.gif" width="90"> |
+## 模式规则
 
-## 点击反应
+审批、通知、问答和计划确认统一归入“Agent 气泡”，共用一个模式开关。气泡在桌宠所在屏幕右下角向上堆叠，使用概览的 Agent 配色，不再跟随桌宠；各类卡片原有的操作和停留时间规则保留。
 
-彩蛋——试试双击、连点 4 下、或反复戳 Clawd，会有隐藏反应。
+| 模式 | 桌宠显示 | 状态范围 | 提醒与审批 |
+| --- | --- | --- | --- |
+| 常规 | 显示 | 全部七状态 | 气泡、任务提示、托盘提醒开启；手动审批 |
+| 后台 | 隐藏 | 不展示状态动作 | Agent 气泡、托盘提醒开启；手动审批；任务提示关闭 |
+| 自动 | 显示 | 空闲、工作、等待、完成、错误、被提起 | Agent 气泡、任务提示关闭；托盘提醒开启；支持的请求自动处理 |
+| 自定义 | 按独立配置 | 必须保留空闲，其余状态可选 | 只在“编辑自定义模式”中配置 |
+
+前三种模式使用固定规则，不读取旧的独立行为开关。自动模式关闭漫游，保留等待。常规模式在满足自主移动条件时允许漫游，进入空闲或上次漫游结束后至少停留 120 秒。自定义模式可在“编辑自定义模式”中设置漫游间隔（10–3600 秒，默认 120 秒）；空闲动作需要更久时继续等待。第四种模式的配置单独保存；保存不会切换模式，也不会修改前三种模式。自定义模式未启用的状态回到空闲，Agent 原始状态和工作记录保持完整。动作方案仍可在动作管理中替换。
+
+应用不提供声音设置、声音编辑或播放。旧音频素材与偏好保留用于兼容，但不参与运行。每次启动回到常规模式。启用自动审批需要当前运行期间的确认；切换模式或保存当前自定义配置会使旧审批请求失效，不会追溯批准之前的请求。

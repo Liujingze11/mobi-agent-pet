@@ -10,6 +10,7 @@ import type {
   ProjectPath,
   ProjectSummary,
   SessionSummary,
+  UsageReport,
 } from "../types";
 
 const emptyOverview: OverviewSnapshot = {
@@ -18,6 +19,11 @@ const emptyOverview: OverviewSnapshot = {
   humanTimer: null,
   today: { agentSessionMs: 0, agentActiveMs: 0, humanMs: 0 },
   recentActivity: [],
+};
+
+const emptyUsageReport: UsageReport = {
+  period: "day", start: 0, end: 3_000, previousMs: 0, totalMs: 0, sessionCount: 0,
+  buckets: [], projects: [],
 };
 
 const worktreePath = {
@@ -50,6 +56,7 @@ function createApi(options: {
   overview?: OverviewSnapshot | Promise<OverviewSnapshot>;
   projects?: ProjectSummary[] | Promise<ProjectSummary[]>;
   sessions?: SessionSummary[] | Promise<SessionSummary[]>;
+  usageReport?: UsageReport | Promise<UsageReport>;
 } = {}) {
   const listeners = new Set<(scope: string) => void>();
   let language = options.language ?? "en";
@@ -62,7 +69,31 @@ function createApi(options: {
   const overview = options.overview ?? emptyOverview;
   const projects = options.projects ?? [];
   const sessions = options.sessions ?? [];
+  const usageReport = options.usageReport ?? emptyUsageReport;
   const api = {
+    providers: {
+      list: vi.fn(async () => []),
+      getEditDraft: vi.fn(async () => null),
+      create: vi.fn(async (_input) => { throw new Error("not implemented in fixture"); }),
+      update: vi.fn(async () => null),
+      remove: vi.fn(async () => false),
+      move: vi.fn(async () => []),
+      exportData: vi.fn(async () => ({ format: "mobi-providers-public-v1" as const, providers: [] })),
+      importData: vi.fn(async () => ({ added: 0, skipped: 0 })),
+      getEditorView: vi.fn(async (appId) => ({ appId, exists: false, config: null })),
+      fetchModels: vi.fn(async () => []),
+      checkEndpoint: vi.fn(async () => ({ reachable: false, status: 0 })),
+      status: vi.fn(async () => ({ mode: "switch" as const, activeId: null, conflict: false, supported: true, restartHint: "none" })),
+      activate: vi.fn(async (id: string) => ({ mode: "switch" as const, activeId: id, conflict: false, supported: true, restartHint: "none" })),
+      addToLive: vi.fn(async (id: string) => ({ mode: "coexist" as const, enabledIds: [id], conflict: false, supported: true, restartHint: "restart-agent" })),
+      removeFromLive: vi.fn(async () => ({ mode: "coexist" as const, enabledIds: [], conflict: false, supported: true, restartHint: "restart-agent" })),
+      restoreOriginal: vi.fn(async () => ({ mode: "switch" as const, activeId: null, conflict: false, supported: true, restartHint: "none" })),
+      balance: vi.fn(async () => null),
+      refreshBalance: vi.fn(async () => null),
+      getBalanceRule: vi.fn(async () => null),
+      setBalanceRule: vi.fn(async (_id, rule) => rule),
+    } satisfies AgentLogApi["providers"],
+    analytics: { get: vi.fn(() => Promise.resolve(usageReport)) },
     overview: { get: vi.fn(() => Promise.resolve(overview)) },
     projects: {
       list: vi.fn(() => Promise.resolve(projects)),
@@ -79,6 +110,8 @@ function createApi(options: {
     },
     sessions: {
       list: vi.fn(() => Promise.resolve(sessions)),
+      usage: vi.fn(async () => null),
+      assignProject: vi.fn(async (input: { sessionId: string; projectId: string | null }) => input),
       timeline: vi.fn(async () => []),
     },
     humanTimer: {
@@ -112,440 +145,194 @@ function createApi(options: {
   };
 }
 
-describe("App", () => {
-  it("renders Manager navigation in the selected Simplified Chinese language", async () => {
-    const { api } = createApi({ language: "zh" });
+function recordedSession(id: string, title: string): SessionSummary {
+  return {
+    id, source: "agent", agentId: "codex", sourceSessionId: id, parentSourceSessionId: null,
+    projectId: null, projectName: null, cwd: "/work", title, startedAt: 1_000,
+    endedAt: 2_000, lastEventAt: 2_000, latestState: "completed", disposition: "completed",
+    transcriptPath: null, createdAt: 1_000, updatedAt: 2_000, activeMs: 1_000,
+  };
+}
 
+describe("App", () => {
+  it("shows two statistics panels and the conversation records on the same page", async () => {
+    const { api } = createApi({ sessions: [recordedSession("session-1", "Write docs")] });
     render(<App api={api} />);
 
-    expect(await screen.findByRole("heading", { name: "当前工作" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "概览" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "项目" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Agent work time" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Token usage" })).toBeVisible();
+    const history = screen.getByText("Complete sessions").closest("details");
+    expect(history).not.toBeNull();
+    expect(history).toHaveAttribute("open");
+    expect(api.projects.list).not.toHaveBeenCalled();
+    expect(screen.queryByText("Estimated cost")).not.toBeInTheDocument();
+  });
+
+  it("opens to usage with provider navigation and no project or diagnostics pages", async () => {
+    const { api } = createApi({ language: "zh" });
+    render(<App api={api} />);
+
+    expect(await screen.findByRole("region", { name: "Agent 使用情况" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "记录" })).toBeVisible();
+    expect(screen.getByRole("navigation", { name: "管理界面导航" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "供应商" })).toBeInTheDocument();
+    expect(screen.queryByText("诊断")).not.toBeInTheDocument();
+    expect(api.sessions.list).toHaveBeenCalledWith({ includeArchived: true, source: "agent", limit: 500 });
+    expect(api.projects.list).not.toHaveBeenCalled();
+    expect(api.overview.get).not.toHaveBeenCalled();
+    expect(api.settings.open).not.toHaveBeenCalled();
     expect(document.documentElement).toHaveAttribute("lang", "zh-CN");
   });
 
-  it("updates visible Manager copy when the host language changes", async () => {
-    const harness = createApi({ language: "en" });
+  it("updates the records language when the host language changes", async () => {
+    const harness = createApi();
     render(<App api={harness.api} />);
-    expect(await screen.findByRole("heading", { name: "Live work" })).toBeVisible();
+    expect(await screen.findByRole("region", { name: "Agent activity" })).toBeVisible();
 
     harness.setLanguage("zh");
     await act(async () => harness.emit("language"));
 
-    expect(await screen.findByRole("heading", { name: "当前工作" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "项目" })).toBeVisible();
+    expect(await screen.findByRole("region", { name: "Agent 使用情况" })).toBeVisible();
+    expect(document.documentElement).toHaveAttribute("lang", "zh-CN");
   });
 
-  it("does not let a stale initial language response overwrite a live switch", async () => {
+  it("does not let an older language response overwrite a live switch", async () => {
     const initialLanguage = deferred<string>();
     const liveLanguage = deferred<string>();
-    const harness = createApi({ language: "en" });
-    harness.api.localization.getLanguage
-      .mockReset()
+    const harness = createApi();
+    harness.api.localization.getLanguage.mockReset()
       .mockReturnValueOnce(initialLanguage.promise)
       .mockReturnValueOnce(liveLanguage.promise);
     render(<App api={harness.api} />);
+    await screen.findByRole("region", { name: "Agent activity" });
 
-    await screen.findByRole("heading", { name: "Live work" });
     act(() => harness.emit("language"));
-    await act(async () => {
-      liveLanguage.resolve("zh");
-      await liveLanguage.promise;
-    });
-    expect(await screen.findByRole("heading", { name: "当前工作" })).toBeVisible();
+    await act(async () => { liveLanguage.resolve("zh"); await liveLanguage.promise; });
+    expect(await screen.findByRole("region", { name: "Agent 使用情况" })).toBeVisible();
 
-    await act(async () => {
-      initialLanguage.resolve("en");
-      await initialLanguage.promise;
-    });
-    expect(screen.getByRole("heading", { name: "当前工作" })).toBeVisible();
+    await act(async () => { initialLanguage.resolve("en"); await initialLanguage.promise; });
+    expect(screen.getByRole("region", { name: "Agent 使用情况" })).toBeVisible();
   });
 
-  it("renders project data that includes a worktree path", async () => {
+  it("shows recorded sessions in the history section", async () => {
     const user = userEvent.setup();
     const { api } = createApi({
       projects: [{
-        id: "project-worktree",
-        name: "Worktree Project",
-        description: null,
-        lifecycle: "active",
-        confirmation: "confirmed",
-        createdSource: "agent",
-        createdAt: 1,
-        updatedAt: 2,
-        paths: [worktreePath],
+        id: "project-1", name: "Docs", description: null, lifecycle: "active", confirmation: "confirmed",
+        createdSource: "manual", createdAt: 1, updatedAt: 2, paths: [],
       }],
+      sessions: [{ ...recordedSession("session-1", "Write docs"), projectId: "project-1", projectName: "Docs" }],
     });
     render(<App api={api} />);
-    await screen.findByRole("heading", { name: "Live work" });
 
-    await user.click(screen.getByRole("button", { name: "Projects" }));
-
-    expect(await screen.findByRole("heading", { name: "Worktree Project" })).toBeVisible();
-    await expect(api.projects.addPath({
-      projectId: "project-worktree",
-      path: "/worktrees/agentlog-pet",
-      kind: "alias",
-    })).resolves.toEqual(worktreePath);
+    await screen.findByRole("heading", { name: "Agent work time" });
+    expect(screen.getByText("Write docs")).toBeVisible();
+    await user.click(screen.getByText("Complete sessions"));
+    expect(screen.getByText("Complete sessions").closest("details")).not.toHaveAttribute("open");
+    expect(screen.queryByRole("combobox", { name: "Project" })).not.toBeInTheDocument();
   });
 
-  it("keeps manager routes internal and opens supported host settings destinations", async () => {
+  it("keeps time, Token usage, and on-demand conversations on one page", async () => {
     const user = userEvent.setup();
-    const { api } = createApi();
+    const { api } = createApi({
+      projects: [{ id: "docs", name: "Docs", description: null, lifecycle: "active", confirmation: "confirmed", createdSource: "manual", createdAt: 1, updatedAt: 2, paths: [] }],
+      sessions: [{ ...recordedSession("session-1", "Write docs"), projectId: "docs", projectName: "Docs" }],
+      usageReport: { ...emptyUsageReport, totalMs: 3_600_000, sessionCount: 1, projects: [{ projectId: "docs", name: "Docs", activeMs: 3_600_000 }] },
+    });
     render(<App api={api} />);
-    expect(await screen.findByRole("heading", { name: "Live work" })).toBeVisible();
 
-    await user.click(screen.getByRole("button", { name: "Projects" }));
-    expect(await screen.findByText("No projects recorded.")).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "Sessions" }));
-    expect(await screen.findByText("No sessions match these filters.")).toBeVisible();
-
-    await user.click(screen.getByRole("button", { name: "Agents" }));
-    await user.click(screen.getByRole("button", { name: "Pet & Themes" }));
-    await user.click(screen.getByRole("button", { name: "Settings" }));
-    await user.click(await screen.findByRole("button", { name: "Open App Settings" }));
-
-    expect(api.settings.open.mock.calls).toEqual([["agents"], ["theme"], ["general"]]);
-    expect(screen.getByRole("heading", { name: "Settings" })).toBeVisible();
+    expect(await screen.findByRole("heading", { name: "Agent work time" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Token usage" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "This week" }));
+    expect(api.analytics.get).toHaveBeenCalledWith(expect.objectContaining({ period: "week" }));
+    expect(screen.getByText("Write docs")).toBeVisible();
   });
 
-  it("shows loading and storage-starting states without requesting route data", async () => {
-    const health = deferred<DiagnosticsHealth>();
-    const { api } = createApi({ diagnostics: health.promise });
-    render(<App api={api} />);
-
+  it("shows loading and storage failures without exposing diagnostic details", async () => {
+    const pending = deferred<DiagnosticsHealth>();
+    const { api } = createApi({ diagnostics: pending.promise });
+    const first = render(<App api={api} />);
     expect(screen.getByText("Loading Mobi Agent Pet")).toBeVisible();
     await act(async () => {
-      health.resolve({
-        storage: "starting",
-        databaseName: "agentlog.db",
-        errorMessage: null,
-        tray: { status: "starting", code: null },
-      });
+      pending.resolve({ storage: "starting", databaseName: "agentlog.db", errorMessage: null,
+        tray: { status: "starting", code: null } });
     });
-
     expect(await screen.findByText("Storage is starting")).toBeVisible();
-    expect(api.overview.get).not.toHaveBeenCalled();
-  });
+    expect(api.sessions.list).not.toHaveBeenCalled();
+    first.unmount();
 
-  it("shows redacted storage and unexpected operation errors", async () => {
-    const { api: storageApi } = createApi({
-      diagnostics: {
-        storage: "error",
-        databaseName: "agentlog.db",
-        errorMessage: "Unable to open Mobi Agent Pet storage",
-        tray: { status: "starting", code: null },
-      },
-    });
-    const storageRender = render(<App api={storageApi} />);
+    const { api: errorApi } = createApi({ diagnostics: {
+      storage: "error", databaseName: "agentlog.db", errorMessage: "/private/storage/path",
+      tray: { status: "failed", code: null },
+    } });
+    render(<App api={errorApi} />);
     expect(await screen.findByText("Mobi Agent Pet storage unavailable")).toBeVisible();
-    expect(screen.getByText("Unable to open Mobi Agent Pet storage")).toBeVisible();
-    storageRender.unmount();
-
-    const { api: rejectedApi } = createApi();
-    rejectedApi.diagnostics.get.mockRejectedValueOnce(new Error("/home/dev/private.db"));
-    render(<App api={rejectedApi} />);
-    expect(await screen.findByText("Unable to load Mobi Agent Pet")).toBeVisible();
-    expect(screen.queryByText(/private\.db/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/private\/storage/)).not.toBeInTheDocument();
   });
 
-  it("shows only redacted diagnostic fields and opens General settings", async () => {
-    const user = userEvent.setup();
-    const { api } = createApi({
-      diagnostics: {
-        storage: "ready",
-        databaseName: "agentlog.db",
-        errorMessage: null,
-        databasePath: "/home/dev/.config/agentlog.db",
-        tray: { status: "starting", code: null },
-      },
-    });
-    render(<App api={api} />);
-    await screen.findByRole("heading", { name: "Live work" });
-    await user.click(screen.getByRole("button", { name: "Settings" }));
-
-    expect(await screen.findByText("agentlog.db")).toBeVisible();
-    expect(screen.getByText("Ready")).toBeVisible();
-    expect(screen.queryByText(/\/home\/dev/)).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Open App Settings" }));
-    expect(api.settings.open).toHaveBeenCalledWith("general");
-  });
-
-  it("falls back to starting tray diagnostics for an older payload without tray", async () => {
-    const user = userEvent.setup();
-    const { api } = createApi({
-      diagnostics: {
-        storage: "ready",
-        databaseName: "agentlog.db",
-        errorMessage: null,
-      } as unknown as DiagnosticsHealth & Record<string, unknown>,
-    });
-    render(<App api={api} />);
-    await screen.findByRole("heading", { name: "Live work" });
-
-    await user.click(screen.getByRole("button", { name: "Settings" }));
-
-    expect(await screen.findByText("Tray is starting")).toBeVisible();
-    expect(screen.queryByText("Manager encountered an unexpected error")).not.toBeInTheDocument();
-  });
-
-  it.each([
-    ["starting", null, "Tray is starting"],
-    ["native", "native-start-timeout", "Native tray active"],
-    ["electron-fallback", null, "Electron tray fallback active"],
-    ["no-host", null, "No tray host detected"],
-    ["failed", "tray-backends-unavailable", "Tray backend failed (tray-backends-unavailable)"],
-  ] as const)("shows the typed %s tray diagnostic", async (status, code, trayCopy) => {
-    const user = userEvent.setup();
-    const { api } = createApi({
-      diagnostics: {
-        storage: "ready",
-        databaseName: "agentlog.db",
-        errorMessage: null,
-        tray: { status, code },
-      },
-    });
-    render(<App api={api} />);
-    await screen.findByRole("heading", { name: "Live work" });
-
-    await user.click(screen.getByRole("button", { name: "Settings" }));
-
-    expect(await screen.findByText(trayCopy)).toBeVisible();
-    expect(screen.getByText("Storage")).toBeVisible();
-    expect(screen.getByText("Database")).toBeVisible();
-    if (status !== "failed" && code) expect(screen.queryByText(code)).not.toBeInTheDocument();
-  });
-
-  it("announces an Open App Settings failure", async () => {
-    const user = userEvent.setup();
-    const { api } = createApi();
-    api.settings.open.mockRejectedValueOnce(new Error("settings unavailable"));
-    render(<App api={api} />);
-    await screen.findByRole("heading", { name: "Live work" });
-    await user.click(screen.getByRole("button", { name: "Settings" }));
-
-    await user.click(await screen.findByRole("button", { name: "Open App Settings" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent("Unable to open app settings.");
-  });
-
-  it("refreshes relevant current data and unsubscribes on unmount", async () => {
-    const user = userEvent.setup();
+  it("refreshes records for Agent changes and unsubscribes on unmount", async () => {
     const harness = createApi();
     const view = render(<App api={harness.api} />);
-    await screen.findByRole("heading", { name: "Live work" });
-    await user.click(screen.getByRole("button", { name: "Projects" }));
-    await screen.findByText("No projects recorded.");
+    await screen.findByRole("region", { name: "Agent activity" });
+    const initialCalls = harness.api.sessions.list.mock.calls.length;
 
-    harness.api.projects.list.mockResolvedValueOnce([{
-      id: "project-1",
-      name: "Indexer",
-      description: null,
-      lifecycle: "active",
-      confirmation: "confirmed",
-      createdSource: "manual",
-      createdAt: 1,
-      updatedAt: 2,
-      paths: [],
-    }]);
     await act(async () => harness.emit("projects"));
-
-    expect(await screen.findByRole("heading", { name: "Indexer" })).toBeVisible();
+    expect(harness.api.sessions.list).toHaveBeenCalledTimes(initialCalls);
+    await act(async () => harness.emit("agent-events"));
+    await waitFor(() => expect(harness.api.sessions.list).toHaveBeenCalledTimes(initialCalls + 1));
     expect(harness.listenerCount()).toBe(1);
-    expect(harness.api.events.onChanged).toHaveBeenCalledTimes(1);
     view.unmount();
     expect(harness.listenerCount()).toBe(0);
   });
 
-  it("refreshes project and session workspaces for recorded activity", async () => {
+  it("recalculates on visible refresh without hiding the current report", async () => {
     const user = userEvent.setup();
-    const harness = createApi({ projects: [{
-      id: "project-refresh",
-      name: "Refresh Project",
-      description: null,
-      lifecycle: "active",
-      confirmation: "confirmed",
-      createdSource: "manual",
-      createdAt: 1,
-      updatedAt: 2,
-      paths: [],
-    }] });
+    const harness = createApi({ usageReport: { ...emptyUsageReport, totalMs: 3_600_000 } });
     render(<App api={harness.api} />);
-    await screen.findByRole("heading", { name: "Live work" });
+    expect(await screen.findByText("1h 0m")).toBeVisible();
 
-    await user.click(screen.getByRole("button", { name: "Projects" }));
-    await screen.findByRole("heading", { name: "Refresh Project" });
-    await user.click(screen.getByRole("tab", { name: "Settings" }));
-    const agentRefresh = deferred<ProjectSummary[]>();
-    harness.api.projects.list.mockReturnValueOnce(agentRefresh.promise);
-    const projectLoads = harness.api.projects.list.mock.calls.length;
-    act(() => harness.emit("agent-events"));
-    expect(screen.getByRole("tab", { name: "Settings" })).toHaveAttribute("aria-selected", "true");
-    await act(async () => {
-      agentRefresh.resolve([{
-        id: "project-refresh",
-        name: "Refresh Project",
-        description: null,
-        lifecycle: "active",
-        confirmation: "confirmed",
-        createdSource: "manual",
-        createdAt: 1,
-        updatedAt: 3,
-        paths: [],
-      }]);
-      await agentRefresh.promise;
-    });
-    await waitFor(() => expect(harness.api.projects.list).toHaveBeenCalledTimes(projectLoads + 1));
-    expect(screen.getByRole("tab", { name: "Settings" })).toHaveAttribute("aria-selected", "true");
-    await act(async () => harness.emit("human-timer"));
-    await waitFor(() => expect(harness.api.projects.list).toHaveBeenCalledTimes(projectLoads + 2));
+    const pending = deferred<UsageReport>();
+    harness.api.analytics.get.mockReturnValueOnce(pending.promise);
+    await user.click(screen.getByRole("button", { name: "Refresh statistics" }));
+    expect(harness.api.analytics.get).toHaveBeenLastCalledWith(expect.objectContaining({ force: true }));
+    expect(screen.getByText("1h 0m")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Refreshing…" })).toBeDisabled();
 
-    await user.click(screen.getByRole("button", { name: "Sessions" }));
-    await screen.findByText("No sessions match these filters.");
-    const sessionLoads = harness.api.sessions.list.mock.calls.length;
-    await act(async () => harness.emit("agent-events"));
-    await waitFor(() => expect(harness.api.sessions.list).toHaveBeenCalledTimes(sessionLoads + 1));
-    await act(async () => harness.emit("human-timer"));
-    await waitFor(() => expect(harness.api.sessions.list).toHaveBeenCalledTimes(sessionLoads + 2));
+    await act(async () => { pending.resolve({ ...emptyUsageReport, totalMs: 7_200_000 }); await pending.promise; });
+    expect(await screen.findByText("2h 0m")).toBeVisible();
+    harness.api.analytics.get.mockRejectedValueOnce(new Error("private path"));
+    await user.click(screen.getByRole("button", { name: "Refresh statistics" }));
+    expect(await screen.findByText("Refresh failed. Try again.")).toBeVisible();
+    expect(screen.getByText("2h 0m")).toBeVisible();
+    expect(screen.queryByText("private path")).not.toBeInTheDocument();
   });
 
-  it("ignores a deferred route response after unmount and leaves no listener", async () => {
-    const user = userEvent.setup();
-    const pendingProjects = deferred<ProjectSummary[]>();
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-    const harness = createApi();
-    harness.api.projects.list
-      .mockResolvedValueOnce([])
-      .mockReturnValueOnce(pendingProjects.promise);
-    try {
-      const view = render(<App api={harness.api} />);
-      await screen.findByRole("heading", { name: "Live work" });
-      await user.click(screen.getByRole("button", { name: "Projects" }));
-      expect(await screen.findByText("Loading Projects")).toBeVisible();
-      expect(harness.listenerCount()).toBe(1);
-
-      view.unmount();
-      expect(harness.listenerCount()).toBe(0);
-      await act(async () => {
-        pendingProjects.resolve([]);
-        await pendingProjects.promise;
-      });
-      harness.emit("projects");
-
-      expect(harness.api.projects.list).toHaveBeenCalledTimes(2);
-      expect(consoleError).not.toHaveBeenCalled();
-    } finally {
-      consoleError.mockRestore();
-    }
-  });
-
-  it("keeps the newest same-route refresh when requests resolve out of order", async () => {
-    const user = userEvent.setup();
-    const olderRefresh = deferred<ProjectSummary[]>();
-    const newerRefresh = deferred<ProjectSummary[]>();
-    const harness = createApi({
-      projects: [{
-        id: "project-initial",
-        name: "Initial Project",
-        description: null,
-        lifecycle: "active",
-        confirmation: "confirmed",
-        createdSource: "manual",
-        createdAt: 1,
-        updatedAt: 2,
-        paths: [],
-      }],
-    });
-    render(<App api={harness.api} />);
-    await screen.findByRole("heading", { name: "Live work" });
-    await user.click(screen.getByRole("button", { name: "Projects" }));
-    expect(await screen.findByRole("heading", { name: "Initial Project" })).toBeVisible();
-    harness.api.projects.list
-      .mockReturnValueOnce(olderRefresh.promise)
-      .mockReturnValueOnce(newerRefresh.promise);
-
-    act(() => harness.emit("projects"));
-    act(() => harness.emit("projects"));
-    await act(async () => {
-      newerRefresh.resolve([{
-        id: "project-newest",
-        name: "Newest Project",
-        description: null,
-        lifecycle: "active",
-        confirmation: "confirmed",
-        createdSource: "manual",
-        createdAt: 3,
-        updatedAt: 4,
-        paths: [],
-      }]);
-      await newerRefresh.promise;
-    });
-    expect(await screen.findByRole("heading", { name: "Newest Project" })).toBeVisible();
-
-    await act(async () => {
-      olderRefresh.resolve([{
-        id: "project-older",
-        name: "Older Project",
-        description: null,
-        lifecycle: "active",
-        confirmation: "confirmed",
-        createdSource: "manual",
-        createdAt: 1,
-        updatedAt: 2,
-        paths: [],
-      }]);
-      await olderRefresh.promise;
-    });
-
-    expect(screen.getByRole("heading", { name: "Newest Project" })).toBeVisible();
-    expect(screen.queryByText("Older Project")).not.toBeInTheDocument();
-  });
-
-  it("ignores stale route responses after navigation", async () => {
-    const user = userEvent.setup();
-    const lateOverview = deferred<OverviewSnapshot>();
-    const harness = createApi({
-      overview: lateOverview.promise,
-      projects: [{
-        id: "project-2",
-        name: "Current Project",
-        description: null,
-        lifecycle: "active",
-        confirmation: "confirmed",
-        createdSource: "manual",
-        createdAt: 1,
-        updatedAt: 2,
-        paths: [],
-      }],
-    });
-    render(<App api={harness.api} />);
-    await screen.findByText("Loading Overview");
-    await user.click(screen.getByRole("button", { name: "Projects" }));
-    expect(await screen.findByRole("heading", { name: "Current Project" })).toBeVisible();
-
-    await act(async () => {
-      lateOverview.resolve({
-        ...emptyOverview,
-        pendingProjectCount: 9,
-      });
-    });
-
-    expect(screen.getByRole("heading", { name: "Current Project" })).toBeVisible();
-  });
-
-  it("contains route load failures and allows a retry", async () => {
-    const user = userEvent.setup();
+  it("keeps the newest records when refresh responses arrive out of order", async () => {
+    const older = deferred<SessionSummary[]>();
+    const newer = deferred<SessionSummary[]>();
     const harness = createApi();
     render(<App api={harness.api} />);
-    await screen.findByRole("heading", { name: "Live work" });
-    harness.api.projects.list
-      .mockRejectedValueOnce(new Error("database exploded"))
-      .mockResolvedValueOnce([]);
+    await screen.findByRole("region", { name: "Agent activity" });
+    harness.api.sessions.list.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
 
-    await user.click(screen.getByRole("button", { name: "Projects" }));
-    expect(await screen.findByText("Unable to load Projects")).toBeVisible();
+    act(() => harness.emit("sessions"));
+    act(() => harness.emit("sessions"));
+    await act(async () => { newer.resolve([recordedSession("new", "Newest record")]); await newer.promise; });
+    expect(await screen.findByText("Newest record")).toBeVisible();
+    await act(async () => { older.resolve([recordedSession("old", "Older record")]); await older.promise; });
+    expect(screen.getByText("Newest record")).toBeVisible();
+    expect(screen.queryByText("Older record")).not.toBeInTheDocument();
+  });
+
+  it("allows retry after a records load error", async () => {
+    const user = userEvent.setup();
+    const harness = createApi();
+    harness.api.sessions.list.mockRejectedValueOnce(new Error("private database path"));
+    render(<App api={harness.api} />);
+
+    expect(await screen.findByText("Unable to load Records")).toBeVisible();
+    expect(screen.queryByText(/private database path/)).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Retry" }));
-
-    await waitFor(() => expect(screen.getByText("No projects recorded.")).toBeVisible());
+    expect(await screen.findByRole("region", { name: "Agent activity" })).toBeVisible();
   });
 });

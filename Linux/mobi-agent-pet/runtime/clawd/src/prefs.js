@@ -231,6 +231,7 @@ const SCHEMA = {
   keepSizeAcrossDisplays: { type: "boolean", default: false },
   // Free roam: when enabled and the pet is idle, it will wander around the screen
   freeRoam: { type: "boolean", default: false },
+  customModeProfile: {type:"object", defaultFactory:()=>require("./custom-mode-profile").defaultCustomModeProfile(), normalize:require("./custom-mode-profile").normalizeCustomModeProfile},
   // #562: Windows-only. When ON, the pet floats ON TOP of a foreground
   // fullscreen app (e.g. a borderless game) and stays draggable, instead of
   // standing down below it (#538). Default ON — most users want to glance at
@@ -995,7 +996,7 @@ function normalizeThemeOverrides(value, defaultsValue) {
     // Back-compat: older prefs wrote state entries directly under themeId.
     const legacyStates = {};
     for (const [key, entry] of Object.entries(themeMap)) {
-      if (key === "states" || key === "tiers" || key === "timings" || key === "idleAnimations" || key === "reactions" || key === "hitbox" || key === "sounds") continue;
+      if (key === "states" || key === "tiers" || key === "timings" || key === "idleAnimations" || key === "reactions" || key === "hitbox" || key === "sounds" || key === "actionPlan") continue;
       const cleanEntry = normalizeSlotOverride(entry, { allowDisabled: true });
       if (cleanEntry) legacyStates[key] = cleanEntry;
     }
@@ -1030,6 +1031,9 @@ function normalizeThemeOverrides(value, defaultsValue) {
 
     const hitbox = normalizeHitboxOverrides(themeMap.hitbox);
     if (hitbox) cleanThemeMap.hitbox = hitbox;
+
+    const actionPlan = require("./pet-action-plan").normalizePlan(themeMap.actionPlan);
+    if (actionPlan) cleanThemeMap.actionPlan = actionPlan;
 
     const sounds = normalizeSoundOverridesMap(themeMap.sounds);
     if (sounds) cleanThemeMap.sounds = sounds;

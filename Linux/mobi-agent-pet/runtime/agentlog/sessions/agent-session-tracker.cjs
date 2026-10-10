@@ -31,7 +31,7 @@ function createAgentSessionTracker(db, { now = Date.now, createId = randomUUID }
     "INSERT INTO agent_sessions(id, agent_id, source_session_id, parent_source_session_id, project_id, cwd, title, started_at, last_event_at, latest_state, disposition, transcript_path, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)"
   );
   const updateSession = db.prepare(
-    "UPDATE agent_sessions SET parent_source_session_id = COALESCE(?, parent_source_session_id), project_id = COALESCE(?, project_id), cwd = COALESCE(?, cwd), title = COALESCE(?, title), ended_at = ?, last_event_at = ?, latest_state = ?, disposition = ?, transcript_path = COALESCE(?, transcript_path), updated_at = ? WHERE id = ?"
+    "UPDATE agent_sessions SET parent_source_session_id = COALESCE(?, parent_source_session_id), project_id = CASE WHEN project_assignment_source = 'manual' THEN project_id ELSE COALESCE(?, project_id) END, cwd = COALESCE(?, cwd), title = COALESCE(?, title), ended_at = ?, last_event_at = ?, latest_state = ?, disposition = ?, transcript_path = COALESCE(?, transcript_path), updated_at = ? WHERE id = ?"
   );
   const findOpenInterval = db.prepare("SELECT * FROM agent_active_intervals WHERE agent_session_id = ? AND ended_at IS NULL");
   const insertInterval = db.prepare(
@@ -44,7 +44,7 @@ function createAgentSessionTracker(db, { now = Date.now, createId = randomUUID }
     "UPDATE agent_active_intervals SET ended_at = ?, close_reason = ? WHERE agent_session_id = ? AND ended_at IS NULL"
   );
   const closeAllIntervals = db.prepare(
-    "UPDATE agent_active_intervals SET ended_at = ?, close_reason = 'interrupted' WHERE ended_at IS NULL"
+    "UPDATE agent_active_intervals SET ended_at = MIN(?, MAX(started_at, (SELECT last_event_at FROM agent_sessions WHERE id = agent_session_id))), close_reason = 'interrupted' WHERE ended_at IS NULL"
   );
   const interruptSessions = db.prepare(
     "UPDATE agent_sessions SET ended_at = ?, last_event_at = MAX(last_event_at, ?), disposition = 'interrupted', updated_at = ? WHERE ended_at IS NULL AND disposition = 'active'"
@@ -97,9 +97,9 @@ function createAgentSessionTracker(db, { now = Date.now, createId = randomUUID }
     const disposition = dispositionFor(event);
     if (!isTerminalEvent(event) && isWorkingState(event.state)) {
       if (!findOpenInterval.get(session.id)) {
-        insertInterval.run(createId(), session.id, projectId || session.project_id || null, event.occurredAt);
+        insertInterval.run(createId(), session.id, session.project_assignment_source === "manual" ? session.project_id : (projectId || session.project_id || null), event.occurredAt);
       } else {
-        updateOpenIntervalProject.run(projectId || null, session.id);
+        if (session.project_assignment_source !== "manual") updateOpenIntervalProject.run(projectId || null, session.id);
       }
     } else {
       closeOpenInterval.run(event.occurredAt, event.category, session.id);

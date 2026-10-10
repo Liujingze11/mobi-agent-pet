@@ -1107,6 +1107,21 @@
   }
 
   function render(parent) {
+    if (runtime.petBehaviorSoundOnly === true) {
+      if (runtime.animationOverridesData === null) {
+        const loading = document.createElement("div");
+        loading.className = "placeholder-desc";
+        loading.textContent = t("animOverridesLoading");
+        parent.appendChild(loading);
+        ops.fetchAnimationOverridesData().then(() => {
+          if (state.activeTab === "animOverrides") ops.requestRender({ content: true });
+        });
+        return;
+      }
+      parent.appendChild(buildSoundOverridesSection(runtime.animationOverridesData));
+      return;
+    }
+
     const h1 = document.createElement("h1");
     h1.textContent = t("animOverridesTitle");
     parent.appendChild(h1);
@@ -1367,7 +1382,11 @@
     themeBtn.className = "soft-btn";
     themeBtn.textContent = t("animOverridesOpenThemeTab");
     themeBtn.addEventListener("click", () => {
-      ops.selectTab("theme");
+      if (root.ClawdDashboardAnimation && typeof root.ClawdDashboardAnimation.navigateTheme === "function") {
+        root.ClawdDashboardAnimation.navigateTheme();
+      } else {
+        window.settingsAPI.openDashboard("theme");
+      }
     });
     primaryActions.appendChild(themeBtn);
 

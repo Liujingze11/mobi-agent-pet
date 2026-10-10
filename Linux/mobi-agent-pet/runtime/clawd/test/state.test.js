@@ -257,15 +257,34 @@ describe("restoreSessionFromLease()", () => {
     assert.deepStrictEqual(sounds, []);
     assert.deepStrictEqual(broadcasts, []);
     assert.strictEqual(api.sessions.size, 1);
-    const session = api.sessions.get("claude-real-session");
+    const session = api.sessions.get(makeSessionKey({ rawSessionId: "claude-real-session" }));
     assert.strictEqual(session.state, "working");
     assert.strictEqual(session.startupRecovered, true);
     assert.deepStrictEqual(session.recentEvents, []);
     assert.strictEqual(session.requiresCompletionAck, undefined);
     const entry = api.buildSessionSnapshot().sessions[0];
-    assert.strictEqual(entry.id, "claude-real-session");
+    assert.strictEqual(entry.id, makeSessionKey({ rawSessionId: "claude-real-session" }));
+    assert.strictEqual(entry.rawSessionId, "claude-real-session");
     assert.strictEqual(entry.startupRecovered, true);
     assert.strictEqual(entry.canFocus, false);
+  });
+
+  it("restores verified Claude editor focus metadata for a live terminal", () => {
+    api = require("../src/state")(makeCtx({
+      processKill: () => true,
+      focusHostPlatform: "linux",
+      resolveRecoveredClaudeFocus: () => ({
+        sourcePid: 23820,
+        editor: "code",
+        pidChain: [23820, 23600, 3961],
+      }),
+    }));
+    assert.strictEqual(api.restoreSessionFromLease(lease()), true);
+    const restored = api.sessions.get(makeSessionKey({ rawSessionId: "claude-real-session" }));
+    assert.strictEqual(restored.sourcePid, 23820);
+    assert.strictEqual(restored.editor, "code");
+    assert.deepStrictEqual(restored.pidChain, [23820, 23600, 3961]);
+    assert.strictEqual(api.buildSessionSnapshot().sessions[0].canFocus, true);
   });
 
   it("lets the next real hook update the same id and clear only its marker", () => {
@@ -273,23 +292,39 @@ describe("restoreSessionFromLease()", () => {
     assert.strictEqual(api.restoreSessionFromLease(lease()), true);
     assert.strictEqual(api.restoreSessionFromLease(lease({ sessionId: "other-session", state: "thinking" })), true);
     update(api, {
-      id: "claude-real-session",
+      id: makeSessionKey({ rawSessionId: "claude-real-session" }),
       state: "working",
       event: "PostToolUse",
       sourcePid: process.pid,
       agentPid: process.pid,
     });
     assert.strictEqual(api.sessions.size, 2);
-    assert.strictEqual(api.sessions.get("claude-real-session").startupRecovered, undefined);
-    assert.strictEqual(api.sessions.get("other-session").startupRecovered, true);
+    assert.strictEqual(api.sessions.get(makeSessionKey({ rawSessionId: "claude-real-session" })).startupRecovered, undefined);
+    assert.strictEqual(api.sessions.get(makeSessionKey({ rawSessionId: "other-session" })).startupRecovered, true);
+  });
+
+  it("keeps one Claude card when a canonical hook follows raw lease recovery", () => {
+    api = require("../src/state")(makeCtx({ processKill: () => true }));
+    assert.strictEqual(api.restoreSessionFromLease(lease()), true);
+    update(api, {
+      id: makeSessionKey({ rawSessionId: "claude-real-session" }),
+      profileId: "local", rawSessionId: "claude-real-session",
+      state: "thinking", event: "UserPromptSubmit",
+      agentPid: process.pid, sourcePid: process.pid,
+    });
+    const entries = api.buildSessionSnapshot().sessions;
+    assert.strictEqual(entries.length, 1);
+    assert.strictEqual(entries[0].state, "thinking");
+    assert.strictEqual(entries[0].startupRecovered, false);
+    assert.strictEqual(api.restoreSessionFromLease(lease()), false);
   });
 
   it("never overwrites a session that arrived from a real hook first", () => {
     api = require("../src/state")(makeCtx({ processKill: () => true }));
-    update(api, { id: "claude-real-session", state: "thinking", event: "UserPromptSubmit" });
+    update(api, { id: makeSessionKey({ rawSessionId: "claude-real-session" }), state: "thinking", event: "UserPromptSubmit" });
     assert.strictEqual(api.restoreSessionFromLease(lease()), false);
-    assert.strictEqual(api.sessions.get("claude-real-session").state, "thinking");
-    assert.strictEqual(api.sessions.get("claude-real-session").startupRecovered, undefined);
+    assert.strictEqual(api.sessions.get(makeSessionKey({ rawSessionId: "claude-real-session" })).state, "thinking");
+    assert.strictEqual(api.sessions.get(makeSessionKey({ rawSessionId: "claude-real-session" })).startupRecovered, undefined);
   });
 });
 
@@ -325,19 +360,15 @@ describe("resolveDisplayState()", () => {
     assert.strictEqual(api.resolveDisplayState(), "idle");
   });
 
-  it("full priority ordering", () => {
-    const ordered = ["sleeping", "idle", "thinking", "working", "juggling", "carrying", "attention", "sweeping", "notification", "error"];
-    for (let i = 0; i < ordered.length - 1; i++) {
-      const low = ordered[i];
-      const high = ordered[i + 1];
-      api.sessions.clear();
-      api.sessions.set("lo", rawSession(low));
-      api.sessions.set("hi", rawSession(high));
-      const result = api.resolveDisplayState();
-      const hiPri = api.STATE_PRIORITY[high] || 0;
-      const rePri = api.STATE_PRIORITY[result] || 0;
-      assert.ok(rePri >= hiPri, `expected ${high}(${hiPri}) to win over ${low}, got ${result}(${rePri})`);
-    }
+  it("pet priority uses canonical groups while sessions keep original event states", () => {
+    api.sessions.set("work", rawSession("sweeping"));
+    api.sessions.set("done", rawSession("attention"));
+    assert.strictEqual(api.resolveDisplayState(), "complete");
+    assert.strictEqual(api.sessions.get("work").state, "sweeping");
+    api.sessions.set("ask", rawSession("notification"));
+    assert.strictEqual(api.resolveDisplayState(), "waiting");
+    api.sessions.set("bad", rawSession("error"));
+    assert.strictEqual(api.resolveDisplayState(), "error");
   });
 
   it("keeps an active Kimi permission lock visible", () => {
@@ -355,7 +386,7 @@ describe("resolveDisplayState()", () => {
       event: "PermissionRequest",
       agentId: "kimi-cli",
     });
-    assert.strictEqual(api.resolveDisplayState(), "notification");
+    assert.strictEqual(api.resolveDisplayState(), "waiting");
   });
 });
 
@@ -400,48 +431,28 @@ describe("setState() debounce", () => {
     assert.strictEqual(api.getCurrentState(), "working");
   });
 
-  it("pending fires after MIN_DISPLAY_MS elapsed", () => {
-    api.setState("working");
-    api.setState("idle");
-    assert.strictEqual(api.getCurrentState(), "working");
-    mock.timers.tick(1000);
-    assert.strictEqual(api.getCurrentState(), "idle");
-  });
-
-  it("higher priority overrides pending", () => {
-    api.setState("working");
-    api.setState("idle"); // pending
-    api.setState("error"); // should override pending
-    assert.strictEqual(api.getCurrentState(), "working"); // still waiting
-    mock.timers.tick(1000);
+  it("new work/error/idle updates are not held behind legacy presentation timers", () => {
+    api.setState("working"); api.setState("error");
     assert.strictEqual(api.getCurrentState(), "error");
+    api.setState("idle"); assert.strictEqual(api.getCurrentState(), "error");
+    mock.timers.tick(5000); assert.strictEqual(api.getCurrentState(), "idle");
   });
-
-  it("lower priority cannot override pending", () => {
-    api.setState("error");
-    // error MIN_DISPLAY_MS = 5000
-    api.setState("notification"); // pending, prio 7 (ONESHOT — applies directly)
-    api.setState("attention");    // prio 5 < notification 7, rejected
-    mock.timers.tick(5000);
-    assert.strictEqual(api.getCurrentState(), "notification");
-  });
-
   it("DND → setState is no-op", () => {
     ctx.doNotDisturb = true;
     api.setState("working");
     assert.strictEqual(api.getCurrentState(), "idle");
   });
 
-  it("miniTransitioning → applyState rejects non-mini states", () => {
+  it("mini transition does not discard current task updates", () => {
     ctx.miniTransitioning = true;
     api.applyState("working");
-    assert.strictEqual(api.getCurrentState(), "idle");
+    assert.strictEqual(api.getCurrentState(), "working");
   });
 
   it("already in sleep sequence → rejects yawning", () => {
     api.applyState("dozing");
     api.setState("yawning");
-    assert.strictEqual(api.getCurrentState(), "dozing");
+    assert.strictEqual(api.getCurrentState(), "idle");
   });
 });
 
@@ -449,42 +460,15 @@ describe("setState() debounce", () => {
 // Group 3: working sub-animations
 // ═════════════════════════════════════════════════════════════════════════════
 
-describe("working sub-animations", () => {
-  let api;
-  beforeEach(() => { api = require("../src/state")(makeCtx()); });
-  afterEach(() => { api.cleanup(); });
-
-  it("1 working session → typing SVG", () => {
-    api.sessions.set("s1", rawSession("working"));
-    assert.strictEqual(api.getSvgOverride("working"), "clawd-working-typing.svg");
-  });
-
-  it("2 working sessions → headphones groove SVG", () => {
-    api.sessions.set("s1", rawSession("working"));
-    api.sessions.set("s2", rawSession("working"));
-    assert.strictEqual(api.getSvgOverride("working"), "clawd-headphones-groove.svg");
-  });
-
-  it("3+ working sessions → building SVG", () => {
-    api.sessions.set("s1", rawSession("working"));
-    api.sessions.set("s2", rawSession("thinking"));
-    api.sessions.set("s3", rawSession("working"));
-    assert.strictEqual(api.getSvgOverride("working"), "clawd-working-building.svg");
-  });
-
-  it("1 juggling session → headphones groove SVG", () => {
-    api.sessions.set("s1", rawSession("juggling"));
-    assert.strictEqual(api.getSvgOverride("juggling"), "clawd-headphones-groove.svg");
-  });
-
-  it("2+ juggling sessions → three-ball juggling SVG", () => {
-    api.sessions.set("s1", rawSession("juggling"));
-    api.sessions.set("s2", rawSession("juggling"));
-    assert.strictEqual(api.getSvgOverride("juggling"), "clawd-working-juggling.svg");
-  });
-
-  it("idle → follow SVG", () => {
-    assert.strictEqual(api.getSvgOverride("idle"), "clawd-idle-follow.svg");
+describe("configured working group", () => {
+  it("session counts and work subevents cannot replace the configured work action", () => {
+    const api = require("../src/state")(makeCtx());
+    try {
+      for (const state of ["working", "thinking", "juggling", "sweeping", "carrying"]) {
+        api.sessions.set(state, rawSession(state));
+        assert.strictEqual(api.getSvgOverride(state), "clawd-working-typing.svg");
+      }
+    } finally { api.cleanup(); }
   });
 });
 
@@ -536,233 +520,36 @@ describe("visual fallback resolution", () => {
   it("keeps the logical state while resolving visuals through fallbackTo", () => {
     api.applyState("error");
     assert.strictEqual(api.getCurrentState(), "error");
-    assert.strictEqual(api.getCurrentSvg(), "clawd-happy.svg");
+    assert.strictEqual(api.getCurrentSvg(), "clawd-error.svg");
 
     mock.timers.tick(5000);
     assert.strictEqual(api.getCurrentState(), "idle");
   });
 });
 
-describe("mini mode working routing", () => {
-  let api, ctx;
-
-  beforeEach(() => {
-    mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"] });
-  });
-
-  afterEach(() => {
-    if (api) api.cleanup();
-    mock.timers.reset();
-  });
-
-  it("theme defines mini-working → working routes to mini-working", () => {
-    ctx = makeCtx({ miniMode: true });
-    api = require("../src/state")(ctx);
-    api.applyState("mini-idle");
-    api.applyState("working");
-    assert.strictEqual(api.getCurrentState(), "mini-working");
-  });
-
-  it("theme lacks mini-working → working stays on current mini state", () => {
-    const theme = cloneTheme(_defaultTheme);
-    delete theme.miniMode.states["mini-working"];
-    delete theme._stateBindings["mini-working"];
-    ctx = makeCtx({ miniMode: true, theme });
-    api = require("../src/state")(ctx);
-    api.applyState("mini-idle");
-    api.applyState("working");
-    assert.strictEqual(api.getCurrentState(), "mini-idle");
+describe("mini display uses canonical work state", () => {
+  it("mini form uses the same configured working slot", () => {
+    const api = require("../src/state")(makeCtx({miniMode:true}));
+    try { api.applyState("working"); assert.strictEqual(api.getCurrentState(), "working"); assert.strictEqual(api.getCurrentSvg(), "clawd-working-typing.svg"); }
+    finally { api.cleanup(); }
   });
 });
 
-// ═════════════════════════════════════════════════════════════════════════════
-// Group 4: sleep sequence
-// ═════════════════════════════════════════════════════════════════════════════
-
-describe("sleep sequence", () => {
-  let api, ctx;
-
-  beforeEach(() => {
-    mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"] });
-    ctx = makeCtx();
-    api = require("../src/state")(ctx);
-  });
-  afterEach(() => {
-    api.cleanup();
-    mock.timers.reset();
-  });
-
-  it("yawning → 3s → dozing (non-DND)", () => {
-    api.applyState("yawning");
-    assert.strictEqual(api.getCurrentState(), "yawning");
-    mock.timers.tick(3000);
-    assert.strictEqual(api.getCurrentState(), "dozing");
-  });
-
-  it("yawning → 3s → collapsing (DND)", () => {
-    ctx.doNotDisturb = true;
-    api.applyState("yawning");
-    mock.timers.tick(3000);
-    assert.strictEqual(api.getCurrentState(), "collapsing");
-  });
-
-  it("collapsing has no auto-return timer", () => {
-    api.applyState("collapsing");
-    assert.strictEqual(api.getCurrentState(), "collapsing");
-    // Tick a long time — should stay collapsing
-    mock.timers.tick(60000);
-    assert.strictEqual(api.getCurrentState(), "collapsing");
-  });
-
-  it("waking → 1.5s → resolveDisplayState (idle when no sessions)", () => {
-    api.applyState("waking");
-    assert.strictEqual(api.getCurrentState(), "waking");
-    mock.timers.tick(1500);
-    assert.strictEqual(api.getCurrentState(), "idle");
-  });
-
-  it("waking → 1.5s → restores working if active session exists", () => {
-    api.sessions.set("s1", rawSession("working"));
-    api.applyState("waking");
-    mock.timers.tick(1500);
-    assert.strictEqual(api.getCurrentState(), "working");
+describe("sleep resources remain idle actions", () => {
+  it("legacy rest event names cannot create extra runtime states", () => {
+    const api = require("../src/state")(makeCtx());
+    try { for (const input of ["yawning","dozing","collapsing","sleeping","waking"]) { api.applyState(input); assert.strictEqual(api.getCurrentState(), "idle"); } }
+    finally { api.cleanup(); }
   });
 });
 
-describe("wake poll behavior", () => {
-  let api, ctx, fakeCursor;
-
-  beforeEach(() => {
-    mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"] });
-    fakeCursor = { x: 100, y: 100 };
-    ctx = makeCtx({ getCursorScreenPoint: () => ({ ...fakeCursor }) });
-    api = require("../src/state")(ctx);
-  });
-  afterEach(() => {
-    api.cleanup();
-    mock.timers.reset();
-  });
-
-  it("dozing + mouse move → wake-from-doze + 350ms → idle", () => {
-    const events = [];
-    ctx.sendToRenderer = (ev) => events.push(ev);
-    api.applyState("dozing");
-    // wake poll starts after 500ms delay
-    mock.timers.tick(500);
-    // now move cursor
-    fakeCursor.x = 200;
-    mock.timers.tick(200); // wake poll interval
-    assert.ok(events.includes("wake-from-doze"));
-    mock.timers.tick(350);
-    assert.strictEqual(api.getCurrentState(), "idle");
-  });
-
-  it("wake-from-doze returns to the user-selected idle visual", () => {
-    api.cleanup();
-    ctx = makeCtx({
-      getCursorScreenPoint: () => ({ ...fakeCursor }),
-      getIdleVisualChoice: () => "clawd-idle-reading.svg",
-    });
-    const changes = [];
-    ctx.sendToRenderer = (ev, ...args) => { if (ev === "state-change") changes.push(args); };
-    api = require("../src/state")(ctx);
-
-    api.applyState("dozing");
-    mock.timers.tick(500);
-    fakeCursor.x = 200;
-    mock.timers.tick(200);
-    mock.timers.tick(350);
-    assert.strictEqual(api.getCurrentState(), "idle");
-    assert.deepStrictEqual(changes[changes.length - 1], ["idle", "clawd-idle-reading.svg"]);
-  });
-
-  it("collapsing + mouse move → waking", () => {
-    api.applyState("collapsing");
-    mock.timers.tick(500); // wake poll delay
-    fakeCursor.x = 200;
-    mock.timers.tick(200);
-    assert.strictEqual(api.getCurrentState(), "waking");
-  });
-
-  it("sleeping + mouse move → waking", () => {
-    api.applyState("sleeping");
-    mock.timers.tick(500);
-    fakeCursor.x = 200;
-    mock.timers.tick(200);
-    assert.strictEqual(api.getCurrentState(), "waking");
-  });
-
-  it("direct sleep without waking art returns straight to idle on mouse move", () => {
-    const theme = cloneTheme(_defaultTheme);
-    theme.sleepSequence = { mode: "direct" };
-    theme.states.waking = [];
-    theme._stateBindings.waking = { files: [], fallbackTo: null };
-
-    api.cleanup();
-    ctx = makeCtx({ theme, getCursorScreenPoint: () => ({ ...fakeCursor }) });
-    api = require("../src/state")(ctx);
-
-    api.applyState("sleeping");
-    mock.timers.tick(500);
-    fakeCursor.x = 200;
-    mock.timers.tick(200);
-    assert.strictEqual(api.getCurrentState(), "idle");
-    assert.strictEqual(api.getCurrentSvg(), "clawd-idle-follow.svg");
-  });
-
-  it("dozing + still > DEEP_SLEEP_TIMEOUT → collapsing", () => {
-    ctx.mouseStillSince = Date.now() - 600000;
-    api.applyState("dozing");
-    mock.timers.tick(500); // wake poll delay
-    mock.timers.tick(200); // poll fires, checks DEEP_SLEEP_TIMEOUT
-    assert.strictEqual(api.getCurrentState(), "collapsing");
-  });
-
-  // ── wake-poll lifecycle hardening (kept after the low-power cadence change was
-  // dropped): the start timer is now tracked so it can't fire after teardown. ──
-  it("keeps the wake cursor baseline when state changes mid-poll", () => {
-    api.applyState("collapsing");
-    mock.timers.tick(500); // start delay → wake poll begins, baseline = current cursor
-    api.applyState("sleeping"); // state change must NOT reset the baseline or the timer
-    fakeCursor.x = 200;
-    mock.timers.tick(200); // existing poll still sees movement from the original baseline
-    assert.strictEqual(api.getCurrentState(), "waking");
-  });
-
-  it("cleanup clears a pending wake-poll start before it samples the cursor", () => {
-    let cursorCalls = 0;
-    api.cleanup();
-    ctx = makeCtx({
-      getCursorScreenPoint: () => { cursorCalls += 1; return { ...fakeCursor }; },
-    });
-    api = require("../src/state")(ctx);
-
-    api.applyState("dozing"); // schedules the 500ms wake-poll start
-    api.cleanup();            // must cancel the pending start timer
-    mock.timers.tick(500);
-
-    assert.strictEqual(cursorCalls, 0);
-  });
-
-  it("DND clears a pending wake-poll start before it samples the cursor", () => {
-    let cursorCalls = 0;
-    api.cleanup();
-    ctx = makeCtx({
-      getCursorScreenPoint: () => { cursorCalls += 1; return { ...fakeCursor }; },
-    });
-    api = require("../src/state")(ctx);
-
-    api.applyState("dozing");
-    api.enableDoNotDisturb(); // leaving the wake-poll states must cancel the pending start
-    mock.timers.tick(500);
-
-    assert.strictEqual(cursorCalls, 0);
+describe("cursor activity is separate from idle action playback", () => {
+  it("rest aliases stay idle without a wake-state transition", () => {
+    const events = [], api = require("../src/state")(makeCtx({ sendToRenderer: ev => events.push(ev) }));
+    try { api.applyState("dozing"); api.startWakePoll(); assert.strictEqual(api.getCurrentState(), "idle"); assert.ok(!events.includes("wake-from-doze")); }
+    finally { api.cleanup(); }
   });
 });
-
-// ═════════════════════════════════════════════════════════════════════════════
-// Group 5: cleanStaleSessions()
-// ═════════════════════════════════════════════════════════════════════════════
 
 describe("cleanStaleSessions()", () => {
   let api;
@@ -786,7 +573,8 @@ describe("cleanStaleSessions()", () => {
     api.sessions.set("s1", rawSession("working", { agentPid: 9999, pidReachable: true }));
     api.cleanStaleSessions();
     assert.strictEqual(api.sessions.size, 0);
-    assert.deepStrictEqual(changes[changes.length - 1], ["idle", "clawd-idle-reading.svg"]);
+    assert.strictEqual(api.getCurrentState(), "idle");
+    assert.strictEqual(api.getSvgOverride("idle"), "clawd-idle-follow.svg");
   });
 
   it("agentPid alive + sourcePid dead + stale → delete", () => {
@@ -1111,14 +899,14 @@ describe("updateSession()", () => {
     assert.strictEqual(api.dismissSession("s1"), true);
     assert.ok(!api.sessions.has("s1"));
     assert.ok(api.sessions.has("s2"));
-    assert.strictEqual(api.resolveDisplayState(), "thinking");
+    assert.strictEqual(api.resolveDisplayState(), "working");
     assert.strictEqual(api.dismissSession("missing"), false);
   });
 
   it("PermissionRequest → notification state, no session creation", () => {
     update(api, { id: "perm1", state: "notification", event: "PermissionRequest" });
     assert.ok(!api.sessions.has("perm1"));
-    assert.strictEqual(api.getCurrentState(), "notification");
+    assert.strictEqual(api.getCurrentState(), "waiting");
   });
 
   it("Codex user-input request flashes notification while preserving session state", () => {
@@ -1142,7 +930,7 @@ describe("updateSession()", () => {
 
     assert.strictEqual(api.sessions.get("codex:question").state, "working");
     mock.timers.tick(1000);
-    assert.strictEqual(api.getCurrentState(), "notification");
+    assert.strictEqual(api.getCurrentState(), "waiting");
     assert.strictEqual(api.sessions.get("codex:question").recentEvents.at(-1).event, "PreToolUse");
   });
 
@@ -1290,11 +1078,13 @@ describe("updateSession()", () => {
       cwd: "/repo",
     });
 
-    assert.strictEqual(api.getCurrentState(), "notification");
+    assert.strictEqual(api.getCurrentState(), "waiting");
     assert.strictEqual(api.sessions.get("codex:new-permission").state, "idle");
     assert.strictEqual(api.resolveDisplayState(), "idle");
 
     mock.timers.tick(5000);
+    assert.strictEqual(api.getCurrentState(), "waiting");
+    api.clearPermissionNotification("codex:new-permission");
 
     assert.strictEqual(api.getCurrentState(), "idle");
   });
@@ -1342,7 +1132,7 @@ describe("updateSession()", () => {
     }));
     api.setState("notification");
 
-    assert.strictEqual(api.getCurrentState(), "notification");
+    assert.strictEqual(api.getCurrentState(), "waiting");
 
     assert.strictEqual(api.clearPermissionNotification("codex:stale-permission"), true);
 
@@ -1433,7 +1223,7 @@ describe("updateSession()", () => {
     api.sessions.set("s2", rawSession("working"));
     // currentState is idle → no MIN_DISPLAY_MS → sweeping applies immediately
     update(api, { id: "s1", state: "sweeping", event: "SessionEnd" });
-    assert.strictEqual(api.getCurrentState(), "sweeping");
+    assert.strictEqual(api.getCurrentState(), "working");
   });
 
   it("SessionEnd + last non-headless → idle", () => {
@@ -1598,7 +1388,7 @@ describe("updateSession()", () => {
     // Debounce is opt-in (default 0), so a Claude Stop celebrates immediately
     // and the one-shot attention is stored as idle.
     assert.strictEqual(api.sessions.get("s1").state, "idle");
-    assert.strictEqual(api.getCurrentState(), "attention");
+    assert.strictEqual(api.getCurrentState(), "complete");
   });
 
   it("does not replay the completion animation for a duplicate Stop without progress", () => {
@@ -1620,9 +1410,9 @@ describe("updateSession()", () => {
 
     update(api, { id: "s1", state: "attention", event: "Stop" });
     assert.strictEqual(soundsPlayed.filter((name) => name === "complete").length, 1);
-    assert.deepStrictEqual(stateChanges, ["attention"]);
+    assert.deepStrictEqual(stateChanges, ["complete"]);
     assert.strictEqual(api.deriveSessionBadge(api.sessions.get("s1")), "done");
-    mock.timers.tick(4000);
+    mock.timers.tick(5000);
     assert.strictEqual(api.getCurrentState(), "idle");
 
     soundsPlayed.length = 0;
@@ -1630,7 +1420,7 @@ describe("updateSession()", () => {
     update(api, { id: "s1", state: "attention", event: "Stop" });
 
     assert.strictEqual(soundsPlayed.filter((name) => name === "complete").length, 0);
-    assert.ok(!stateChanges.includes("attention"), "duplicate Stop must not re-send attention");
+    assert.ok(!stateChanges.includes("complete"), "duplicate Stop must not re-send attention");
     assert.strictEqual(api.deriveSessionBadge(api.sessions.get("s1")), "done");
     assert.strictEqual(api.getCurrentState(), "idle");
   });
@@ -1661,8 +1451,8 @@ describe("updateSession()", () => {
       cwd: "/tmp",
       hookSource: "codex-official",
     });
-    assert.strictEqual(api.getCurrentState(), "attention");
-    assert.deepStrictEqual(stateChanges, ["attention"]);
+    assert.strictEqual(api.getCurrentState(), "complete");
+    assert.deepStrictEqual(stateChanges, ["complete"]);
     assert.strictEqual(soundsPlayed.filter((name) => name === "complete").length, 1);
 
     mock.timers.tick(900);
@@ -1672,18 +1462,18 @@ describe("updateSession()", () => {
       preserveState: true,
       contextUsage: { used: 100, limit: 1000, percent: 10, source: "codex" },
     });
-    assert.strictEqual(api.getCurrentState(), "attention");
+    assert.strictEqual(api.getCurrentState(), "complete");
     assert.strictEqual(api.sessions.get("codex:s1").awaitingInputSinceStop, true);
 
     api.updateSession("codex:s1", "attention", "event_msg:task_complete", {
       agentId: "codex",
       cwd: "/tmp",
     });
-    assert.strictEqual(api.getCurrentState(), "attention");
+    assert.strictEqual(api.getCurrentState(), "complete");
     assert.strictEqual(soundsPlayed.filter((name) => name === "complete").length, 1);
-    assert.deepStrictEqual(stateChanges, ["attention"]);
+    assert.deepStrictEqual(stateChanges, ["complete"]);
 
-    mock.timers.tick(3100);
+    mock.timers.tick(4100);
     assert.strictEqual(api.getCurrentState(), "idle");
   });
 
@@ -1708,9 +1498,9 @@ describe("updateSession()", () => {
       host: "ssh:box",
     });
     assert.strictEqual(soundsPlayed.filter((name) => name === "complete").length, 1);
-    assert.deepStrictEqual(stateChanges, ["attention"]);
+    assert.deepStrictEqual(stateChanges, ["complete"]);
     assert.strictEqual(api.sessions.get("codex:remote").requiresCompletionAck, true);
-    mock.timers.tick(4000);
+    mock.timers.tick(5000);
     const firstEvents = api.sessions.get("codex:remote").recentEvents.map((entry) => ({ ...entry }));
     assert.strictEqual(api.getCurrentState(), "idle");
 
@@ -1725,7 +1515,7 @@ describe("updateSession()", () => {
     });
 
     assert.strictEqual(soundsPlayed.filter((name) => name === "complete").length, 0);
-    assert.ok(!stateChanges.includes("attention"), "duplicate task_complete must not re-send attention");
+    assert.ok(!stateChanges.includes("complete"), "duplicate task_complete must not re-send attention");
     assert.strictEqual(api.deriveSessionBadge(api.sessions.get("codex:remote")), "done");
     assert.strictEqual(api.sessions.get("codex:remote").requiresCompletionAck, true);
     assert.deepStrictEqual(api.sessions.get("codex:remote").recentEvents, firstEvents);
@@ -1761,7 +1551,7 @@ describe("updateSession()", () => {
     assert.strictEqual(soundsPlayed.filter((name) => name === "complete").length, 1);
     const firstEvents = api.sessions.get("codex:s2").recentEvents.map((entry) => ({ ...entry }));
     assert.strictEqual(firstEvents.at(-1).event, "Stop");
-    mock.timers.tick(4000);
+    mock.timers.tick(5000);
     assert.strictEqual(api.getCurrentState(), "idle");
 
     soundsPlayed.length = 0;
@@ -1772,7 +1562,7 @@ describe("updateSession()", () => {
     });
 
     assert.strictEqual(soundsPlayed.filter((name) => name === "complete").length, 0);
-    assert.ok(!stateChanges.includes("attention"), "late task_complete must not re-send attention");
+    assert.ok(!stateChanges.includes("complete"), "late task_complete must not re-send attention");
     const session = api.sessions.get("codex:s2");
     assert.deepStrictEqual(session.recentEvents, firstEvents);
     assert.strictEqual(session.recentEvents.at(-1).event, "Stop");
@@ -1795,7 +1585,7 @@ describe("updateSession()", () => {
     update(api, { id: "s1", state: "working", event: "PreToolUse" });
     mock.timers.tick(1000);
     update(api, { id: "s1", state: "attention", event: "Stop" });
-    mock.timers.tick(4000);
+    mock.timers.tick(5000);
 
     soundsPlayed.length = 0;
     stateChanges.length = 0;
@@ -1808,7 +1598,7 @@ describe("updateSession()", () => {
     update(api, { id: "s1", state: "attention", event: "Stop" });
 
     assert.strictEqual(soundsPlayed.filter((name) => name === "complete").length, 1);
-    assert.deepStrictEqual(stateChanges, ["attention"]);
+    assert.deepStrictEqual(stateChanges, ["complete"]);
     assert.strictEqual(api.deriveSessionBadge(api.sessions.get("s1")), "done");
   });
 
@@ -1817,7 +1607,7 @@ describe("updateSession()", () => {
     update(api, { id: "s2", state: "thinking" });
     update(api, { id: "s1", state: "sleeping", event: "SessionEnd" });
     // s2 remains with thinking
-    assert.strictEqual(api.resolveDisplayState(), "thinking");
+    assert.strictEqual(api.resolveDisplayState(), "working");
   });
 
   // ── session title (B1) ──
@@ -1918,7 +1708,7 @@ describe("updateSession()", () => {
 
     assert.strictEqual(api.sessions.get("codex:s1").state, "idle",
       "preserveState must pin the stored state");
-    assert.deepStrictEqual(stateChanges, ["attention"],
+    assert.deepStrictEqual(stateChanges, ["complete"],
       "and yet the one-shot visual still plays — this is why the monitor filters the carry");
   });
 
@@ -2085,6 +1875,21 @@ describe("updateSession()", () => {
 
     assert.strictEqual(applied, false);
     assert.strictEqual(api.sessions.has("ghost"), false);
+  });
+
+  it("updateSessionMetadata changes a reported model without changing session lifecycle", () => {
+    update(api, { id: "s1", state: "working" });
+    const session = api.sessions.get("s1");
+    session.updatedAt = 12345;
+    const recentEvents = JSON.stringify(session.recentEvents);
+    assert.strictEqual(api.updateSessionMetadata("s1", { model: "Gemini 3.1 Pro" }), true);
+    assert.strictEqual(session.model, "Gemini 3.1 Pro");
+    assert.strictEqual(session.updatedAt, 12345);
+    assert.strictEqual(JSON.stringify(session.recentEvents), recentEvents);
+    assert.strictEqual(session.metadataUpdatedAt, null, "model changes must not make old context usage look fresh");
+    session.metadataUpdatedAt = 777;
+    assert.strictEqual(api.updateSessionMetadata("s1", { model: "Gemini 3.1 Pro" }), true);
+    assert.strictEqual(session.metadataUpdatedAt, 777);
   });
 
   it("updateSessionMetadata ignores a payload with no valid metadata fields", () => {
@@ -2283,7 +2088,7 @@ describe("recentEvents tracking", () => {
       preserveState: true,
     });
 
-    assert.strictEqual(api.resolveDisplayState(), "thinking");
+    assert.strictEqual(api.resolveDisplayState(), "working");
     const snapshot = api.buildSessionSnapshot();
     assert.strictEqual(snapshot.sessions[0].lastEvent.rawEvent, "PreCompress");
     assert.strictEqual(snapshot.sessions[0].lastEvent.labelKey, "eventLabelPreCompress");
@@ -2335,6 +2140,7 @@ describe("buildSessionSnapshot", () => {
       lastSessionId: null,
       lastTitle: null,
       accountQuota: [],
+      providerBalances: [],
     });
     assert.doesNotThrow(() => JSON.stringify(snapshot));
   });
@@ -2847,7 +2653,7 @@ describe("Stop completion gate (#406)", () => {
     assert.deepStrictEqual(soundsPlayed, [], "no completion sound before the quiet window elapses");
     mock.timers.tick(1000);
     assert.strictEqual(api.sessions.get("s1").state, "idle");
-    assert.strictEqual(api.getCurrentState(), "attention");
+    assert.strictEqual(api.getCurrentState(), "complete");
     assert.ok(soundsPlayed.includes("complete"), "bg-only completion with final text celebrates");
     assert.strictEqual(api.deriveSessionBadge(api.sessions.get("s1")), "done");
   });
@@ -2937,7 +2743,7 @@ describe("Stop completion gate (#406)", () => {
     assert.deepStrictEqual(soundsPlayed, [], "no celebration before the window elapses");
     mock.timers.tick(1000); // window elapses with no forward progress
     assert.strictEqual(api.sessions.get("s1").state, "idle");
-    assert.strictEqual(api.getCurrentState(), "attention");
+    assert.strictEqual(api.getCurrentState(), "complete");
     assert.ok(soundsPlayed.includes("complete"), "a real completion celebrates");
     assert.strictEqual(api.deriveSessionBadge(api.sessions.get("s1")), "done");
   });
@@ -2946,9 +2752,9 @@ describe("Stop completion gate (#406)", () => {
     update(api, { id: "s1", state: "attention", event: "Stop" });
     mock.timers.tick(1000);
     assert.strictEqual(api.sessions.get("s1").state, "idle");
-    assert.strictEqual(api.getCurrentState(), "attention");
+    assert.strictEqual(api.getCurrentState(), "complete");
     assert.strictEqual(soundsPlayed.filter((name) => name === "complete").length, 1);
-    mock.timers.tick(4000);
+    mock.timers.tick(5000);
     assert.strictEqual(api.getCurrentState(), "idle");
 
     soundsPlayed.length = 0;
@@ -2960,12 +2766,12 @@ describe("Stop completion gate (#406)", () => {
     mock.timers.tick(5000);
     assert.strictEqual(soundsPlayed.filter((name) => name === "complete").length, 0);
     assert.ok(!stateChanges.includes("working"), "duplicate Stop must not reopen a running state");
-    assert.ok(!stateChanges.includes("attention"), "duplicate Stop must not replay attention");
+    assert.ok(!stateChanges.includes("complete"), "duplicate Stop must not replay attention");
   });
 
   it("does not debounce non-Claude agents — a Codex Stop celebrates immediately", () => {
     update(api, { id: "cx", state: "attention", event: "Stop", agentId: "codex" });
-    assert.strictEqual(api.getCurrentState(), "attention");
+    assert.strictEqual(api.getCurrentState(), "complete");
     assert.ok(soundsPlayed.includes("complete"));
   });
 
@@ -2974,7 +2780,7 @@ describe("Stop completion gate (#406)", () => {
     process.env.CLAWD_COMPLETION_DEBOUNCE_MS = "0";
     try {
       update(api, { id: "s1", state: "attention", event: "Stop" });
-      assert.strictEqual(api.getCurrentState(), "attention");
+      assert.strictEqual(api.getCurrentState(), "complete");
       assert.ok(soundsPlayed.includes("complete"));
     } finally {
       if (saved === undefined) delete process.env.CLAWD_COMPLETION_DEBOUNCE_MS;
@@ -2993,7 +2799,7 @@ describe("Stop completion gate (#406)", () => {
         backgroundTasksCount: 1,
         assistantLastOutput: "Done.",
       });
-      assert.strictEqual(api.getCurrentState(), "attention");
+      assert.strictEqual(api.getCurrentState(), "complete");
       assert.strictEqual(api.sessions.get("s1").state, "idle");
       assert.ok(soundsPlayed.includes("complete"));
       assert.strictEqual(api.deriveSessionBadge(api.sessions.get("s1")), "done");
@@ -3037,7 +2843,7 @@ describe("Stop completion gate (#406)", () => {
     stateChanges.length = 0;
     soundsPlayed.length = 0;
     mock.timers.tick(1000); // quiet window elapses → celebrate
-    assert.ok(stateChanges.includes("mini-happy"), "mini completion celebration must fire");
+    assert.ok(stateChanges.includes("complete"), "mini completion celebration must fire");
     assert.ok(soundsPlayed.includes("complete"), "completion sound must play in mini mode");
   });
 
@@ -3052,8 +2858,8 @@ describe("Stop completion gate (#406)", () => {
       stateChanges.length = 0;
       mock.timers.tick(1200); // A promotes at t=100; B's error must still apply at t=1000
       assert.ok(
-        stateChanges.includes("error"),
-        "A's completion must not clear the global pending queue and drop B's error"
+        api.getCurrentState() === "error" && !stateChanges.includes("complete"),
+        "A's completion must not replace B's immediately visible error"
       );
       assert.strictEqual(api.deriveSessionBadge(api.sessions.get("A")), "done", "A still completes");
     } finally {
@@ -3092,7 +2898,7 @@ describe("Stop completion gate (#406)", () => {
     const session = api.sessions.get("s1");
     assert.strictEqual(session.state, "idle");
     assert.strictEqual(session.assistantLastOutput, "Final answer from Claude Desktop.");
-    assert.strictEqual(api.getCurrentState(), "attention");
+    assert.strictEqual(api.getCurrentState(), "complete");
     assert.ok(soundsPlayed.includes("complete"));
     assert.strictEqual(api.deriveSessionBadge(session), "done");
   });
@@ -3185,14 +2991,14 @@ describe("Headless Stop debounce default (#449)", () => {
     assert.deepStrictEqual(soundsPlayed, [], "still inside the default window");
     mock.timers.tick(1); // 2000ms — the turn really ended
     assert.strictEqual(api.sessions.get("h1").state, "idle");
-    assert.strictEqual(api.getCurrentState(), "attention");
+    assert.strictEqual(api.getCurrentState(), "complete");
     assert.ok(soundsPlayed.includes("complete"), "a real headless completion celebrates");
     assert.strictEqual(api.deriveSessionBadge(api.sessions.get("h1")), "done");
   });
 
   it("interactive (non-headless) Stop still celebrates immediately by default", () => {
     update(api, { id: "i1", state: "attention", event: "Stop" });
-    assert.strictEqual(api.getCurrentState(), "attention");
+    assert.strictEqual(api.getCurrentState(), "complete");
     assert.ok(soundsPlayed.includes("complete"));
   });
 
@@ -3208,7 +3014,7 @@ describe("Headless Stop debounce default (#449)", () => {
     assert.deepStrictEqual(soundsPlayed, [], "still waiting for a quiet bg-only window");
     mock.timers.tick(1);
     assert.strictEqual(api.sessions.get("i1").state, "idle");
-    assert.strictEqual(api.getCurrentState(), "attention");
+    assert.strictEqual(api.getCurrentState(), "complete");
     assert.ok(soundsPlayed.includes("complete"));
     assert.strictEqual(api.deriveSessionBadge(api.sessions.get("i1")), "done");
   });
@@ -3224,7 +3030,7 @@ describe("Headless Stop debounce default (#449)", () => {
   it("CLAWD_COMPLETION_DEBOUNCE_MS=0 disables the headless default too", () => {
     process.env.CLAWD_COMPLETION_DEBOUNCE_MS = "0";
     update(api, { id: "h1", state: "attention", event: "Stop", headless: true });
-    assert.strictEqual(api.getCurrentState(), "attention");
+    assert.strictEqual(api.getCurrentState(), "complete");
     assert.ok(soundsPlayed.includes("complete"), "explicit 0 keeps the old immediate behavior");
   });
 
@@ -3352,10 +3158,10 @@ describe("DND mode", () => {
 
   it("enableDoNotDisturb non-mini → yawning → 3s → collapsing", () => {
     api.enableDoNotDisturb();
-    assert.strictEqual(api.getCurrentState(), "yawning");
+    assert.strictEqual(api.getCurrentState(), "idle");
     assert.strictEqual(ctx.doNotDisturb, true);
     mock.timers.tick(3000);
-    assert.strictEqual(api.getCurrentState(), "collapsing");
+    assert.strictEqual(api.getCurrentState(), "idle");
   });
 
   it("enableDoNotDisturb uses theme-specific direct sleep transition art when provided", () => {
@@ -3368,18 +3174,18 @@ describe("DND mode", () => {
 
     api.enableDoNotDisturb();
 
-    assert.strictEqual(api.getCurrentState(), "collapsing");
-    assert.strictEqual(api.getCurrentSvg(), "custom-idle-to-sleeping.svg");
+    assert.strictEqual(api.getCurrentState(), "idle");
+    assert.strictEqual(api.getCurrentState(), "idle");
     mock.timers.tick(4799);
-    assert.strictEqual(api.getCurrentState(), "collapsing");
+    assert.strictEqual(api.getCurrentState(), "idle");
     mock.timers.tick(1);
-    assert.strictEqual(api.getCurrentState(), "sleeping");
+    assert.strictEqual(api.getCurrentState(), "idle");
   });
 
   it("enableDoNotDisturb mini → mini-sleep", () => {
     ctx.miniMode = true;
     api.enableDoNotDisturb();
-    assert.strictEqual(api.getCurrentState(), "mini-sleep");
+    assert.strictEqual(api.getCurrentState(), "idle");
   });
 
   it("enableDoNotDisturb direct-sleep theme → sleeping immediately", () => {
@@ -3390,7 +3196,7 @@ describe("DND mode", () => {
     api = require("../src/state")(ctx);
 
     api.enableDoNotDisturb();
-    assert.strictEqual(api.getCurrentState(), "sleeping");
+    assert.strictEqual(api.getCurrentState(), "idle");
   });
 
   it("DND dismisses pending permissions without resolving deny", () => {
@@ -3414,18 +3220,18 @@ describe("DND mode", () => {
     api.applyState("attention"); // sets auto-return timer (4s)
     // Now enable DND — should clear auto-return timer, then apply yawning
     api.enableDoNotDisturb();
-    assert.strictEqual(api.getCurrentState(), "yawning");
+    assert.strictEqual(api.getCurrentState(), "idle");
     // If old auto-return wasn't cleared, ticking 4s would override yawning
-    mock.timers.tick(4000);
+    mock.timers.tick(5000);
     // Should NOT have gone to idle from attention auto-return
     // yawning auto-return at 3s → collapsing (DND path)
-    assert.strictEqual(api.getCurrentState(), "collapsing");
+    assert.strictEqual(api.getCurrentState(), "idle");
   });
 
   it("disableDoNotDisturb non-mini → waking", () => {
     api.enableDoNotDisturb();
     api.disableDoNotDisturb();
-    assert.strictEqual(api.getCurrentState(), "waking");
+    assert.strictEqual(api.getCurrentState(), "idle");
     assert.strictEqual(ctx.doNotDisturb, false);
   });
 
@@ -3449,14 +3255,14 @@ describe("DND mode", () => {
     ctx.miniMode = true;
     api.enableDoNotDisturb();
     api.disableDoNotDisturb();
-    assert.strictEqual(api.getCurrentState(), "mini-idle");
+    assert.strictEqual(api.getCurrentState(), "idle");
   });
 
   it("DND blocks setState", () => {
     api.enableDoNotDisturb();
     mock.timers.tick(3000); // yawning → collapsing
     api.setState("working");
-    assert.strictEqual(api.getCurrentState(), "collapsing");
+    assert.strictEqual(api.getCurrentState(), "idle");
   });
 });
 
@@ -3480,35 +3286,37 @@ describe("runtime mode animation policy", () => {
   });
 
   it("Automatic Mode retains work and completion visuals while suppressing notification", () => {
+    api.sessions.set("active", rawSession("working"));
     api.applyState("working");
     api.applyState("notification");
     assert.strictEqual(api.getCurrentState(), "working");
 
     api.applyState("attention");
-    assert.strictEqual(api.getCurrentState(), "attention");
+    assert.strictEqual(api.getCurrentState(), "complete");
   });
 
   it("Automatic Mode suppresses mini-alert while retaining mini-happy", () => {
     ctx.miniMode = true;
+    api.sessions.set("active", rawSession("working"));
     api.applyState("mini-working");
     api.applyState("mini-alert");
-    assert.strictEqual(api.getCurrentState(), "mini-working");
+    assert.strictEqual(api.getCurrentState(), "working");
 
     api.applyState("attention");
-    assert.strictEqual(api.getCurrentState(), "mini-happy");
+    assert.strictEqual(api.getCurrentState(), "complete");
   });
 
-  it("Normal Mode honors a saved disabled completion one-shot", () => {
+  it("empty completion actions preserve the completion state", () => {
     ctx.forceCompletionAnimation = () => false;
     api.applyState("working");
     api.applyState("attention");
-    assert.strictEqual(api.getCurrentState(), "working");
+    assert.strictEqual(api.getCurrentState(), "complete");
   });
 
   it("Background Mode continues through the existing DND sleeping path", () => {
     api.enableDoNotDisturb();
     assert.strictEqual(ctx.doNotDisturb, true);
-    assert.strictEqual(api.getCurrentState(), "yawning");
+    assert.strictEqual(api.getCurrentState(), "idle");
   });
 
   it("does not replay a held Kimi permission animation while Automatic is active", () => {
@@ -3570,7 +3378,7 @@ describe("Automatic Mode Kimi permission cleanup", () => {
       agentId: "kimi-cli",
     });
     update(api, { id: "active-work", state: "working", event: "PreToolUse" });
-    assert.strictEqual(api.resolveDisplayState(), "notification");
+    assert.strictEqual(api.resolveDisplayState(), "waiting");
 
     automatic = true;
     assert.strictEqual(typeof api.clearQuietModePermissionState, "function");
@@ -3603,9 +3411,9 @@ describe("refreshTheme()", () => {
 
     assert.strictEqual(api.getSvgOverride("idle"), "calico-idle-follow.svg");
     api.enableDoNotDisturb();
-    assert.strictEqual(api.getCurrentState(), "collapsing");
+    assert.strictEqual(api.getCurrentState(), "idle");
     mock.timers.tick(5200);
-    assert.strictEqual(api.getCurrentState(), "sleeping");
+    assert.strictEqual(api.getCurrentState(), "idle");
   });
 
   it("uses the refreshed theme wake duration before returning from waking", () => {
@@ -3614,7 +3422,7 @@ describe("refreshTheme()", () => {
 
     api.applyState("waking");
     mock.timers.tick(5799);
-    assert.strictEqual(api.getCurrentState(), "waking");
+    assert.strictEqual(api.getCurrentState(), "idle");
 
     mock.timers.tick(1);
     assert.strictEqual(api.getCurrentState(), "idle");

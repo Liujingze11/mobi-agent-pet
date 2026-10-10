@@ -23,8 +23,6 @@ function loadIcons() {
 const SIDEBAR_TAB_IDS = [
   "general",
   "agents",
-  "theme",
-  "animOverrides",
   "shortcuts",
   "telegram-approval",
   "discord-presence",
@@ -78,5 +76,12 @@ describe("settings-icons", () => {
       );
       assert.ok(icons.ICONS[id], `settings-icons.js should define an icon for "${id}"`);
     }
+  });
+
+  it("keeps the Theme icon for the pet status sidebar", () => {
+    const icons = loadIcons();
+    const dashboard = fs.readFileSync(path.join(SRC_DIR, "dashboard-renderer.js"), "utf8");
+    assert.ok(dashboard.includes('getIcon("theme")'));
+    assert.notStrictEqual(icons.getIcon("theme"), icons.getIcon("placeholder"));
   });
 });

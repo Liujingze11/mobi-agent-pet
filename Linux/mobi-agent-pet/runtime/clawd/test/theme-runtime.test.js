@@ -41,6 +41,8 @@ function makeFixture() {
   const userData = path.join(tmp, "userData");
   fs.mkdirSync(appDir, { recursive: true });
   fs.mkdirSync(path.join(tmp, "assets", "svg"), { recursive: true });
+  fs.writeFileSync(path.join(tmp, "assets", "svg", "idle.svg"), '<svg xmlns="http://www.w3.org/2000/svg"/>');
+  fs.writeFileSync(path.join(tmp, "assets", "svg", "idle-custom.svg"), '<svg xmlns="http://www.w3.org/2000/svg"/>');
   fs.mkdirSync(path.join(tmp, "assets", "sounds"), { recursive: true });
   for (const id of ["clawd", "calico"]) {
     const themeDir = path.join(tmp, "themes", id);
@@ -113,7 +115,7 @@ function createRuntime(options = {}) {
     ...(options.sequencer || {}),
   };
   const runtime = createThemeRuntime({
-    themeLoader,
+    themeLoader: options.themeLoader || themeLoader,
     settingsController: createSettingsController(options.settings || {}),
     getRenderWindow: () => ({ isDestroyed: () => false }),
     getHitWindow: () => ({ isDestroyed: () => false }),
@@ -204,7 +206,8 @@ describe("theme-runtime active ownership", () => {
     assert.strictEqual(theme._id, "clawd");
     assert.strictEqual(theme._variantId, "cozy");
     assert.strictEqual(theme.timings.idleMouseMoveThreshold, 42);
-    assert.deepStrictEqual(theme.states.idle, ["idle-custom.svg"]);
+    assert.strictEqual(theme.states.idle[0], "idle-custom.svg");
+    assert.deepStrictEqual(theme._sourcePetBindings.idle, ["idle-custom.svg"]);
     assert.strictEqual(theme._overrideSignature, JSON.stringify({ states: { idle: { file: "idle-custom.svg" } } }));
     assert.strictEqual(runtime.getActiveTheme(), theme);
   });
@@ -355,5 +358,18 @@ describe("theme-runtime active ownership", () => {
 
     assert.strictEqual(runtime.isReloadInProgress(), false);
     assert.ok(calls.includes("sequencer.cleanup"));
+  });
+});
+
+describe("theme-runtime product default", () => {
+  it("uses the loader default without an active theme and honors an explicit fallback", () => {
+    const { runtime } = createRuntime({themeLoader: {getDefaultThemeId: () => "mobi-a"}});
+    assert.strictEqual(runtime.getActiveThemeId(), "mobi-a");
+    assert.strictEqual(runtime.getActiveThemeId("user-pet"), "user-pet");
+    assert.strictEqual(runtime.getActiveThemeId(null), null);
+  });
+  it("preserves the legacy default with older loaders", () => {
+    const {runtime} = createRuntime({themeLoader: {}});
+    assert.strictEqual(runtime.getActiveThemeId(), "clawd");
   });
 });

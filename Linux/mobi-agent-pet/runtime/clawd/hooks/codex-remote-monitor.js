@@ -19,6 +19,10 @@ const os = require("os");
 const { postStateToRunningServer, readHostPrefix } = require("./server-config");
 const { classifySessionMeta } = require("./codex-subagent-fields");
 const {
+  extractCodexSessionIdFromTranscriptPath,
+  normalizeCodexSessionId,
+} = require("./codex-session-index");
+const {
   clampAssistantOutputText,
   extractAssistantTextFromRecord,
 } = require("./codex-assistant-output");
@@ -152,11 +156,7 @@ function getSessionDirs() {
 }
 
 function extractSessionId(fileName) {
-  // rollout-2026-03-25T15-10-51-019d23d4-f1a9-7633-b9c7-758327137228.jsonl
-  const base = fileName.replace(".jsonl", "");
-  const parts = base.split("-");
-  if (parts.length < 10) return null;
-  return parts.slice(-5).join("-");
+  return extractCodexSessionIdFromTranscriptPath(fileName);
 }
 
 function buildPostStateBody(sessionId, state, event, cwd, isSubagent, host, extra = null) {
@@ -240,6 +240,7 @@ function processLine(line, entry, options = {}) {
 
   // Extract CWD from session_meta
   if (type === "session_meta" && payload) {
+    entry.sessionId = normalizeCodexSessionId(entry.sessionId, entry.filePath, payload);
     entry.cwd = payload.cwd || "";
     entry.isSubagent = classifySessionMeta(payload) === "subagent";
   }
@@ -455,8 +456,8 @@ function recoverStalePendingUserInputEntry(filePath, fileName, options = {}) {
     return null;
   }
   if (stat.size === 0 || Date.now() - stat.mtimeMs > RECOVERY_MAX_AGE_MS) return null;
-  const sessionId = extractSessionId(fileName);
-  if (!sessionId) return null;
+  const filenameSessionId = extractSessionId(fileName);
+  if (!filenameSessionId) return null;
 
   // Head: session_meta (cwd + subagent role) is always Codex's first record.
   // Fail closed (skip this file entirely) if we can't read a complete first
@@ -474,6 +475,7 @@ function recoverStalePendingUserInputEntry(filePath, fileName, options = {}) {
     return null;
   }
   const cwd = sessionMeta.payload.cwd || "";
+  const sessionId = normalizeCodexSessionId(filenameSessionId, filePath, sessionMeta.payload);
   // classifySessionMeta legitimately returns "unknown" for a normal root
   // session — most session_meta records carry no explicit "I am root"
   // marker; being root IS the absence of subagent markers. That's not a
@@ -547,7 +549,8 @@ function recoverStalePendingUserInputEntry(filePath, fileName, options = {}) {
   // what reconstructs the line once the rest of it lands on a normal poll.
   const entry = {
     offset: tailStart + tailBytesRead,
-    sessionId: "codex:" + sessionId,
+    sessionId,
+    filePath,
     cwd,
     isSubagent,
     lastEventTime: Date.now(),
@@ -586,6 +589,7 @@ function pollFile(filePath, fileName, options = {}) {
     entry = {
       offset: 0,
       sessionId: "codex:" + sessionId,
+      filePath,
       cwd: "",
       isSubagent: false,
       lastEventTime: Date.now(),

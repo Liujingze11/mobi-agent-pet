@@ -42,12 +42,11 @@ test("hitWin renderer crash clears transient interaction state before reloading"
   const end = source.indexOf(reload, start) + reload.length;
   const handler = source.slice(start, end);
 
-  assert.ok(handler.includes("petWindowRuntime.setDragLocked(false);"));
-  assert.ok(handler.includes("petWindowRuntime.clearDragSnapshot();"));
-  assert.ok(handler.includes("idlePaused = false;"));
-  assert.ok(handler.includes("mouseOverPet = false;"));
-  assert.ok(handler.indexOf("petWindowRuntime.setDragLocked(false);") < handler.indexOf(reload));
-  assert.ok(handler.indexOf("petWindowRuntime.clearDragSnapshot();") < handler.indexOf(reload));
-  assert.ok(handler.indexOf("idlePaused = false;") < handler.indexOf(reload));
-  assert.ok(handler.indexOf("mouseOverPet = false;") < handler.indexOf(reload));
+  assert.ok(handler.includes("cancelPetHold();"));
+  assert.ok(handler.indexOf("cancelPetHold();") < handler.indexOf(reload));
+  const cancelStart = source.indexOf("function cancelPetHold()");
+  const cancel = source.slice(cancelStart, source.indexOf("\n}", cancelStart));
+  for (const statement of ["petWindowRuntime.setDragLocked(false);", "petWindowRuntime.clearDragSnapshot();", "_state.setPetHeld(false);", "idlePaused = false;", "mouseOverPet = false;"]) {
+    assert.ok(cancel.includes(statement), statement);
+  }
 });

@@ -41,7 +41,7 @@ function createPetGeometryMain(options = {}) {
     const theme = getActiveTheme();
     const state = getCurrentState();
     const file = getCurrentFile(theme);
-    return hitGeometry.getAssetRectScreen(theme, bounds, state, file)
+    return hitGeometry.getAssetRectScreen(theme, bounds, state, file, { miniMode: !!getMiniMode() })
       || getFullAssetRect(bounds);
   }
 
@@ -51,7 +51,7 @@ function createPetGeometryMain(options = {}) {
     if (!theme) return null;
     const state = getCurrentState();
     const file = getCurrentFile(theme);
-    return hitGeometry.getAssetPointerPayload(theme, bounds, state, file, point);
+    return hitGeometry.getAssetPointerPayload(theme, bounds, state, file, point, { miniMode: !!getMiniMode() });
   }
 
   function getHitRectScreen(bounds) {
@@ -67,6 +67,7 @@ function createPetGeometryMain(options = {}) {
       file,
       getCurrentHitBox(),
       {
+        miniMode,
         padX: miniMode ? getMiniPeekOffset() : 0,
         padY: miniMode ? 8 : 0,
       }

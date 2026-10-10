@@ -36,12 +36,17 @@ const {
 } = require("./state-session-snapshot");
 const { getAgentIconUrl } = require("./state-agent-icons");
 const { normalizeTranscriptPath } = require("./transcript-path");
+const { normalizePetState, PET_STATE_IDS, PET_STATE_PRIORITY } = require("./pet-states");
+const { resolveEffectivePlan, playbackSlot, playbackDuration } = require("./pet-action-plan");
+const { createPetStateController } = require("./pet-state-controller");
 const { createAccountQuotaStore } = require("./state-account-quota");
 const { normalizeQuotaGroup } = require("../hooks/quota-bucket");
 const { ANTIGRAVITY_QUOTA_FIELDS } = require("../hooks/antigravity-context-usage");
 const { CLAUDE_QUOTA_FIELDS } = require("../hooks/claude-rate-limits");
 const { getClaudeStopDisposition } = require("../hooks/claude-stop-disposition");
 const { getStartupRecoveryProcessNames } = require("../agents/registry");
+const { resolveRecoveredClaudeFocus } = require("./session-recovered-focus");
+const { resolveSessionIdentity } = require("./session-key");
 const {
   readTranscriptTailEntries: readClaudeTranscriptTailEntries,
   extractLastAssistantTextFromEntries: extractLastClaudeAssistantTextFromEntries,
@@ -49,7 +54,6 @@ const {
 
 module.exports = function initState(ctx) {
 
-const _getCursor = ctx.getCursorScreenPoint || (screen ? () => screen.getCursorScreenPoint() : null);
 const _kill = ctx.processKill || process.kill.bind(process);
 
 function normalizeGhosttyTerminalId(value) {
@@ -67,19 +71,7 @@ function normalizePositiveInteger(value) {
 
 // ── Theme-driven state (refreshed on hot theme switch) ──
 let theme = null;
-let SVG_IDLE_FOLLOW = null;
 let STATE_SVGS = {};
-let STATE_BINDINGS = {};
-let MIN_DISPLAY_MS = {};
-let AUTO_RETURN_MS = {};
-let DEEP_SLEEP_TIMEOUT = 0;
-let YAWN_DURATION = 0;
-let WAKE_DURATION = 0;
-let DND_SKIP_YAWN = false;
-let DND_SLEEP_TRANSITION_SVG = null;
-let DND_SLEEP_TRANSITION_DURATION = 0;
-let COLLAPSE_DURATION = 0;
-let SLEEP_MODE = "full";
 const { SLEEP_SEQUENCE, STATE_PRIORITY, ONESHOT_STATES } = createStatePriorityConstants();
 
 // Session display hints — validated against theme.displayHintMap keys
@@ -155,31 +147,21 @@ let currentHitBox = HIT_BOXES.default;
 
 // ── State machine internal ──
 let currentState = "idle";
-let previousState = "idle";
+let petController = null;
+let effectivePlan = null;
+let activeApplyOptions = {};
 let currentSvg = null;
-let stateChangedAt = Date.now();
-let pendingTimer = null;
-let autoReturnTimer = null;
-let pendingState = null;
 // #406 Stop completion debounce: sessionId -> timer holding a Stop as "working"
 // until a quiet window confirms the turn really ended.
 const pendingCompletionTimers = new Map();
 let eyeResendTimer = null;
 
 // ── Wake poll ──
-const WAKE_POLL_START_DELAY_MS = 500;
 // Cursor-sample cadence while dozing/collapsing/sleeping. (A low-power idle-mode
 // slowdown was tried here and removed: real-machine powermetrics showed no wakeup
 // or CPU win — macOS timer coalescing absorbs a 200ms timer — for added latency.)
-const WAKE_POLL_MS = 200;
-let wakePollStartTimer = null;
-let wakePollStartState = null;
-let wakePollTimer = null;
-let lastWakeCursorX = null, lastWakeCursorY = null;
 
-function isWakePollState(state) {
-  return state === "dozing" || state === "collapsing" || state === "sleeping";
-}
+
 
 // ── Kimi CLI permission hold ──
 // Keeps the pet in notification state while Kimi is waiting for user approval.
@@ -390,28 +372,10 @@ function resolveHitBoxForSvg(svg) {
 
 function refreshTheme() {
   theme = ctx.theme;
-  SVG_IDLE_FOLLOW = theme.states.idle[0];
-  STATE_SVGS = { ...theme.states };
-  STATE_BINDINGS = buildStateBindings(theme);
-  // Sync back so settings-animation-overrides can resolve roam/fallback states
-  theme._stateBindings = STATE_BINDINGS;
-  if (theme.miniMode && theme.miniMode.states) {
-    Object.assign(STATE_SVGS, theme.miniMode.states);
-  }
-  MIN_DISPLAY_MS = theme.timings.minDisplay;
-  AUTO_RETURN_MS = theme.timings.autoReturn;
-  DEEP_SLEEP_TIMEOUT = theme.timings.deepSleepTimeout;
-  YAWN_DURATION = theme.timings.yawnDuration;
-  WAKE_DURATION = theme.timings.wakeDuration;
-  DND_SKIP_YAWN = !!theme.timings.dndSkipYawn;
-  DND_SLEEP_TRANSITION_SVG = typeof theme.timings.dndSleepTransitionSvg === "string" && theme.timings.dndSleepTransitionSvg
-    ? theme.timings.dndSleepTransitionSvg.split(/[\\/]/).pop()
-    : null;
-  DND_SLEEP_TRANSITION_DURATION = Number.isFinite(theme.timings.dndSleepTransitionDuration) && theme.timings.dndSleepTransitionDuration > 0
-    ? Math.floor(theme.timings.dndSleepTransitionDuration)
-    : 0;
-  COLLAPSE_DURATION = theme.timings.collapseDuration || 0;
-  SLEEP_MODE = theme.sleepSequence && theme.sleepSequence.mode === "direct" ? "direct" : "full";
+
+  effectivePlan = resolveEffectivePlan(theme);
+  STATE_SVGS = Object.fromEntries(PET_STATE_IDS.map(id => [id, effectivePlan.states[id].actions.map(a => a.file)]));
+  if (petController) petController.refreshPlan();
   DISPLAY_HINT_MAP = theme.displayHintMap || {};
   hitboxRuntime = createHitboxRuntime(theme);
   HIT_BOXES = hitboxRuntime.hitBoxes;
@@ -428,388 +392,61 @@ function shouldDropForDnd() {
   return !!ctx.doNotDisturb;
 }
 
-function scheduleAutoReturn(state) {
-  autoReturnTimer = setTimeout(() => {
-    autoReturnTimer = null;
-    if (ctx.miniMode) {
-      if (ctx.mouseOverPet && !ctx.doNotDisturb) {
-        if (state === "mini-peek") {
-          // Peek animation done — stay peeked but show idle (don't re-trigger peek)
-          ctx.miniPeeked = true;
-          applyState("mini-idle");
-        } else {
-          ctx.miniPeekIn();
-          applyState("mini-peek");
-        }
-      } else {
-        applyState(ctx.doNotDisturb ? "mini-sleep" : "mini-idle");
-      }
-    } else {
-      applyResolvedDisplayState();
-    }
-  }, AUTO_RETURN_MS[state]);
-}
-
-function clearPendingStateTimer() {
-  if (!pendingTimer) return;
-  clearTimeout(pendingTimer);
-  pendingTimer = null;
-  pendingState = null;
-}
-
-function setState(newState, svgOverride, options = {}) {
-  if (shouldDropForDnd()) return;
-
-  if (newState === "yawning" && SLEEP_SEQUENCE.has(currentState)) return;
-
-  const sameState = newState === currentState;
-  const sameSvg = !svgOverride || svgOverride === currentSvg;
-  if (sameState && sameSvg) {
-    // Kimi CLI permission hold: re-arm the auto-return timer so the
-    // notification animation keeps cycling while the user is reviewing
-    // the permission prompt.
-    if (hasPermissionAnimationLock() && newState === "notification" && AUTO_RETURN_MS[newState]) {
-      clearPendingStateTimer();
-      if (autoReturnTimer) { clearTimeout(autoReturnTimer); autoReturnTimer = null; }
-      scheduleAutoReturn(newState);
-    } else if (AUTO_RETURN_MS[newState] && !autoReturnTimer && !pendingTimer) {
-      scheduleAutoReturn(newState);
-    }
-    return;
-  }
-
-  if (pendingTimer) {
-    if (pendingState && getStatePriority(newState, STATE_PRIORITY) < getStatePriority(pendingState, STATE_PRIORITY)) {
-      return;
-    }
-    clearPendingStateTimer();
-  }
-
-  const minTime = MIN_DISPLAY_MS[currentState] || 0;
-  const elapsed = Date.now() - stateChangedAt;
-  const remaining = minTime - elapsed;
-
-  if (remaining > 0) {
-    if (autoReturnTimer) { clearTimeout(autoReturnTimer); autoReturnTimer = null; }
-    pendingState = newState;
-    const pendingSvgOverride = svgOverride;
-    const pendingOptions = options;
-    pendingTimer = setTimeout(() => {
-      pendingTimer = null;
-      const queued = pendingState;
-      const queuedSvg = pendingSvgOverride;
-      const queuedOptions = pendingOptions || {};
-      pendingState = null;
-      if (ONESHOT_STATES.has(queued)) {
-        applyState(queued, queuedSvg, queuedOptions);
-      } else {
-        const resolved = resolveDisplayState();
-        applyState(resolved, getSvgOverride(resolved), queuedOptions);
-      }
-    }, remaining);
-  } else {
-    applyState(newState, svgOverride, options);
-  }
-}
-
-function isOneshotDisabled(logicalState) {
-  if (!ONESHOT_STATES.has(logicalState)) return false;
-  if (typeof ctx.isOneshotDisabled !== "function") return false;
-  try { return ctx.isOneshotDisabled(logicalState) === true; }
-  catch { return false; }
-}
-
-function isNotificationAnimationAllowed() {
-  if (typeof ctx.allowNotificationAnimation !== "function") return true;
-  try { return ctx.allowNotificationAnimation() !== false; }
-  catch { return true; }
-}
-
-function isCompletionAnimationForced(state) {
-  if (state !== "attention" && state !== "mini-happy") return false;
-  if (typeof ctx.forceCompletionAnimation !== "function") return false;
-  try {
-    const allowed = typeof ctx.allowCompletionAnimation !== "function"
-      || ctx.allowCompletionAnimation() !== false;
-    return allowed && ctx.forceCompletionAnimation() === true;
-  } catch {
-    return false;
-  }
-}
-
-function resolveSuppressedNotificationFallback() {
-  if (currentState === "notification") return "idle";
-  if (currentState === "mini-alert") return "mini-idle";
-  return currentState;
-}
-
-function hasOwnVisualFiles(state) {
-  return hasOwnVisualFilesWithBindings(STATE_BINDINGS, state);
-}
-
-function resolveVisualBinding(state) {
-  return resolveVisualBindingWithBindings(state, STATE_BINDINGS);
-}
-
-function applyResolvedDisplayState() {
-  const resolved = resolveDisplayState();
-  applyState(resolved, getSvgOverride(resolved), resolveSoundOptionsForState(resolved));
-  // Kimi CLI permission hold: while notification is pinned, re-trigger the
-  // renderer animation so non-looping GIF/APNG assets replay instead of
-  // freezing on their last frame. Throttled so concurrent agents flooding
-  // events don't make the GIF visibly restart every tick.
-  if (isNotificationAnimationAllowed() && hasPermissionAnimationLock() && resolved === "notification") {
-    const now = Date.now();
-    if (now - _lastKimiPulseAt >= KIMI_PULSE_MIN_GAP_MS) {
-      _lastKimiPulseAt = now;
-      ctx.sendToRenderer("kimi-permission-pulse");
-    }
-  }
-}
-
-function playWakeTransitionOrResolve() {
-  if (SLEEP_MODE === "direct" && !hasOwnVisualFiles("waking")) {
-    applyResolvedDisplayState();
-    return;
-  }
-  applyState("waking");
-}
-
-function applyDndSleepState() {
-  if (SLEEP_MODE === "direct") {
-    applyState("sleeping");
-    return;
-  }
-  if (DND_SLEEP_TRANSITION_SVG) {
-    applyState("collapsing", DND_SLEEP_TRANSITION_SVG);
-    return;
-  }
-  applyState(DND_SKIP_YAWN ? "collapsing" : "yawning");
-}
-
-function resolveSoundOptionsForState(state) {
-  const logicalState = state === "mini-alert" ? "notification" : state;
-  if (logicalState !== "notification") return {};
-  let sawNotificationSession = false;
-  for (const [, session] of sessions) {
-    if (!session || session.headless || session.state !== "notification") continue;
-    sawNotificationSession = true;
-    if (session.muteNotificationSound !== true) return {};
-  }
-  return sawNotificationSession ? { muteNotificationSound: true } : {};
-}
-
-function normalizeApplyStateOptions(state, options = {}) {
-  const derived = resolveSoundOptionsForState(state);
-  return {
-    ...options,
-    muteNotificationSound:
-      options.muteNotificationSound === true || derived.muteNotificationSound === true,
-  };
-}
-
-function applyState(state, svgOverride, options = {}) {
-  if (
-    (state === "notification" || state === "mini-alert")
-    && !isNotificationAnimationAllowed()
-  ) {
-    const fallback = resolveSuppressedNotificationFallback();
-    if (fallback !== state) applyState(fallback, getSvgOverride(fallback));
-    return;
-  }
-
-  const applyOptions = normalizeApplyStateOptions(state, options);
-  // Phase 3b: user-disabled oneshot state — skip visual + sound, fall back to
-  // whatever resolveDisplayState picks (usually working/idle). Gate lives at
-  // applyState() top so it catches all three paths that reach here:
-  //   · oneshot direct setState (state.js:419)
-  //   · PermissionRequest direct setState (state.js:342)
-  //   · pending queued oneshot (state.js:163)
-  // and also runs before the mini-mode remap below, so "disable notification"
-  // silences both normal and mini visuals consistently.
-  if (isOneshotDisabled(state) && !isCompletionAnimationForced(state)) {
-    const resolved = resolveDisplayState();
-    if (resolved !== state) {
-      setState(resolved, getSvgOverride(resolved));
-    }
-    return;
-  }
-
-  if (ctx.miniTransitioning && !state.startsWith("mini-")) {
-    return;
-  }
-
-  if (ctx.miniMode && !state.startsWith("mini-")) {
-    if (state === "notification") return applyState("mini-alert", undefined, applyOptions);
-    if (state === "attention") return applyState("mini-happy", undefined, applyOptions);
-    if (state === "working" || state === "thinking" || state === "juggling") {
-      if (hasOwnVisualFiles("mini-working")) return applyState("mini-working");
-      return;
-    }
-    if ((AUTO_RETURN_MS[currentState] || currentState === "mini-working") && !autoReturnTimer) {
-      return applyState(ctx.mouseOverPet ? "mini-peek" : "mini-idle");
-    }
-    return;
-  }
-
-  previousState = currentState;
-  currentState = state;
-  stateChangedAt = Date.now();
-  ctx.idlePaused = false;
+function publishPetState(snapshot) {
+  currentState = snapshot.state;
+  const slot = playbackSlot(effectivePlan, currentState);
+  const action = slot.actions.find(a => a.enabled);
+  if (!action) return;
+  currentSvg = action.file;
+  currentHitBox = resolveHitBoxForSvg(currentSvg);
+  ctx.idlePaused = currentState === "held";
   if (typeof ctx.onStateChanged === "function") {
-    try { ctx.onStateChanged(state); } catch (err) {
-      try { ctx.debugLog(`state observer failed: ${err && err.message ? err.message : err}`); } catch {}
-    }
+    try { ctx.onStateChanged(currentState); } catch (error) { ctx.debugLog?.(`state observer failed: ${error.message}`); }
   }
-
-  // Sound triggers
-  if (state === "attention" || state === "mini-happy") {
+  if (currentState === "complete") {
     ctx.playSound("complete");
     if (ctx.flashTaskbar) ctx.flashTaskbar();
-  } else if (state === "notification" || state === "mini-alert") {
-    if (!applyOptions.muteNotificationSound) ctx.playSound("confirm");
+  } else if (currentState === "waiting") {
+    const waiting = [...sessions.values()].filter(s => !s.headless && normalizePetState(s.state) === "waiting");
+    const muted = activeApplyOptions.muteNotificationSound || (waiting.length > 0 && waiting.every(s => s.muteNotificationSound === true));
+    if (!muted) ctx.playSound("confirm");
   }
-
-  // #509: no-override idle entries (e.g. roam ending) also rest on the
-  // user-selected idle visual instead of a random states.idle pick.
-  const userIdle = (state === "idle" && !svgOverride && typeof ctx.getIdleVisualChoice === "function")
-    ? ctx.getIdleVisualChoice()
-    : null;
-  const svg = svgOverride || userIdle || resolveVisualBinding(state);
-  currentSvg = svg;
-
-  // Force eye resend after SVG load completes (~300ms)
-  // After sweeping → idle, pause eye tracking briefly so eyes stay centered before resuming
-  if (eyeResendTimer) { clearTimeout(eyeResendTimer); eyeResendTimer = null; }
-  if (state === "idle" || state === "mini-idle") {
-    const afterSweep = previousState === "sweeping";
-    const delay = afterSweep ? 800 : 300;
-    if (afterSweep) ctx.eyePauseUntil = Date.now() + delay;
-    eyeResendTimer = setTimeout(() => { eyeResendTimer = null; ctx.forceEyeResend = true; }, delay);
-  }
-
-  currentHitBox = resolveHitBoxForSvg(svg);
-
-  ctx.sendToRenderer("state-change", state, svg);
+  ctx.sendToRenderer("state-change", currentState, currentSvg, snapshot);
   ctx.syncHitWin();
-  ctx.sendToHitWin("hit-state-sync", { currentSvg: svg, currentState: state });
+  ctx.sendToHitWin("hit-state-sync", { currentSvg, currentState });
   ctx.sendToHitWin("hit-cancel-reaction");
-
-  if (state !== "idle" && state !== "mini-idle") {
-    ctx.sendToRenderer("eye-move", 0, 0);
-  }
-
-  if (isWakePollState(state) && !ctx.doNotDisturb) {
-    scheduleWakePollStart(state);
-  } else {
-    stopWakePoll();
-  }
-
-  if (autoReturnTimer) clearTimeout(autoReturnTimer);
-  if (state === "yawning") {
-    autoReturnTimer = setTimeout(() => {
-      autoReturnTimer = null;
-      applyState(ctx.doNotDisturb ? "collapsing" : "dozing");
-    }, YAWN_DURATION);
-  } else if (state === "collapsing") {
-    const dndCollapseDuration = (
-      ctx.doNotDisturb
-      && DND_SLEEP_TRANSITION_SVG
-      && svg === DND_SLEEP_TRANSITION_SVG
-      && DND_SLEEP_TRANSITION_DURATION > 0
-    )
-      ? DND_SLEEP_TRANSITION_DURATION
-      : 0;
-    const collapseDuration = dndCollapseDuration || COLLAPSE_DURATION;
-    if (collapseDuration > 0) {
-      autoReturnTimer = setTimeout(() => {
-        autoReturnTimer = null;
-        applyState("sleeping");
-      }, collapseDuration);
-    }
-  } else if (state === "waking") {
-    autoReturnTimer = setTimeout(() => {
-      autoReturnTimer = null;
-      applyResolvedDisplayState();
-    }, WAKE_DURATION);
-  } else if (AUTO_RETURN_MS[state]) {
-    scheduleAutoReturn(state);
-  }
+  if (currentState !== "idle") ctx.sendToRenderer("eye-move", 0, 0);
 }
-
-// ── Wake poll ──
-function clearWakePollStartTimer() {
-  if (!wakePollStartTimer) return;
-  clearTimeout(wakePollStartTimer);
-  wakePollStartTimer = null;
-  wakePollStartState = null;
+petController = createPetStateController({
+  resolveTaskState: () => resolveDisplayState(),
+  getPlan: () => effectivePlan,
+  publish: publishPetState,
+  fallbackDisabledStates: () => typeof ctx.fallbackDisabledPetStates === "function" && ctx.fallbackDisabledPetStates(),
+  getAllowedStates: () => typeof ctx.getAllowedPetStates === "function" ? ctx.getAllowedPetStates()
+    : (typeof ctx.allowNotificationAnimation === "function" && !ctx.allowNotificationAnimation()
+      ? PET_STATE_IDS.filter(s => s !== "waiting") : PET_STATE_IDS),
+});
+function setState(input, svgOverride, options = {}) {
+  if (shouldDropForDnd()) return;
+  const state = normalizePetState(input);
+  if (!state) return false;
+  activeApplyOptions = options;
+  return petController.request(state);
 }
-
-function scheduleWakePollStart(state) {
-  if (wakePollTimer) return;
-  if (wakePollStartTimer && wakePollStartState === state) return;
-  clearWakePollStartTimer();
-  wakePollStartState = state;
-  wakePollStartTimer = setTimeout(() => {
-    wakePollStartTimer = null;
-    wakePollStartState = null;
-    if (currentState === state) startWakePoll();
-  }, WAKE_POLL_START_DELAY_MS);
+function applyState(input, svgOverride, options = {}) {
+  const state = normalizePetState(input);
+  if (!state) return false;
+  activeApplyOptions = options;
+  return petController.request(state, { force: options.force !== false });
 }
-
-function startWakePoll() {
-  if (!_getCursor || wakePollTimer) return;
-  if (!isWakePollState(currentState) || ctx.doNotDisturb) return;
-  const cursor = _getCursor();
-  lastWakeCursorX = cursor.x;
-  lastWakeCursorY = cursor.y;
-  scheduleWakePollTick();
-}
-
-function scheduleWakePollTick(delay = WAKE_POLL_MS) {
-  if (!_getCursor || wakePollTimer) return;
-  clearWakePollStartTimer();
-  wakePollTimer = setTimeout(runWakePollTick, delay);
-}
-
-function runWakePollTick() {
-  wakePollTimer = null;
-  if (!_getCursor || !isWakePollState(currentState) || ctx.doNotDisturb) return;
-  const cursor = _getCursor();
-  const moved = cursor.x !== lastWakeCursorX || cursor.y !== lastWakeCursorY;
-
-  if (moved) {
-    stopWakePoll();
-    wakeFromDoze();
-    return;
-  }
-
-  if (currentState === "dozing" && Date.now() - ctx.mouseStillSince >= DEEP_SLEEP_TIMEOUT) {
-    applyState("collapsing");
-    scheduleWakePollTick();
-    return;
-  }
-
-  scheduleWakePollTick();
-}
-
-function stopWakePoll() {
-  clearWakePollStartTimer();
-  if (wakePollTimer) { clearTimeout(wakePollTimer); wakePollTimer = null; }
-}
-
-function wakeFromDoze() {
-  if (currentState === "sleeping" || currentState === "collapsing") {
-    playWakeTransitionOrResolve();
-    return;
-  }
-  ctx.sendToRenderer("wake-from-doze");
-  setTimeout(() => {
-    if (currentState === "dozing") {
-      applyState("idle", getSvgOverride("idle"));
-    }
-  }, 350);
-}
+function resolveVisualBinding(input) { return getSvgOverride(input); }
+function isNotificationAnimationAllowed() { return typeof ctx.allowNotificationAnimation !== "function" || ctx.allowNotificationAnimation() !== false; }
+function applyResolvedDisplayState() { applyState(resolveDisplayState()); }
+// Sleep is an idle action assignment, not a second desktop state machine.
+function playWakeTransitionOrResolve() { applyResolvedDisplayState(); }
+function applyDndSleepState() { applyState("idle"); }
+function startWakePoll() {}
+function stopWakePoll() {}
 
 function pickDisplayHint(state, existing, incoming) {
   return pickDisplayHintWithMap(state, existing, incoming, DISPLAY_HINT_MAP);
@@ -975,6 +612,7 @@ function buildSessionSnapshot() {
     focusHostPlatform: ctx.focusHostPlatform || process.platform,
     isProcessAlive,
     accountQuota: accountQuota.snapshot({ mergeSources: ctx.quotaMergeSources === true }),
+    providerBalances: typeof ctx.getProviderBalanceSnapshot === "function" ? ctx.getProviderBalanceSnapshot() : [],
   });
 }
 
@@ -1175,8 +813,8 @@ function updateSessionFocusMetadata(sessionId, opts = {}) {
 // happened, and the badge derivation reads that tail), and never bump
 // updatedAt (a statusline refreshing every ~300ms would keep any session
 // eternally "fresh", defeating staleness sweeps and resurrecting completed
-// cards as idle). Context usage is the only per-session field a statusline
-// owns — account quota is not a session property and lives in the
+// cards as idle). Context usage and the reported model are per-session
+// metadata — account quota is not a session property and lives in the
 // session-independent store (updateAccountQuota below).
 // Broadcast goes through emitSessionSnapshot, whose signature dedup already
 // swallows no-op refreshes.
@@ -1189,15 +827,27 @@ function updateSessionMetadata(sessionId, opts = {}) {
     return false;
   }
   const contextUsage = normalizeContextUsage(opts.contextUsage);
-  if (!contextUsage) return false;
-  if (JSON.stringify(contextUsage) !== JSON.stringify(session.contextUsage)) {
+  const model = typeof opts.model === "string" ? opts.model.trim() : "";
+  const validModel = model && model.length <= 120 && !/[\u0000-\u001F\u007F]/.test(model) ? model : null;
+  if (!contextUsage && !validModel) return false;
+  let changed = false;
+  let contextChanged = false;
+  if (contextUsage && JSON.stringify(contextUsage) !== JSON.stringify(session.contextUsage)) {
     session.contextUsage = contextUsage;
+    changed = true;
+    contextChanged = true;
+  }
+  if (validModel && validModel !== session.model) {
+    session.model = validModel;
+    changed = true;
+  }
+  if (changed) {
     // Freshness stamp for telemetry arbitration. Deliberately a separate
     // field from updatedAt: staleness sweeps, badge derivation and eviction
     // all key on updatedAt, and a statusline heartbeat must not feed them.
     // Stamped only on real changes, so it cannot re-introduce a per-tick
     // broadcast (and it is excluded from the snapshot signature anyway).
-    session.metadataUpdatedAt = Date.now();
+    if (contextChanged) session.metadataUpdatedAt = Date.now();
     emitSessionSnapshot();
   }
   return true;
@@ -1346,6 +996,7 @@ function promoteCompletion(sessionId) {
 // positional params — refactored in B2 to an options bag so new fields
 // (sessionTitle, etc.) don't keep extending the argument list.
 function updateSession(sessionId, state, event, opts = {}) {
+  const inputState = state;
   let acceptedForTray = false;
   try {
   if (typeof ctx.onAgentEvent === "function") {
@@ -1357,6 +1008,10 @@ function updateSession(sessionId, state, event, opts = {}) {
       }
     }
   }
+  // Canonical wire inputs use the established Agent lifecycle machinery.
+  // The observer and recent-event history retain the original input.
+  if (state === "waiting") state = "notification";
+  else if (state === "complete") state = "attention";
   const {
     sourcePid = null,
     wtHwnd = null,
@@ -1666,7 +1321,7 @@ function updateSession(sessionId, state, event, opts = {}) {
   const keepExistingCompletionEventTail = shouldKeepExistingCompletionEventTail(existing, state, event);
   const recentEvents = keepExistingCompletionEventTail && Array.isArray(existing.recentEvents)
     ? existing.recentEvents.slice()
-    : pushRecentEvent(existing, preservedState || state, event);
+    : pushRecentEvent(existing, preservedState || inputState, event);
   const preserveCompletionAck =
     existing
     && existing.requiresCompletionAck === true
@@ -1737,14 +1392,6 @@ function updateSession(sessionId, state, event, opts = {}) {
     debugSession(`session-end delete ${describeSession(sessionId, endingSession)}`);
     cleanStaleSessions();
     if (srcAgentId === "kimi-cli") disposeKimiPermissionSession(sessionId);
-    if (!endingSession || !endingSession.headless) {
-      // /clear sends sweeping — play it even if other sessions are active
-      // (sweeping is ONESHOT and auto-returns, so it won't interfere)
-      if (state === "sweeping") {
-        setState("sweeping");
-        return;
-      }
-    }
     const displayState = resolveDisplayState();
     setState(displayState, getSvgOverride(displayState));
     return;
@@ -1888,6 +1535,12 @@ function updateSession(sessionId, state, event, opts = {}) {
   const suppressDuplicateCompletionVisual =
     duplicateCompletionVisualAtEntry || shouldSuppressDuplicateCompletionVisual(existing, state, event);
 
+  if (state === "sweeping" || state === "carrying") {
+    // These Agent housekeeping events retain their existing session semantics;
+    // they cannot leave an independent working presentation behind.
+    setState(resolveDisplayState());
+    return;
+  }
   if (ONESHOT_STATES.has(state)) {
     // Permission animation lock: while any permission request is pending,
     // keep the pet on notification and block all other one-shot visuals.
@@ -1936,7 +1589,7 @@ function updateSession(sessionId, state, event, opts = {}) {
   setState(displayState, getSvgOverride(displayState));
   } finally {
     if (acceptedForTray && typeof ctx.onTrayAgentEvent === "function") {
-      try { ctx.onTrayAgentEvent({ sessionId, state, event, opts }); } catch (err) {
+      try { ctx.onTrayAgentEvent({ sessionId, state: ["waiting", "complete"].includes(inputState) ? inputState : state, event, opts }); } catch (err) {
         if (typeof ctx.debugLog === "function") {
           ctx.debugLog(`tray-event-observer failed: ${err && err.message ? err.message : err}`);
         }
@@ -1967,9 +1620,13 @@ function updateSession(sessionId, state, event, opts = {}) {
 
 function restoreSessionFromLease(lease) {
   if (!lease || typeof lease !== "object") return false;
-  const sessionId = typeof lease.sessionId === "string" ? lease.sessionId : "";
+  const rawSessionId = typeof lease.sessionId === "string" ? lease.sessionId : "";
   const agentId = typeof lease.agentId === "string" ? lease.agentId : "";
-  if (!sessionId || sessionId === "default" || agentId !== "claude-code" || lease.active !== true) return false;
+  if (!rawSessionId || rawSessionId === "default" || agentId !== "claude-code" || lease.active !== true) return false;
+  // Recovery leases carry the hook's raw ID; HTTP events use the canonical
+  // local envelope. Restore into that same key so the next hook updates it.
+  const identity = resolveSessionIdentity(rawSessionId);
+  const sessionId = identity.sessionId;
   if (!Number.isFinite(lease.eventAt) || lease.eventAt <= 0 || lease.validUntil !== null) return false;
   if (lease.state !== "thinking" && lease.state !== "working" && lease.state !== "juggling") return false;
   if (sessions.has(sessionId)) return false;
@@ -1977,21 +1634,27 @@ function restoreSessionFromLease(lease) {
   const pid = Number.isInteger(lease.pid) && lease.pid > 0 ? lease.pid : null;
   const sourcePid = Number.isInteger(lease.sourcePid) && lease.sourcePid > 0 ? lease.sourcePid : null;
   if (!pid && !sourcePid) return false;
+  const resolveFocus = typeof ctx.resolveRecoveredClaudeFocus === "function"
+    ? ctx.resolveRecoveredClaudeFocus
+    : resolveRecoveredClaudeFocus;
+  const recoveredFocus = resolveFocus(lease, {
+    platform: ctx.focusHostPlatform || process.platform,
+  });
   sessions.set(sessionId, {
     state: lease.state,
     updatedAt: Date.now(),
     displayHint: null,
-    sourcePid,
+    sourcePid: (recoveredFocus && recoveredFocus.sourcePid) || sourcePid,
     wtHwnd: null,
     cwd: typeof lease.cwd === "string" ? lease.cwd : "",
-    editor: null,
-    pidChain: null,
+    editor: (recoveredFocus && recoveredFocus.editor) || null,
+    pidChain: (recoveredFocus && recoveredFocus.pidChain) || null,
     tmuxSocket: null,
     tmuxClient: null,
     agentPid: pid,
     agentId,
     profileId: "local",
-    rawSessionId: sessionId,
+    rawSessionId: identity.rawSessionId,
     host: null,
     wslDistro: null,
     headless: false,
@@ -2016,6 +1679,7 @@ function restoreSessionFromLease(lease) {
     awaitingInputSinceStop: false,
     muteNotificationSound: false,
     startupRecovered: true,
+    recoveryFocusVerified: !!recoveredFocus,
     recoveryEventAt: lease.eventAt,
     recoveryValidUntil: lease.validUntil,
   });
@@ -2436,21 +2100,19 @@ function disposeKimiPermissionSession(sessionId) {
 }
 
 function resolveDisplayState() {
-  return resolveDisplayStateFromSessions(sessions, {
-    statePriority: STATE_PRIORITY,
-    permissionLocked: hasPermissionAnimationLock(),
-  });
+  const suppressWaiting = typeof ctx.allowNotificationAnimation === "function" && !ctx.allowNotificationAnimation();
+  const visibleSessions = suppressWaiting ? new Map([...sessions].filter(([,s]) => normalizePetState(s.state) !== "waiting")) : sessions;
+  const priorities = Object.fromEntries([...Object.keys(STATE_PRIORITY), ...PET_STATE_IDS].map(input => [input, PET_STATE_PRIORITY[normalizePetState(input)] || 0]));
+  return normalizePetState(resolveDisplayStateFromSessions(visibleSessions, {
+    statePriority: priorities,
+    permissionLocked: !suppressWaiting && hasPermissionAnimationLock(),
+  })) || "idle";
 }
 
-function getSvgOverride(state) {
-  return getSvgOverrideWithDeps(state, {
-    idleFollowSvg: SVG_IDLE_FOLLOW,
-    idleDefaultVisual: typeof ctx.getIdleVisualChoice === "function" ? ctx.getIdleVisualChoice() : null,
-    sessions,
-    displayHintMap: DISPLAY_HINT_MAP,
-    theme,
-    stateSvgs: STATE_SVGS,
-  });
+function getSvgOverride(input) {
+  const state = normalizePetState(input);
+  if (!state) return null;
+  return playbackSlot(effectivePlan, state).actions.find(a => a.enabled)?.file || null;
 }
 
 // ── Session Dashboard ──
@@ -2501,13 +2163,11 @@ function enableDoNotDisturb() {
     ctx.dismissPermissionsForDnd();
   }
   clearQuietModePermissionState();
-  if (pendingTimer) { clearTimeout(pendingTimer); pendingTimer = null; pendingState = null; }
-  if (autoReturnTimer) { clearTimeout(autoReturnTimer); autoReturnTimer = null; }
   clearAllCompletionDebounces();
   clearAllClaudeTranscriptCompletionProbes();
   stopWakePoll();
   if (ctx.miniMode) {
-    applyState("mini-sleep");
+    applyState("idle");
   } else {
     applyDndSleepState();
   }
@@ -2523,7 +2183,7 @@ function disableDoNotDisturb() {
   if (ctx.miniMode) {
     if (ctx.miniSleepPeeked) { ctx.miniPeekOut(); ctx.miniSleepPeeked = false; }
     ctx.miniPeeked = false;
-    applyState("mini-idle");
+    applyState("idle");
   } else {
     playWakeTransitionOrResolve();
   }
@@ -2539,19 +2199,36 @@ function startStartupRecovery() {
   }, STARTUP_RECOVERY_MAX_MS);
 }
 
+function setActionVisual(file) {
+  const slot = playbackSlot(effectivePlan, currentState);
+  if (!slot.actions.some(a => a.enabled && a.file === file)) return false;
+  if (currentSvg === file) return true;
+  currentSvg = file;
+  currentHitBox = resolveHitBoxForSvg(file);
+  ctx.syncHitWin();
+  ctx.sendToHitWin("hit-state-sync", { currentSvg: file });
+  return true;
+}
+function reportPetActionFrame(frame) {
+  if (!petController.reportFrame(frame)) return false;
+  return setActionVisual(frame.file);
+}
+function setPetHeld(value) { petController.setHeld(value); }
+function getPetStateSnapshot() { return petController.getSnapshot(); }
+
+function getIdlePlaybackDuration() { return playbackDuration(effectivePlan, "idle"); }
 function getCurrentState() { return currentState; }
 function getCurrentSvg() { return currentSvg; }
 function getCurrentHitBox() { return currentHitBox; }
 function getStartupRecoveryActive() { return startupRecoveryActive; }
 
 function cleanup() {
+  if (typeof ctx.cancelPetHeld === "function") ctx.cancelPetHeld();
+  petController.cleanup();
   // The persist debounce timer is unref'd, so a quota update inside the
   // final debounce window before quit would otherwise never reach disk
   // (main.js before-quit calls this cleanup).
   accountQuota.flush();
-  if (pendingTimer) clearTimeout(pendingTimer);
-  pendingState = null;
-  if (autoReturnTimer) clearTimeout(autoReturnTimer);
   clearAllCompletionDebounces();
   clearAllClaudeTranscriptCompletionProbes();
   if (eyeResendTimer) clearTimeout(eyeResendTimer);
@@ -2589,7 +2266,7 @@ return {
   disposeAllKimiPermissionState,
   clearQuietModePermissionState,
   deriveSessionBadge,
-  getCurrentState, getCurrentSvg, getCurrentHitBox, getStartupRecoveryActive,
+  setActionVisual, setPetHeld, reportPetActionFrame, getPetStateSnapshot, getIdlePlaybackDuration, getCurrentState, getCurrentSvg, getCurrentHitBox, getStartupRecoveryActive,
   sessions, STATE_PRIORITY, ONESHOT_STATES, SLEEP_SEQUENCE,
   get STATE_SVGS() { return STATE_SVGS; },
   get HIT_BOXES() { return HIT_BOXES; },

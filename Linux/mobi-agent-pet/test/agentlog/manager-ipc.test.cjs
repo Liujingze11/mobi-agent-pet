@@ -60,6 +60,9 @@ function createHarness(t, options = {}) {
       return [];
     },
     getOverview() { calls.push(["getOverview"]); return { today: {} }; },
+    getUsageReport(input) { calls.push(["getUsageReport", input]); return { period: input.period, totalMs: 12_000 }; },
+    listUsageSessions(start, end) { calls.push(["listUsageSessions", start, end]); return []; },
+    getUsageSession(id) { calls.push(["getUsageSession", id]); return { id, agentId: "codex", sourceSessionId: "local-session", transcriptPath: null }; },
     getProjectDetail(id, input) { calls.push(["getProjectDetail", id, input]); return { id }; },
     listSessions(input) { calls.push(["listSessions", input]); return []; },
     getProjectTimeline(id, input) { calls.push(["getProjectTimeline", id, input]); return []; },
@@ -91,8 +94,14 @@ function createHarness(t, options = {}) {
     BrowserWindow,
     fs,
     projectRepository,
+    projectAssignment: options.projectAssignment,
     overviewQueries,
+    usageReader: options.usageReader,
     humanTimer,
+    providerService: options.providerService,
+    providerBalanceStore: options.providerBalanceStore,
+    providerBalanceQuery: options.providerBalanceQuery,
+    providerProfileTransfer: options.providerProfileTransfer,
     runtime: options.runtime || { getHealth: () => ({ storage: "ready", databaseName: "agentlog.db", errorMessage: null }) },
     hostBridge,
   });
@@ -123,6 +132,73 @@ function createHarness(t, options = {}) {
     tmp,
   };
 }
+
+test("provider IPC keeps list redacted and announces each mutation once", async (t) => {
+  const calls = [];
+  const h = createHarness(t, { providerService: {
+    list: (appId) => { calls.push(["list", appId]); return [{ id: "one", appId, name: "Kimi" }]; },
+    getEditDraft: (id) => ({ id, settingsConfig: { env: { API_KEY: "secret" } } }),
+    create: (input) => { calls.push(["create", input.appId]); return { id: "one", appId: input.appId, name: input.name }; },
+    update: (id) => ({ id }),
+    remove: () => true,
+    getEditorView: (appId) => ({ appId, exists: false, config: null }),
+    fetchModels: async () => [],
+    checkEndpoint: async () => ({ reachable: true, status: 200 }),
+  } });
+  assert.deepEqual(await h.invoke("agentlog:providers:list", { appId: "claude" }), [{ id: "one", appId: "claude", name: "Kimi" }]);
+  assert.deepEqual(await h.invoke("agentlog:providers:create", { appId: "claude", name: "Kimi", settingsConfig: {} }), { id: "one", appId: "claude", name: "Kimi" });
+  assert.equal(h.sent.filter((event) => event.payload === "providers").length, 1);
+  assert.equal((await h.invoke("agentlog:providers:get-edit-draft", { id: "one" })).settingsConfig.env.API_KEY, "secret");
+  assert.deepEqual(calls, [["list", "claude"], ["create", "claude"]]);
+  const invalid = await h.invokeEnvelope("agentlog:providers:list", { appId: "bad" });
+  assert.equal(invalid.error.code, "INVALID_ARGUMENT");
+});
+
+test("provider move IPC passes a same-list order request", async (t) => {
+  const calls = [];
+  const h = createHarness(t, { providerService: {
+    list: () => [], getEditDraft: () => null, create: () => null, update: () => null,
+    remove: () => false, getEditorView: () => null, fetchModels: async () => [],
+    checkEndpoint: async () => ({}),
+    move: (id, beforeId) => { calls.push([id, beforeId]); return [{ id }]; },
+  } });
+  const api = createRendererApi(h);
+  assert.deepEqual(await api.providers.move("b", "a"), [{ id: "b" }]);
+  assert.deepEqual(calls, [["b", "a"]]);
+  assert.equal(h.sent.filter((event) => event.payload === "providers").length, 1);
+});
+
+test("provider transfer IPC exposes a public document and imports it once", async (t) => {
+  const document = { format: "mobi-providers-public-v1", providers: [] };
+  const h = createHarness(t, { providerProfileTransfer: {
+    exportData: () => document,
+    importData: (value) => { assert.deepEqual(value, document); return { added: 0, skipped: 0 }; },
+  } });
+  const api = createRendererApi(h);
+  assert.deepEqual(await api.providers.exportData(), document);
+  assert.deepEqual(await api.providers.importData(document), { added: 0, skipped: 0 });
+  assert.equal(h.sent.filter((event) => event.payload === "providers").length, 1);
+});
+
+test("balance rule IPC accepts bounded data and refreshes without exposing credentials", async (t) => {
+  const rules = [];
+  const h = createHarness(t, {
+    providerBalanceStore: { get: () => null },
+    providerBalanceQuery: {
+      getRule: () => null,
+      setRule: (id, rule) => { rules.push({ id, rule }); return rule; },
+      query: async () => ({ providerId: "one", kind: "money", amount: 3, currency: "USD" }),
+    },
+  });
+  const api = createRendererApi(h);
+  assert.equal(await api.providers.getBalanceRule("one"), null);
+  const rule = { url: "https://billing.example", method: "GET", valuePath: "data.balance",
+    kind: "money", unit: "USD" };
+  assert.deepEqual(await api.providers.setBalanceRule("one", rule), rule);
+  assert.deepEqual(rules, [{ id: "one", rule }]);
+  assert.equal((await api.providers.refreshBalance("one")).amount, 3);
+  assert.equal(h.sent.filter((event) => event.payload === "providers").length, 1);
+});
 
 function createRendererApi(harness) {
   let exposed;
@@ -162,6 +238,61 @@ test("main envelopes results and preload unwraps renderer-safe success and valid
     (error) => error.code === "INVALID_ARGUMENT" && error.message === "id must be a string"
       && error.stack === undefined
   );
+});
+
+test("analytics report accepts a bounded period and date through the preload", async (t) => {
+  const harness = createHarness(t);
+  const renderer = createRendererApi(harness);
+
+  assert.deepEqual(await renderer.analytics.get({ period: "week", anchor: 1_000 }), {
+    period: "week", totalMs: 12_000,
+  });
+  assert.deepEqual(harness.calls, [["getUsageReport", { period: "week", anchor: 1_000 }]]);
+  await assert.rejects(() => renderer.analytics.get({ period: "month" }), (error) => error.code === "INVALID_ARGUMENT");
+});
+
+test("manual analytics refresh forwards the force flag to the local usage reader", async (t) => {
+  const inputs = [];
+  const harness = createHarness(t, { usageReader: {
+    report: async (_sessions, options) => { inputs.push(options); return { usage: { inputTokens: 4, outputTokens: 1 } }; },
+  } });
+  const renderer = createRendererApi(harness);
+
+  await renderer.analytics.get({ period: "day", anchor: 1_000, force: true });
+  assert.equal(inputs[0].force, true);
+  await assert.rejects(() => renderer.analytics.get({ force: "yes" }), (error) => error.code === "INVALID_ARGUMENT");
+});
+
+test("manual refresh reports a reader failure instead of replacing the current result", async (t) => {
+  const harness = createHarness(t, { usageReader: {
+    report: async () => { throw new Error("private log path"); },
+  } });
+  const renderer = createRendererApi(harness);
+
+  await assert.rejects(() => renderer.analytics.get({ force: true }), (error) =>
+    error.code === "INTERNAL_ERROR" && !String(error.message).includes("private log path"));
+  assert.deepEqual(await renderer.analytics.get(), { period: undefined, totalMs: 12_000 });
+});
+
+test("analytics adds local usage without exposing transcripts and project assignment validates input", async (t) => {
+  const assigned = [];
+  const harness = createHarness(t, {
+    usageReader: {
+      report: async () => ({ usage: { inputTokens: 12, outputTokens: 3, estimatedUsd: null }, sessionUsage: {} }),
+      sessionSummary: async () => ({ inputTokens: 12, outputTokens: 3, estimatedUsd: null, models: ["gpt-6-sol"] }),
+    },
+    projectAssignment: { assign(sessionId, projectId) { assigned.push([sessionId, projectId]); return { sessionId, projectId }; } },
+  });
+  const renderer = createRendererApi(harness);
+  const report = await renderer.analytics.get({ period: "day", anchor: 1_000 });
+  assert.equal(report.usage.inputTokens, 12);
+  assert.equal(JSON.stringify(report).includes("transcriptPath"), false);
+  assert.deepEqual(await renderer.sessions.usage("session-1"), {
+    inputTokens: 12, outputTokens: 3, estimatedUsd: null, models: ["gpt-6-sol"],
+  });
+  assert.deepEqual(await renderer.sessions.assignProject({ sessionId: "session-1", projectId: null }), { sessionId: "session-1", projectId: null });
+  assert.deepEqual(assigned, [["session-1", null]]);
+  await assert.rejects(() => renderer.sessions.assignProject({ sessionId: "", projectId: null }), (error) => error.code === "INVALID_ARGUMENT");
 });
 
 test("projects:add-from-folder validates the selected directory in main", async (t) => {
@@ -371,6 +502,7 @@ test("IPC registration rolls back already-installed handlers after a middle-chan
   assert.equal(handlers.get("unrelated:channel"), unrelated);
   assert.deepEqual(removed, [
     "agentlog:overview:get",
+    "agentlog:analytics:get",
     "agentlog:projects:list",
     "agentlog:projects:get",
     "agentlog:projects:pick-folder",
@@ -548,7 +680,7 @@ test("preload exposes only frozen named APIs and unsubscribes its own change lis
   });
 
   assert.deepEqual(Object.keys(exposed).sort(), [
-    "diagnostics", "events", "humanTimer", "localization", "managerWindow", "overview", "projects", "sessions", "settings",
+    "analytics", "diagnostics", "events", "humanTimer", "localization", "managerWindow", "overview", "projects", "providers", "sessions", "settings",
   ]);
   assert.equal(Object.isFrozen(exposed), true);
   for (const group of Object.values(exposed)) assert.equal(Object.isFrozen(group), true);
@@ -558,7 +690,7 @@ test("preload exposes only frozen named APIs and unsubscribes its own change lis
   assert.deepEqual(Object.keys(exposed.projects).sort(), [
     "addFromFolder", "addPath", "archive", "confirm", "get", "list", "merge", "pickFolder", "rebind", "removePath", "update",
   ]);
-  assert.deepEqual(Object.keys(exposed.sessions).sort(), ["list", "timeline"]);
+  assert.deepEqual(Object.keys(exposed.sessions).sort(), ["assignProject", "list", "timeline", "usage"]);
   assert.deepEqual(Object.keys(exposed.humanTimer).sort(), ["get", "pause", "resume", "start", "stop"]);
   assert.deepEqual(Object.keys(exposed.settings), ["open"]);
   assert.deepEqual(Object.keys(exposed.diagnostics), ["get"]);
@@ -715,10 +847,10 @@ test("duplicate IPC registration reuses its owner and disposal removes only owne
   const duplicate = registerManagerIpc({ ipcMain });
 
   assert.equal(duplicate, api.registration);
-  assert.equal(handleCalls, 23);
+  assert.equal(handleCalls, 26);
   api.registration.dispose();
   duplicate.dispose();
-  assert.equal(removed.length, 23);
+  assert.equal(removed.length, 26);
   assert.equal(handlers.has("unrelated:channel"), true);
   assert.equal(handlers.size, 1);
 });
@@ -764,6 +896,7 @@ test("registers only the named manager invoke channels", (t) => {
   const api = createHarness(t);
 
   assert.deepEqual(api.channels(), [
+    "agentlog:analytics:get",
     "agentlog:diagnostics:get",
     "agentlog:host:get-language",
     "agentlog:host:open-settings",
@@ -785,7 +918,9 @@ test("registers only the named manager invoke channels", (t) => {
     "agentlog:projects:rebind",
     "agentlog:projects:remove-path",
     "agentlog:projects:update",
+    "agentlog:sessions:assign-project",
     "agentlog:sessions:list",
     "agentlog:sessions:timeline",
+    "agentlog:sessions:usage",
   ]);
 });

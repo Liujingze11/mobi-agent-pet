@@ -1,7 +1,5 @@
 "use strict";
 
-const { canOfferLocalFolder, focusUnavailableReasonKey } = globalThis.ClawdSessionFocusUnavailable;
-
 const AGENT_LABELS = {
   "claude-code": "Claude Code",
   codex: "Codex",
@@ -18,23 +16,177 @@ const AGENT_LABELS = {
   pi: "Pi",
   openclaw: "OpenClaw",
 };
+const BALANCE_AGENT_IDS = {
+  claude: "claude-code", codex: "codex", gemini: "gemini-cli", grokbuild: "grokbuild",
+  "claude-desktop": "claude-desktop", opencode: "opencode", openclaw: "openclaw",
+  hermes: "hermes", pi: "pi", mcode: "mcode",
+};
+const BALANCE_APP_LABELS = {
+  grokbuild: "Grok Build", "claude-desktop": "Claude Desktop", hermes: "Hermes",
+  mcode: "MiniMax Code",
+};
+
+function cardAgentTheme(agentId) {
+  if (window.MobiAgentCardStyle) return window.MobiAgentCardStyle.getAgentCardStyle(agentId).theme;
+  if (agentId === "claude-code") return "claude";
+  if (agentId === "codex") return "codex";
+  if (agentId === "gemini-cli") return "gemini";
+  if (agentId === "antigravity-cli") return "antigravity";
+  if (agentId === "cursor-agent") return "cursor";
+  if (agentId === "opencode") return "opencode";
+  if (agentId === "mimocode") return "mimocode";
+  return "default";
+}
+
+function applyUnlistedAgentTheme(card, agentId) {
+  if (window.MobiAgentCardStyle) {window.MobiAgentCardStyle.applyAgentCardStyle(card,agentId);return;}
+  if (!agentId || cardAgentTheme(agentId) !== "default") return;
+  let hash = 0;
+  for (const char of agentId) hash = (Math.imul(hash, 31) + char.charCodeAt(0)) >>> 0;
+  const hue = hash % 360;
+  card.style.setProperty("--card-accent", `hsl(${hue} 38% 40%)`);
+  card.style.setProperty("--card-border", `hsl(${hue} 48% 85%)`);
+  card.style.setProperty("--card-tint", `hsl(${hue} 55% 97%)`);
+}
 
 let snapshot = { sessions: [], groups: [], orderedIds: [] };
 let i18nPayload = { lang: "en", translations: {} };
 let activeEdit = null;
 
-const SESSION_FOLDER_FEEDBACK_MS = 4000;
-const sessionFolderActionState = new Map();
-
-const titleEl = document.getElementById("title");
-const countEl = document.getElementById("count");
 const contentEl = document.getElementById("content");
 const quotaSummaryEl = document.getElementById("quotaSummary");
+const quotaEmptyEl = document.getElementById("quotaEmpty");
+const quotaHintEl = document.getElementById("quotaHint");
+const petSceneEl = document.getElementById("petScene");
+const petMoodEl = document.getElementById("petMood");
+const petNameEl = document.getElementById("petName");
+const petImageEl = document.getElementById("petImage");
+const statusTabEl = document.getElementById("statusTab");
+const behaviorTabEl = document.getElementById("behaviorTab");
+const actionsTabEl = document.getElementById("actionsTab");
+const actionsPageEl = document.getElementById("actionsPage");
+const actionsPage = globalThis.MobiDashboardActions ? globalThis.MobiDashboardActions.create({
+  container: document.getElementById("actionsContent"), getLang: () => i18nPayload.lang || "en",
+}) : null;
+const themeTabEl = document.getElementById("themeTab");
+const statusPageEl = document.getElementById("statusPage");
+const behaviorPageEl = document.getElementById("behaviorPage");
+const themePageEl = document.getElementById("themePage");
+const themePage = globalThis.ClawdDashboardTheme.create({
+  container: document.getElementById("themeContent"),
+  getLang: () => i18nPayload.lang || "en",
+});
+const behaviorRowsEl = document.getElementById("behaviorRows");
+const behaviorErrorEl = document.getElementById("behaviorError");
+let petBehavior = null;
+
+const FALLBACK_PET_IMAGE = "../assets/svg/clawd-idle-follow.svg";
+let failedPetImageUrl = null;
+let petSceneRefreshPending = false;
+let usingFallbackPetImage = true;
+
+petImageEl.addEventListener("error", () => {
+  if (usingFallbackPetImage) return;
+  failedPetImageUrl = petImageEl.src;
+  usingFallbackPetImage = true;
+  petImageEl.src = FALLBACK_PET_IMAGE;
+});
+
+async function refreshPetScene() {
+  if (petSceneRefreshPending || typeof window.dashboardAPI.getPetScene !== "function") return;
+  petSceneRefreshPending = true;
+  try {
+    const scene = await window.dashboardAPI.getPetScene();
+    if (!scene || typeof scene !== "object") return;
+    const nextImage = typeof scene.imageUrl === "string" && scene.imageUrl !== failedPetImageUrl
+      ? scene.imageUrl
+      : FALLBACK_PET_IMAGE;
+    if (petImageEl.src !== nextImage) {
+      usingFallbackPetImage = nextImage === FALLBACK_PET_IMAGE;
+      petImageEl.src = nextImage;
+    }
+    petNameEl.textContent = scene.name || "Clawd";
+  } catch {
+    // A missing theme preview must not interrupt session and quota updates.
+  } finally {
+    petSceneRefreshPending = false;
+  }
+}
 
 function t(key) {
   const dict = i18nPayload && i18nPayload.translations ? i18nPayload.translations : {};
   return dict[key] || key;
 }
+
+function renderPetBehavior() {
+  document.getElementById("statusTabLabel").textContent = t("dashboardStatusTab");
+  document.getElementById("behaviorTabLabel").textContent = t("dashboardBehaviorTab");
+  document.getElementById("actionsTabLabel").textContent = i18nPayload.lang === "zh" ? "动作管理" : "Actions";
+  document.getElementById("themeTabLabel").textContent = themePage.t("sidebarTheme");
+  document.getElementById("dashboardSidebar").setAttribute("aria-label", t("openDashboard"));
+  document.getElementById("statusHeading").textContent = t("dashboardOverviewTitle");
+  const icons = globalThis.ClawdSettingsIcons;
+  if (icons && typeof icons.getIcon === "function") {
+    document.getElementById("statusTabIcon").innerHTML = icons.getIcon("about");
+    document.getElementById("behaviorTabIcon").innerHTML = icons.getIcon("general");
+    document.getElementById("actionsTabIcon").innerHTML = icons.getIcon("animOverrides");
+    document.getElementById("themeTabIcon").innerHTML = icons.getIcon("theme");
+  }
+  document.getElementById("behaviorTitle").textContent = t("dashboardBehaviorTitle");
+  document.getElementById("behaviorIntro").textContent = t("dashboardBehaviorIntro");
+  behaviorRowsEl.replaceChildren();
+  const button = document.createElement("button");
+  button.type = "button"; button.className = "soft-btn"; button.dataset.editCustomMode = "";
+  button.textContent = t("appModeEditCustom");
+  button.addEventListener("click", async () => {
+    try { await window.dashboardAPI.openCustomModeEditor(); }
+    catch { behaviorErrorEl.textContent = t("dashboardBehaviorLoadFailed"); }
+  });
+  behaviorRowsEl.appendChild(button);
+}
+
+async function refreshPetBehavior() {
+  try {
+    petBehavior = await window.dashboardAPI.getPetBehavior();
+    behaviorErrorEl.textContent = "";
+  } catch {
+    behaviorErrorEl.textContent = t("dashboardBehaviorLoadFailed");
+  }
+  renderPetBehavior();
+}
+
+function selectDashboardPage(page) {
+  const showBehavior = page === "behavior";
+  const showTheme = page === "theme";
+  const showActions = page === "actions";
+  if (actionsPage && !actionsPageEl.hidden && !showActions) actionsPage.leave();
+  actionsPageEl.hidden = !showActions;
+  actionsTabEl.setAttribute("aria-selected", String(showActions));
+  const wasBehaviorVisible = !behaviorPageEl.hidden;
+  if (!themePageEl.hidden && !showTheme) themePage.leave();
+  statusPageEl.hidden = showBehavior || showTheme || showActions;
+  behaviorPageEl.hidden = !showBehavior;
+  themePageEl.hidden = !showTheme;
+  statusTabEl.setAttribute("aria-selected", String(!showBehavior && !showTheme && !showActions));
+  behaviorTabEl.setAttribute("aria-selected", String(showBehavior));
+  themeTabEl.setAttribute("aria-selected", String(showTheme));
+  if (showBehavior) {
+    void refreshPetBehavior();
+
+  }
+  if (showTheme) void themePage.enter();
+  if (showActions && actionsPage) void actionsPage.enter();
+}
+
+
+statusTabEl.addEventListener("click", () => selectDashboardPage("status"));
+behaviorTabEl.addEventListener("click", () => selectDashboardPage("behavior"));
+actionsTabEl.addEventListener("click", () => selectDashboardPage("actions"));
+themeTabEl.addEventListener("click", () => selectDashboardPage("theme"));
+window.addEventListener("focus", () => {
+  if (!behaviorPageEl.hidden) void refreshPetBehavior();
+  if (!themePageEl.hidden) void themePage.refresh().catch(() => {});
+});
 
 function formatElapsed(ms) {
   const sec = Math.max(0, Math.floor(ms / 1000));
@@ -77,7 +229,7 @@ function contextUsageText(session) {
 // a source only. Three providers, each its own section: Antigravity's own
 // /usage (Gemini + Claude/GPT-via-agy), Claude Code's rate_limits and
 // Codex's rollout rate_limits.
-const QUOTA_WARNING_THRESHOLD = 90;
+const QUOTA_LOW_REMAINING_THRESHOLD = 10;
 // A source that has not confirmed its numbers recently gets an explicit
 // "as of N ago" label instead of presenting old numbers as live.
 const QUOTA_STALE_AFTER_MS = 5 * 60 * 1000;
@@ -124,6 +276,10 @@ function liveBucket(group, field) {
     return { ...bucket, usedPercent: 0, expired: true };
   }
   return bucket;
+}
+
+function remainingPercent(bucket) {
+  return Math.max(0, Math.min(100, 100 - Number(bucket.usedPercent)));
 }
 
 function formatQuotaWindowLabel(bucket, fallbackLabel) {
@@ -190,8 +346,10 @@ function buildQuotaHalfBar(labelText, bucket, resetStyle) {
 
   const labelRow = document.createElement("div");
   labelRow.className = "quota-label-row";
-  labelRow.appendChild(createText("span", "quota-label", labelText));
-  const percentText = `${bucket.usedPercent}%`;
+  const windowClass = resetStyle === "date" ? "quota-label-long-window" : "quota-label-short-window";
+  labelRow.appendChild(createText("span", `quota-label ${windowClass}`, labelText));
+  const remaining = remainingPercent(bucket);
+  const percentText = `${remaining}%`;
   let resetText = "";
   if (Number.isFinite(bucket.resetAt)) {
     resetText = resetStyle === "date"
@@ -209,18 +367,21 @@ function buildQuotaHalfBar(labelText, bucket, resetStyle) {
   const track = document.createElement("div");
   track.className = "quota-bar-track";
   const fill = document.createElement("div");
-  fill.className = bucket.usedPercent >= QUOTA_WARNING_THRESHOLD ? "quota-bar-fill quota-bar-fill-warning" : "quota-bar-fill";
-  fill.style.width = `${Math.max(0, Math.min(100, bucket.usedPercent))}%`;
+  fill.className = remaining <= QUOTA_LOW_REMAINING_THRESHOLD ? "quota-bar-fill quota-bar-fill-warning" : "quota-bar-fill";
+  fill.style.width = `${remaining}%`;
   track.appendChild(fill);
   half.appendChild(track);
 
   return half;
 }
 
-function buildQuotaGroupRow(headerText, fiveHourBucket, weeklyBucket) {
+function buildQuotaGroupRow(headerText, fiveHourBucket, weeklyBucket, lastSeenAt) {
   if (!fiveHourBucket && !weeklyBucket) return null;
   const row = document.createElement("div");
   row.className = "quota-group-row";
+  row.dataset.minRemainingPercent = String(Math.min(...[fiveHourBucket, weeklyBucket]
+    .filter(Boolean).map(remainingPercent)));
+  row.dataset.stale = String(lastSeenAt != null && Date.now() - Number(lastSeenAt) > QUOTA_STALE_AFTER_MS);
   if (headerText) row.appendChild(createText("div", "quota-group-header", headerText));
   const halves = document.createElement("div");
   halves.className = "quota-halves";
@@ -242,13 +403,50 @@ function buildQuotaGroupRow(headerText, fiveHourBucket, weeklyBucket) {
   return row;
 }
 
-function buildQuotaSection(headerKey, rows) {
+const collapsedQuotaSections = new Set();
+
+function buildQuotaSection(headerKey, agentId, rows, balanceRows = []) {
   const usableRows = rows.filter(Boolean);
-  if (!usableRows.length) return null;
+  if (!usableRows.length && !balanceRows.length) return null;
   const section = document.createElement("div");
-  section.className = "quota-section";
-  section.appendChild(createText("div", "quota-section-header", t(headerKey)));
-  for (const row of usableRows) section.appendChild(row);
+  section.className = `quota-section card-agent-${cardAgentTheme(agentId)}`;
+  applyUnlistedAgentTheme(section, agentId);
+  const minRemainingPercent = usableRows.length
+    ? Math.min(...usableRows.map((row) => Number(row.dataset.minRemainingPercent))) : null;
+  const summaryStale = usableRows.length && usableRows.filter((row) => Number(row.dataset.minRemainingPercent) === minRemainingPercent)
+    .every((row) => row.dataset.stale === "true");
+  const nearLimit = usableRows.some((row) => row.dataset.stale !== "true"
+    && Number(row.dataset.minRemainingPercent) <= QUOTA_LOW_REMAINING_THRESHOLD);
+  const collapsed = collapsedQuotaSections.has(agentId);
+  const header = document.createElement("button");
+  header.type = "button";
+  header.className = "quota-section-toggle";
+  header.setAttribute("aria-expanded", String(!collapsed));
+  header.setAttribute("aria-controls", `quota-section-body-${agentId}`);
+  header.appendChild(createText("span", "quota-section-header", headerKey ? t(headerKey)
+    : BALANCE_APP_LABELS[agentId] || AGENT_LABELS[agentId] || agentId));
+  const summary = document.createElement("span");
+  summary.className = "quota-section-summary";
+  summary.textContent = usableRows.length
+    ? t("dashboardQuotaMinRemaining").replace("{percent}", minRemainingPercent)
+    : t("dashboardProviderBalance");
+  header.appendChild(summary);
+  if (summaryStale) header.appendChild(createText("span", "quota-section-stale", t("dashboardQuotaLastKnown")));
+  if (nearLimit) header.appendChild(createText("span", "quota-section-alert", t("dashboardQuotaNearLimit")));
+  header.appendChild(createText("span", "quota-section-chevron", ""));
+  const body = document.createElement("div");
+  body.className = "quota-section-body";
+  body.setAttribute("id", `quota-section-body-${agentId}`);
+  body.hidden = collapsed;
+  for (const row of usableRows) body.appendChild(row);
+  for (const row of balanceRows) body.appendChild(row);
+  header.addEventListener("click", () => {
+    body.hidden = !body.hidden;
+    header.setAttribute("aria-expanded", String(!body.hidden));
+    if (body.hidden) collapsedQuotaSections.add(agentId);
+    else collapsedQuotaSections.delete(agentId);
+  });
+  section.append(header, body);
   return section;
 }
 
@@ -261,19 +459,53 @@ function buildQuotaSection(headerKey, rows) {
 // for nothing.
 let lastQuotaSummarySignature = null;
 
-function computeQuotaSummarySignature(accountQuota) {
+function computeQuotaSummarySignature(accountQuota, providerBalances) {
   return JSON.stringify({
     lang: (i18nPayload && i18nPayload.lang) || "en",
-    minute: accountQuota.length ? Math.floor(Date.now() / 60000) : null,
+    minute: accountQuota.length || providerBalances.length ? Math.floor(Date.now() / 60000) : null,
     accountQuota,
+    providerBalances,
   });
+}
+
+function buildProviderBalanceRows(providerBalances) {
+  const groups = new Map();
+  for (const balance of providerBalances) {
+    if (!balance || !BALANCE_AGENT_IDS[balance.appId]) continue;
+    let value = null;
+    if (balance.kind === "money" && Number.isFinite(balance.amount) && balance.currency) {
+      try { value = new Intl.NumberFormat(i18nPayload.lang || "en", { style: "currency",
+        currency: balance.currency, maximumFractionDigits: 2 }).format(balance.amount); }
+      catch { value = `${balance.amount} ${balance.currency}`; }
+    } else if (balance.kind === "quota" && Number.isFinite(balance.remaining) && balance.unit) {
+      value = `${balance.remaining} ${balance.unit}`;
+    }
+    if (value === null) continue;
+    const row = document.createElement("div");
+    row.className = "provider-balance-row";
+    row.appendChild(createText("span", "provider-balance-name", balance.providerName || balance.appId));
+    row.appendChild(createText("strong", "provider-balance-value", value));
+    if (balance.stale || (balance.checkedAt && Date.now() - balance.checkedAt > 20 * 60_000)) {
+      row.appendChild(createText("span", "provider-balance-stale", t("dashboardQuotaLastKnown")));
+    }
+    if (Number.isFinite(balance.checkedAt)) {
+      row.appendChild(createText("time", "provider-balance-time",
+        new Intl.DateTimeFormat(i18nPayload.lang || "en", { month: "numeric", day: "numeric",
+          hour: "2-digit", minute: "2-digit" }).format(balance.checkedAt)));
+    }
+    const agentId = BALANCE_AGENT_IDS[balance.appId];
+    if (!groups.has(agentId)) groups.set(agentId, []);
+    groups.get(agentId).push(row);
+  }
+  return groups;
 }
 
 function renderQuotaSummary(snapshot) {
   if (!quotaSummaryEl) return;
   const accountQuota = Array.isArray(snapshot && snapshot.accountQuota) ? snapshot.accountQuota : [];
+  const providerBalances = Array.isArray(snapshot && snapshot.providerBalances) ? snapshot.providerBalances : [];
 
-  const signature = computeQuotaSummarySignature(accountQuota);
+  const signature = computeQuotaSummarySignature(accountQuota, providerBalances);
   if (signature === lastQuotaSummarySignature) return;
   lastQuotaSummarySignature = signature;
 
@@ -281,6 +513,7 @@ function renderQuotaSummary(snapshot) {
   const sources = accountQuota.map((entry) => ({ ...entry, multiSource }));
 
   const sections = [];
+  const balanceRows = buildProviderBalanceRows(providerBalances);
 
   const antigravityRows = [];
   for (const source of sources) {
@@ -291,16 +524,18 @@ function renderQuotaSummary(snapshot) {
       buildQuotaGroupRow(
         buildQuotaSourceHeader(source, provider, t("dashboardQuotaGroupGemini")),
         liveBucket(group, "geminiFiveHour"),
-        liveBucket(group, "geminiWeekly")
+        liveBucket(group, "geminiWeekly"),
+        provider.lastSeenAt ?? provider.updatedAt
       ),
       buildQuotaGroupRow(
         buildQuotaSourceHeader(source, provider, t("dashboardQuotaGroupThirdParty")),
         liveBucket(group, "thirdPartyFiveHour"),
-        liveBucket(group, "thirdPartyWeekly")
+        liveBucket(group, "thirdPartyWeekly"),
+        provider.lastSeenAt ?? provider.updatedAt
       )
     );
   }
-  const antigravitySection = buildQuotaSection("dashboardQuotaSectionAntigravity", antigravityRows);
+  const antigravitySection = buildQuotaSection("dashboardQuotaSectionAntigravity", "antigravity-cli", antigravityRows);
   if (antigravitySection) sections.push(antigravitySection);
 
   const claudeRows = sources.map((source) => {
@@ -310,10 +545,11 @@ function renderQuotaSummary(snapshot) {
     return buildQuotaGroupRow(
       buildQuotaSourceHeader(source, provider, null),
       liveBucket(group, "claudeFiveHour"),
-      liveBucket(group, "claudeWeekly")
+      liveBucket(group, "claudeWeekly"),
+      provider.lastSeenAt ?? provider.updatedAt
     );
   });
-  const claudeSection = buildQuotaSection("dashboardQuotaSectionClaudeCode", claudeRows);
+  const claudeSection = buildQuotaSection("dashboardQuotaSectionClaudeCode", "claude-code", claudeRows, balanceRows.get("claude-code") || []);
   if (claudeSection) sections.push(claudeSection);
 
   const codexRows = sources.map((source) => {
@@ -323,15 +559,23 @@ function renderQuotaSummary(snapshot) {
     return buildQuotaGroupRow(
       buildQuotaSourceHeader(source, provider, null),
       liveBucket(group, "codexFiveHour"),
-      liveBucket(group, "codexWeekly")
+      liveBucket(group, "codexWeekly"),
+      provider.lastSeenAt ?? provider.updatedAt
     );
   });
-  const codexSection = buildQuotaSection("dashboardQuotaSectionCodex", codexRows);
+  const codexSection = buildQuotaSection("dashboardQuotaSectionCodex", "codex", codexRows, balanceRows.get("codex") || []);
   if (codexSection) sections.push(codexSection);
+
+  for (const [agentId, rows] of balanceRows) {
+    if (agentId === "claude-code" || agentId === "codex") continue;
+    const section = buildQuotaSection(null, agentId, [], rows);
+    if (section) sections.push(section);
+  }
 
   if (!sections.length) {
     quotaSummaryEl.hidden = true;
     quotaSummaryEl.replaceChildren();
+    quotaEmptyEl.hidden = false;
     return;
   }
 
@@ -339,6 +583,7 @@ function renderQuotaSummary(snapshot) {
   for (const section of sections) fragment.appendChild(section);
   quotaSummaryEl.replaceChildren(fragment);
   quotaSummaryEl.hidden = false;
+  quotaEmptyEl.hidden = true;
 }
 
 function badgeLabel(badge) {
@@ -371,11 +616,15 @@ function sessionTitleText(session) {
   return session.displayTitle || session.sessionTitle || session.id || "";
 }
 
+function isDashboardSession(session) {
+  return !!session && !session.headless && session.state !== "sleeping" && !session.hiddenFromHud;
+}
+
 function snapshotHasSession(currentSnapshot, sessionId) {
   const sessions = Array.isArray(currentSnapshot && currentSnapshot.sessions)
     ? currentSnapshot.sessions
     : [];
-  return sessions.some((session) => session && session.id === sessionId);
+  return sessions.some((session) => isDashboardSession(session) && session.id === sessionId);
 }
 
 function beginTitleEdit(session) {
@@ -471,7 +720,7 @@ function createTitle(session) {
 
   const title = createText("div", "session-title", text);
   title.title = text;
-  title.addEventListener("dblclick", (event) => {
+  title.addEventListener("click", (event) => {
     event.stopPropagation();
     beginTitleEdit(session);
   });
@@ -487,28 +736,20 @@ function appendMeta(main, session, now) {
   badge.appendChild(dot);
   badge.appendChild(document.createTextNode(badgeLabel(session.badge)));
 
-  meta.appendChild(document.createTextNode(agentLabel(session.agentId, session.agentName)));
-  meta.appendChild(document.createTextNode(" · "));
   meta.appendChild(badge);
   meta.appendChild(document.createTextNode(` · ${formatElapsed(now - session.updatedAt)}`));
-  if (session.headless) {
-    meta.appendChild(document.createTextNode(` · ${t("dashboardHeadless")}`));
-  }
-  if (session.startupRecovered) {
+  const model = typeof session.model === "string" ? session.model.trim() : "";
+  if (model && !/^(auto|default|none|unknown|<synthetic>)$/i.test(model)) {
+    const claudeVersion = session.agentId === "claude-code"
+      ? /^claude-(opus|sonnet|haiku)-(\d+)-(\d+)(?:-\d{8})?(?:\[1m\])?$/i.exec(model)
+      : null;
+    const label = claudeVersion
+      ? `Claude ${claudeVersion[1][0].toUpperCase()}${claudeVersion[1].slice(1)} ${claudeVersion[2]}.${claudeVersion[3]}`
+      : model;
+    const modelEl = createText("span", "session-model", label);
+    modelEl.title = model;
     meta.appendChild(document.createTextNode(" · "));
-    const recoveryBadge = document.createElement("span");
-    recoveryBadge.className = "recovery-badge";
-    recoveryBadge.textContent = t("sessionRecovered");
-    meta.appendChild(recoveryBadge);
-  }
-  // Source badge: show where this session runs (WSL, SSH)
-  if (session.sourceType && session.sourceType !== "local") {
-    meta.appendChild(document.createTextNode(" · "));
-    const sourceBadge = document.createElement("span");
-    sourceBadge.className = `source-badge source-${session.sourceType}`;
-    sourceBadge.title = session.sourceDisplayLabel || session.sourceLabel || "";
-    sourceBadge.textContent = session.sourceDisplayLabel || session.sourceLabel;
-    meta.appendChild(sourceBadge);
+    meta.appendChild(modelEl);
   }
   main.appendChild(meta);
 }
@@ -521,11 +762,10 @@ function appendPath(main, session) {
 }
 
 function appendEvent(main, session, now) {
-  if (!session.lastEvent) return;
-  const eventLabel = session.lastEvent.labelKey
-    ? t(session.lastEvent.labelKey)
-    : (session.lastEvent.rawEvent || "");
-  if (!eventLabel) return;
+  if (!session.lastEvent || !session.lastEvent.labelKey) return;
+  if (session.badge === "done" && session.lastEvent.labelKey === "eventLabelStop") return;
+  const eventLabel = t(session.lastEvent.labelKey);
+  if (!eventLabel || eventLabel === session.lastEvent.labelKey) return;
   const eventAt = Number(session.lastEvent.at) || session.updatedAt;
   main.appendChild(createText(
     "div",
@@ -580,61 +820,23 @@ function createHideButton(session) {
   return button;
 }
 
-function focusUnavailableText(session) {
-  return t(focusUnavailableReasonKey(session));
-}
-
-function openFolderFailureText(result) {
-  if (result && result.status === "error" && result.message) {
-    return t("sessionOpenFolderFailed").replace("{reason}", result.message);
-  }
-  return t("sessionOpenFolderUnavailable");
-}
-
-function pruneSessionFolderActionState(sessions, now) {
-  const currentIds = new Set(sessions.map((session) => session && session.id).filter(Boolean));
-  for (const [sessionId, state] of sessionFolderActionState) {
-    if (!currentIds.has(sessionId)
-        || (!state.pending && (!state.feedbackText || state.feedbackUntil <= now))) {
-      sessionFolderActionState.delete(sessionId);
-    }
-  }
-}
-
-function beginSessionFolderAction(sessionId) {
-  const current = sessionFolderActionState.get(sessionId);
-  if (current && current.pending) return false;
-  sessionFolderActionState.set(sessionId, {
-    pending: true,
-    feedbackText: "",
-    feedbackUntil: 0,
-  });
-  return true;
-}
-
-function finishSessionFolderAction(sessionId, feedbackText = "") {
-  if (!feedbackText) {
-    sessionFolderActionState.delete(sessionId);
-    return;
-  }
-  sessionFolderActionState.set(sessionId, {
-    pending: false,
-    feedbackText,
-    feedbackUntil: Date.now() + SESSION_FOLDER_FEEDBACK_MS,
-  });
-}
-
 function createCard(session, now) {
   const card = document.createElement("article");
-  card.className = session.canFocus === true ? "card" : "card card-unfocusable";
+  card.className = `card card-agent-${cardAgentTheme(session.agentId)}`;
+  applyUnlistedAgentTheme(card, session.agentId);
+  if (session.canFocus !== true) card.classList.add("card-unfocusable");
 
   if (session.id) {
-    const idTail = String(session.id).slice(-3);
-    card.appendChild(createText("span", "session-id-badge", `#${idTail}`));
     card.appendChild(createHideButton(session));
   }
 
-  card.appendChild(createIcon(session));
+  const iconFrame = document.createElement("div");
+  iconFrame.className = "agent-icon-frame";
+  iconFrame.setAttribute("role", "img");
+  iconFrame.setAttribute("aria-label", agentLabel(session.agentId, session.agentName));
+  iconFrame.title = agentLabel(session.agentId, session.agentName);
+  iconFrame.appendChild(createIcon(session));
+  card.appendChild(iconFrame);
 
   const main = document.createElement("div");
   main.className = "main";
@@ -649,71 +851,44 @@ function createCard(session, now) {
   actions.className = "actions";
   const button = document.createElement("button");
   button.type = "button";
-  const focusTargetType = session.focusTarget && session.focusTarget.type;
-  button.textContent = focusTargetType === "codex-thread"
-    ? t("dashboardOpenCodexSession")
-    : t("dashboardJumpTerminal");
-  button.disabled = session.canFocus !== true;
+  button.className = "open-session-button";
+  button.textContent = t("dashboardJumpToConversation");
+  const canFocus = session.canFocus === true;
+  button.disabled = !canFocus;
   if (button.disabled) {
-    button.title = focusUnavailableText(session);
+    button.title = t("dashboardConversationUnavailable");
   }
-  button.addEventListener("click", async () => {
-    window.dashboardAPI.focusSession(session.id);
-    // Best-effort ack alongside focus. Most remote-Codex sessions have
-    // canFocus=false (no terminal-jump target) and reach ack through the
-    // Mark-read button instead, but local Codex Stop sessions can land
-    // here so we ack on focus too.
-    if (window.dashboardAPI && typeof window.dashboardAPI.ackCompletion === "function") {
-      try { await window.dashboardAPI.ackCompletion(session.id); }
-      catch (err) { console.warn("ack completion threw:", err); }
-    }
-  });
   actions.appendChild(button);
-
-  if (session.canFocus !== true) {
-    const reason = focusUnavailableText(session);
-    actions.appendChild(createText("span", "focus-unavailable-reason", reason));
-    const folderState = sessionFolderActionState.get(session.id) || null;
-    const feedback = createText(
-      "span",
-      "session-action-feedback",
-      folderState && folderState.feedbackUntil > now ? folderState.feedbackText : ""
-    );
-    feedback.setAttribute("aria-live", "polite");
-    actions.appendChild(feedback);
-
-    if (canOfferLocalFolder(session)) {
-      const openFolder = document.createElement("button");
-      openFolder.type = "button";
-      openFolder.className = "open-folder-button";
-      openFolder.textContent = t("dashboardOpenFolder");
-      openFolder.disabled = !!(folderState && folderState.pending);
-      openFolder.addEventListener("click", async () => {
-        if (!beginSessionFolderAction(session.id)) return;
-        openFolder.disabled = true;
-        feedback.textContent = "";
-        render();
-        try {
-          const result = await window.dashboardAPI.openSessionFolder(session.id);
-          if (!result || result.status !== "ok") {
-            const message = openFolderFailureText(result);
-            finishSessionFolderAction(session.id, message);
-            feedback.textContent = message;
-          } else {
-            finishSessionFolderAction(session.id);
-          }
-        } catch (err) {
-          const message = t("sessionOpenFolderFailed")
-            .replace("{reason}", err && err.message ? err.message : String(err));
-          finishSessionFolderAction(session.id, message);
-          feedback.textContent = message;
-          console.warn("open session folder threw:", err);
-        }
-        openFolder.disabled = false;
-        render();
-      });
-      actions.appendChild(openFolder);
-    }
+  if (canFocus) {
+    button.addEventListener("click", async () => {
+      if (button.classList.contains("is-pending")) return;
+      button.classList.add("is-pending");
+      button.disabled = true;
+      button.textContent = t("dashboardJumping");
+      button.setAttribute("aria-busy", "true");
+      let result;
+      try {
+        result = await window.dashboardAPI.focusSession(session.id);
+      } catch {
+        result = { status: "failed" };
+      }
+      button.classList.remove("is-pending");
+      button.disabled = false;
+      button.setAttribute("aria-busy", "false");
+      const status = result && result.status;
+      button.classList.add(status === "ok" ? "is-success" : status === "failed" ? "is-failed" : "is-submitted");
+      button.textContent = status === "ok"
+        ? t("dashboardJumpSucceeded")
+        : status === "failed" ? t("dashboardJumpFailed") : t("dashboardJumpSubmitted");
+      setTimeout(() => {
+        button.classList.remove("is-success", "is-failed", "is-submitted");
+        button.textContent = t("dashboardJumpToConversation");
+      }, 1600);
+      if (status !== "failed" && window.dashboardAPI && typeof window.dashboardAPI.ackCompletion === "function") {
+        try { await window.dashboardAPI.ackCompletion(session.id); }
+        catch (err) { console.warn("ack completion threw:", err); }
+      }
+    });
   }
 
   if (session.requiresCompletionAck === true) {
@@ -768,13 +943,16 @@ function renderEmpty() {
 
 function render(options = {}) {
   if (activeEdit && !options.force) return;
-  const sessions = Array.isArray(snapshot.sessions) ? snapshot.sessions : [];
+  const sessions = Array.isArray(snapshot.sessions) ? snapshot.sessions.filter(isDashboardSession) : [];
   const count = sessions.length;
   const now = Date.now();
-  pruneSessionFolderActionState(sessions, now);
-  titleEl.textContent = t("dashboardWindowTitle");
-  countEl.textContent = t("dashboardCount").replace("{n}", count);
   document.title = t("dashboardWindowTitle");
+  const runningCount = sessions.filter((session) => session && session.badge === "running").length;
+  const working = runningCount > 0;
+  petSceneEl.className = working ? "pet-scene is-working" : "pet-scene";
+  petMoodEl.textContent = t(working ? "dashboardPetWorking" : "dashboardPetResting");
+  quotaHintEl.textContent = t("dashboardQuotaHint");
+  quotaEmptyEl.textContent = t("dashboardQuotaEmpty");
   renderQuotaSummary(snapshot);
 
   if (count === 0) {
@@ -793,7 +971,7 @@ function render(options = {}) {
     const section = document.createElement("section");
     section.className = "group";
     const host = group.displayHost || group.host || "";
-    section.appendChild(createText("h2", "group-title", host || t("sessionLocal")));
+    if (host) section.appendChild(createText("h2", "group-title", host));
 
     const cards = document.createElement("div");
     cards.className = "cards";
@@ -808,8 +986,16 @@ function render(options = {}) {
 }
 
 async function init() {
+  if (typeof window.dashboardAPI.onSelectPage === "function") {
+    window.dashboardAPI.onSelectPage((page) => {
+      if (page === "theme") selectDashboardPage("theme");
+    });
+  }
   window.dashboardAPI.onLangChange((payload) => {
     i18nPayload = payload || i18nPayload;
+    renderPetBehavior();
+    themePage.render();
+    if (actionsPage) actionsPage.render();
     render();
   });
   window.dashboardAPI.onSessionSnapshot((nextSnapshot) => {
@@ -828,9 +1014,14 @@ async function init() {
   ]);
   i18nPayload = nextI18n || i18nPayload;
   snapshot = nextSnapshot || snapshot;
+  renderPetBehavior();
   render();
+  refreshPetScene();
 
-  setInterval(render, 1000);
+  setInterval(() => {
+    render();
+    refreshPetScene();
+  }, 1000);
 }
 
 init().catch((err) => {

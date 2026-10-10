@@ -144,6 +144,76 @@ test("overview keeps summed agent intervals, unioned wall-clock activity, and hu
   assert.deepEqual(overview, JSON.parse(JSON.stringify(overview)));
 });
 
+test("self-check reads the last durably recorded event for each agent", (t) => {
+  const { db, queries } = createHarness(t);
+  seedFixture(db);
+  assert.deepEqual(queries.getLatestAgentRecords(), [{ agentId: "codex", lastRecordedAt: NOW - 10 }]);
+});
+
+test("usage report reads complete interval history and includes archived project time", (t) => {
+  const { db, queries } = createHarness(t);
+  const day = startOfLocalDay(NOW);
+  seedProject(db, { id: "archived", name: "Archived", confirmation: "confirmed", createdSource: "manual", lifecycle: "archived", updatedAt: day });
+  seedAgentSession(db, { id: "one", projectId: "archived", startedAt: day + 60_000, endedAt: day + 180_000, lastEventAt: day + 180_000, disposition: "completed" });
+  seedInterval(db, { id: "interval-one", sessionId: "one", projectId: "archived", startedAt: day + 60_000, endedAt: day + 180_000 });
+
+  const report = queries.getUsageReport({ period: "day", anchor: NOW });
+
+  assert.equal(report.totalMs, 120_000);
+  assert.equal(report.sessionCount, 1);
+  assert.deepEqual(report.projects, [{ projectId: "archived", name: "Archived", activeMs: 120_000 }]);
+  assert.equal(report.buckets[0].activeMs, 120_000);
+  assert.equal(report.buckets.length, 24);
+  assert.equal(queries.getUsageSession("one").id, "one");
+  assert.equal(queries.getUsageSession("missing"), null);
+});
+
+test("usage report counts only confirmed work and clips old interrupted intervals to observed events", (t) => {
+  const { db, queries } = createHarness(t);
+  const day = startOfLocalDay(NOW);
+  seedAgentSession(db, { id: "running", projectId: null, startedAt: day + 1_000, lastEventAt: day + 1_000, disposition: "active" });
+  seedInterval(db, { id: "open", sessionId: "running", projectId: null, startedAt: day + 1_000 });
+  seedAgentSession(db, { id: "interrupted", projectId: null, startedAt: day + 10_000, endedAt: day + 3_600_000, lastEventAt: day + 3_600_000, disposition: "interrupted" });
+  seedInterval(db, { id: "old-recovery", sessionId: "interrupted", projectId: null, startedAt: day + 10_000, endedAt: day + 3_600_000 });
+  db.prepare("UPDATE agent_active_intervals SET close_reason = 'interrupted' WHERE id = 'old-recovery'").run();
+  seedEvent(db, { id: "last-seen", projectId: null, sessionId: "interrupted", occurredAt: day + 130_000 });
+
+  const report = queries.getUsageReport({ period: "day", anchor: NOW });
+  assert.equal(report.totalMs, 120_000);
+  assert.equal(report.ongoingSessions, 1);
+  assert.equal(queries.listSessions({ source: "agent" }).find((item) => item.id === "interrupted").activeMs, 120_000);
+  assert.equal(queries.listSessions({ source: "agent" }).find((item) => item.id === "running").activeMs, 0);
+});
+
+test("usage report never counts a recorded interval beyond the current clock time", (t) => {
+  const { db, queries } = createHarness(t);
+  seedAgentSession(db, { id: "clock-skew", projectId: null, startedAt: NOW - 60_000, endedAt: NOW + 60_000, lastEventAt: NOW + 60_000, disposition: "completed" });
+  seedInterval(db, { id: "future-end", sessionId: "clock-skew", projectId: null, startedAt: NOW - 60_000, endedAt: NOW + 60_000 });
+
+  const report = queries.getUsageReport({ period: "day", anchor: NOW });
+  assert.equal(report.totalMs, 60_000);
+});
+
+test("usage lookup includes an open interval across a date boundary", (t) => {
+  const { db, queries } = createHarness(t);
+  const day = startOfLocalDay(NOW);
+  seedProject(db, { id: "active", name: "Active", confirmation: "confirmed", createdSource: "manual", updatedAt: day - 1 });
+  seedAgentSession(db, { id: "overnight", projectId: "active", startedAt: day - 10_000, lastEventAt: day - 1_000, disposition: "active" });
+  seedInterval(db, { id: "overnight-interval", sessionId: "overnight", projectId: "active", startedAt: day - 10_000 });
+  assert.deepEqual(queries.listUsageSessions(day, NOW).map((session) => session.id), ["overnight"]);
+});
+
+test("Token lookup also examines older tracked sessions whose logs may contain newer records", (t) => {
+  const { db, queries } = createHarness(t);
+  const day = startOfLocalDay(NOW);
+  seedAgentSession(db, { id: "old", projectId: null, startedAt: day - 3_600_000, endedAt: day - 3_500_000, lastEventAt: day - 3_500_000, disposition: "completed" });
+  seedAgentSession(db, { id: "today", projectId: null, startedAt: day + 1_000, lastEventAt: day + 1_000, disposition: "active" });
+
+  assert.deepEqual(queries.listUsageSessions(day, NOW).map((session) => [session.id, session.expectedInPeriod]), [
+    ["old", false], ["today", true],
+  ]);
+});
+
 test("project and session lists apply source and status filters with stable ordering", (t) => {
   const { db, queries } = createHarness(t);
   seedFixture(db);

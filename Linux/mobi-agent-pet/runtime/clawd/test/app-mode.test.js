@@ -10,27 +10,13 @@ const {
 } = require("../src/app-mode");
 
 describe("app mode policy", () => {
-  it("keeps Normal Mode free of overrides", () => {
-    const policy = resolveAppModePolicy(APP_MODE.NORMAL, {
-      permissionAutomationMode: "auto-tools",
-    });
-    assert.deepStrictEqual(policy, {
-      muteSound: false,
-      suppressTrayFlash: false,
-      suppressPermissionBubbles: false,
-      suppressNotificationBubbles: false,
-      suppressSessionHud: false,
-      freezePet: false,
-      hidePet: false,
-      allowWorkAnimations: true,
-      allowNotificationAnimation: true,
-      allowCompletionAnimation: true,
-      forceCompletionAnimation: false,
-      permissionAutomationMode: "auto-tools",
-    });
-  });
+  it("uses fixed Normal rules even with legacy overrides", () => {
+ const policy=resolveAppModePolicy(APP_MODE.NORMAL,{permissionAutomationMode:"auto-tools", hideBubbles:true,sessionHudEnabled:false});
+ assert.equal(policy.muteSound,true);assert.equal(policy.permissionAutomationMode,"off");assert.equal(policy.sessionHudEnabled,true);
+ assert.deepEqual(policy.allowedPetStates,["idle","roam","working","waiting","complete","error","held"]);
+});
 
-  it("makes Background Mode silent without granting permissions", () => {
+  it("hides the Background pet while retaining reminders without granting permissions", () => {
     const policy = resolveAppModePolicy(APP_MODE.BACKGROUND, {
       permissionAutomationMode: "unattended",
     });
@@ -42,7 +28,7 @@ describe("app mode policy", () => {
     assert.equal(policy.allowCompletionAnimation, false);
     assert.equal(policy.forceCompletionAnimation, false);
     assert.equal(policy.muteSound, true);
-    assert.equal(policy.suppressTrayFlash, true);
+    assert.equal(policy.suppressTrayFlash, false);
   });
 
   it("makes Automatic Mode quiet while retaining pet activity", () => {
@@ -53,7 +39,7 @@ describe("app mode policy", () => {
     assert.equal(policy.freezePet, false);
     assert.equal(policy.hidePet, false);
     assert.equal(policy.allowWorkAnimations, true);
-    assert.equal(policy.allowNotificationAnimation, false);
+    assert.equal(policy.allowNotificationAnimation, true);
     assert.equal(policy.allowCompletionAnimation, true);
     assert.equal(policy.forceCompletionAnimation, true);
     assert.equal(policy.suppressPermissionBubbles, true);
@@ -122,19 +108,10 @@ describe("app mode runtime authorization", () => {
     );
   });
 
-  it("keeps Normal saved automation behavior on a Normal ingress ticket", () => {
-    const runtime = createAppModeRuntime();
-    const requestContext = runtime.capturePermissionRequest();
-
-    assert.equal(
-      runtime.resolvePermissionAutomationMode(requestContext, "auto-tools"),
-      "auto-tools"
-    );
-    assert.equal(
-      runtime.resolvePermissionAutomationMode(requestContext, "unattended"),
-      "unattended"
-    );
-  });
+  it("keeps Normal manual even with legacy automatic preferences",()=>{
+ const runtime=createAppModeRuntime(),ticket=runtime.capturePermissionRequest();
+ for(const legacy of ["auto-tools","unattended"])assert.equal(runtime.resolvePermissionAutomationMode(ticket,legacy),"off");
+});
 
   it("keeps the request automation resolver usable as a detached callback", async () => {
     const runtime = createAppModeRuntime();
@@ -339,23 +316,23 @@ describe("app mode controller pet visibility", () => {
     assert.equal(isHidden(), false);
   });
 
-  it("keeps the pet hidden when leaving Background if it was manually hidden before entry", async () => {
+  it("shows the pet when leaving Background regardless of old manual hidden state", async () => {
     const { controller, calls, isHidden } = createPetController({ initialHidden: true });
     await controller.setActiveAppMode(APP_MODE.BACKGROUND);
     await controller.setActiveAppMode(APP_MODE.NORMAL);
     assert.equal(calls.hide, 1);
-    assert.equal(calls.show, 0);
-    assert.equal(isHidden(), true);
+    assert.equal(calls.show, 1);
+    assert.equal(isHidden(), false);
   });
 
   it("restores the pet when a failed Background transition rolls back", async () => {
     let failOnce = true;
     const { controller, calls, isHidden } = createPetController({
       effects: {
-        enableDoNotDisturb: () => {
+        syncModeFeatures: () => {
           if (failOnce) {
             failOnce = false;
-            throw new Error("do not disturb failed");
+            throw new Error("mode projection failed");
           }
         },
       },
@@ -374,4 +351,11 @@ describe("app mode controller pet visibility", () => {
     assert.equal(calls.hide, 0);
     assert.equal(calls.show, 0);
   });
+});
+
+it("Automatic shows a previously hidden pet",async()=>{
+ let hidden=true;
+ const controller=createAppModeController({isPetHidden:()=>hidden,showPet:()=>{hidden=false}});
+ await controller.setActiveAppMode(APP_MODE.AUTOMATIC,{confirmed:true});
+ assert.equal(hidden,false);
 });

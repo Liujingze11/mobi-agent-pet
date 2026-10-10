@@ -1,140 +1,102 @@
-import { ArrowDown, ArrowUp } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
-import { filterSessions } from "../model.mjs";
-import { formatManagerDuration, formatManagerPath, useI18n } from "../i18n";
-import type { TranslationKey } from "../i18n";
-import type { ProjectSummary, SessionSummary } from "../types";
-
-type SessionKind = "all" | "agent" | "human";
+import { formatManagerDuration, useI18n } from "../i18n";
+import type { AgentSession, SessionSummary, SessionUsage, UsageReport } from "../types";
 
 type SessionsPageProps = {
-  projects: ProjectSummary[];
   sessions: SessionSummary[];
+  sessionUsage?: UsageReport["sessionUsage"];
+  onLoadUsage?: (sessionId: string) => Promise<SessionUsage | null>;
+  periodStart?: number;
+  periodEnd?: number;
 };
 
-function sessionStatus(session: SessionSummary) {
-  return session.source === "agent" ? session.disposition : session.status;
-}
-
-function sessionDuration(session: SessionSummary) {
-  return session.source === "agent" ? session.activeMs : session.effectiveMs;
-}
-
-const statusKeys: Record<string, TranslationKey> = {
-  active: "status.active",
-  running: "status.running",
-  paused: "status.paused",
-  completed: "status.completed",
-  errored: "status.errored",
-  interrupted: "status.interrupted",
-};
-
-function dateTime(value: number | null, locale: "en" | "zh", inProgress: string) {
+function dateTime(value: number | null, inProgress: string) {
   if (typeof value !== "number" || !Number.isFinite(value)) return inProgress;
-  return new Date(value).toLocaleString(locale === "zh" ? "zh-CN" : "en", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const date = new Date(value);
+  const two = (part: number) => String(part).padStart(2, "0");
+  return `${date.getFullYear()}/${two(date.getMonth() + 1)}/${two(date.getDate())} ${two(date.getHours())}:${two(date.getMinutes())}`;
 }
 
-export function SessionsPage({ projects, sessions }: SessionsPageProps) {
-  const { locale, t } = useI18n();
-  const [kind, setKind] = useState<SessionKind>("all");
-  const [projectId, setProjectId] = useState("");
-  const [status, setStatus] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [direction, setDirection] = useState<"newest" | "oldest">("newest");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+function workDuration(milliseconds: number, locale: "en" | "zh") {
+  if (milliseconds > 0 && milliseconds < 60_000) {
+    return String(Math.max(1, Math.round(milliseconds / 1000))) + (locale === "zh" ? "秒" : "s");
+  }
+  return formatManagerDuration(milliseconds, locale);
+}
 
-  const statuses = kind === "agent"
-    ? ["active", "completed", "errored", "interrupted"]
-    : kind === "human"
-      ? ["running", "paused", "completed"]
-      : ["active", "running", "paused", "completed", "errored", "interrupted"];
+export function SessionsPage({ sessions, sessionUsage, onLoadUsage, periodStart, periodEnd }: SessionsPageProps) {
+  const { locale, t } = useI18n();
+  const [allHistory, setAllHistory] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [loadedUsage, setLoadedUsage] = useState<Record<string, SessionUsage | null>>({});
+  const [loadingUsageId, setLoadingUsageId] = useState<string | null>(null);
+  const rows = sessions.filter((session): session is AgentSession => session.source === "agent")
+    .filter((session) => allHistory || periodStart === undefined || periodEnd === undefined
+      || (session.startedAt < periodEnd && (session.endedAt ?? Infinity) >= periodStart))
+    .sort((left, right) => right.lastEventAt - left.lastEventAt || left.id.localeCompare(right.id));
+  const selected = rows.find((session) => session.id === selectedId) || null;
+  const selectedUsage = selected ? sessionUsage?.[selected.id] ?? loadedUsage[selected.id] ?? null : null;
+  const tokenCount = (value: number) => new Intl.NumberFormat(locale === "zh" ? "zh-CN" : "en-US").format(value);
+  const agentName = (agentId: string) => agentId === "claude-code" ? "Claude Code" : agentId === "codex" ? "Codex" : agentId;
+  const displayName = (session: AgentSession) => session.title || t("sessions.agentFallback", { agent: session.agentId });
+  const displayDate = (value: number | null) => dateTime(value, t("sessions.inProgress"));
 
   useEffect(() => {
-    if (status && !statuses.includes(status)) setStatus("");
-  }, [status, statuses]);
+    if (!selected || !onLoadUsage || sessionUsage?.[selected.id] || Object.hasOwn(loadedUsage, selected.id)) return;
+    const id = selected.id;
+    let active = true;
+    setLoadingUsageId(id);
+    void onLoadUsage(id).then((usage) => {
+      if (active) setLoadedUsage((previous) => ({ ...previous, [id]: usage }));
+    }).catch(() => {
+      if (active) setLoadedUsage((previous) => ({ ...previous, [id]: null }));
+    }).finally(() => {
+      if (active) setLoadingUsageId(null);
+    });
+    return () => { active = false; };
+  }, [loadedUsage, onLoadUsage, selected?.id, sessionUsage]);
 
-  const rows = useMemo(
-    () => filterSessions(sessions, { kind, projectId, status, from, to, direction }) as SessionSummary[],
-    [direction, from, kind, projectId, sessions, status, to]
-  );
-  const selected = sessions.find((session) => session.id === selectedId) || null;
-  const displayName = (session: SessionSummary) => session.source === "agent"
-    ? session.title || t("sessions.agentFallback", { agent: session.agentId })
-    : session.notes || t("sessions.humanFallback");
-  const displayStatus = (session: SessionSummary) => {
-    const value = sessionStatus(session);
-    return statusKeys[value] ? t(statusKeys[value]) : value;
-  };
-  const displayDate = (value: number | null) => dateTime(value, locale, t("sessions.inProgress"));
+  const usageFor = (session: AgentSession) => sessionUsage?.[session.id] ?? loadedUsage[session.id] ?? null;
+  const usageFallback = (session: AgentSession) => Object.hasOwn(loadedUsage, session.id)
+    ? t("usage.noData") : t("usage.openForUsage");
 
   return (
-    <section className="sessions-workspace" aria-labelledby="sessions-title">
-      <div className="workspace__heading">
-        <div><p className="eyebrow">{t("sessions.eyebrow")}</p><h2 id="sessions-title">{t("sessions.title")}</h2></div>
+    <section className="sessions-workspace" aria-label={t("sessions.title")}>
+      <div className="records-summary">
         <span>{t("sessions.shown", { count: rows.length })}</span>
+        {periodStart !== undefined && periodEnd !== undefined ? <button type="button" onClick={() => setAllHistory((value) => !value)}>{t(allHistory ? "sessions.currentPeriod" : "sessions.allHistory")}</button> : null}
       </div>
-
-      <div className="session-filters" aria-label={t("sessions.filters")}>
-        <div className="segmented-control" aria-label={t("sessions.sourceFilter")}>
-          <button type="button" aria-pressed={kind === "all"} aria-label={t("sessions.allAria")} onClick={() => setKind("all")}>{t("sessions.all")}</button>
-          <button type="button" aria-pressed={kind === "agent"} aria-label={t("sessions.agentAria")} onClick={() => setKind("agent")}>{t("sessions.agent")}</button>
-          <button type="button" aria-pressed={kind === "human"} aria-label={t("sessions.humanAria")} onClick={() => setKind("human")}>{t("sessions.human")}</button>
-        </div>
-        <label><span>{t("sessions.project")}</span><select aria-label={t("sessions.project")} value={projectId} onChange={(event) => setProjectId(event.target.value)}><option value="">{t("sessions.allProjects")}</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
-        <label><span>{t("sessions.status")}</span><select aria-label={t("sessions.status")} value={status} onChange={(event) => setStatus(event.target.value)}><option value="">{t("sessions.anyStatus")}</option>{statuses.map((value) => <option key={value} value={value}>{statusKeys[value] ? t(statusKeys[value]) : value}</option>)}</select></label>
-        <label><span>{t("sessions.from")}</span><input aria-label={t("sessions.fromDate")} type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></label>
-        <label><span>{t("sessions.to")}</span><input aria-label={t("sessions.toDate")} type="date" value={to} onChange={(event) => setTo(event.target.value)} /></label>
-        <button type="button" className="icon-button session-sort" aria-label={t(direction === "newest" ? "sessions.sortOldest" : "sessions.sortNewest")} title={t(direction === "newest" ? "sessions.sortOldest" : "sessions.sortNewest")} onClick={() => setDirection((value) => value === "newest" ? "oldest" : "newest")}>
-          {direction === "newest" ? <ArrowDown aria-hidden="true" size={16} /> : <ArrowUp aria-hidden="true" size={16} />}
-        </button>
-      </div>
-
       <div className="sessions-layout">
         <div className="session-table-wrap">
-          {rows.length > 0 ? (
-            <table className="session-table">
-              <thead><tr><th>{t("sessions.source")}</th><th>{t("sessions.session")}</th><th>{t("sessions.project")}</th><th>{t("sessions.started")}</th><th>{t("sessions.status")}</th><th>{t("sessions.duration")}</th></tr></thead>
-              <tbody>{rows.map((session) => (
-                <tr key={session.id} data-selected={selectedId === session.id || undefined}>
-                  <td>{session.source === "agent" ? session.agentId : t("sessions.human")}</td>
-                  <td><button type="button" aria-label={t("sessions.open", { name: displayName(session) })} onClick={() => setSelectedId(session.id)}>{displayName(session)}</button></td>
-                  <td>{session.projectName || t("sessions.unassigned")}</td>
-                  <td>{displayDate(session.startedAt)}</td>
-                  <td><span className={`record-state record-state--${sessionStatus(session)}`}>{displayStatus(session)}</span></td>
-                  <td>{formatManagerDuration(sessionDuration(session), locale)}</td>
-                </tr>
-              ))}</tbody>
-            </table>
-          ) : <div className="workspace-empty">{t("sessions.empty")}</div>}
+          {rows.length ? <table className="session-table">
+            <thead><tr><th>{t("sessions.session")}</th><th>{t("sessions.started")}</th><th>{t("sessions.ended")}</th><th>{t("sessions.agent")}</th><th>{t("sessions.workDuration")}</th><th>{t("usage.tokens")}</th></tr></thead>
+            <tbody>{rows.map((session) => {
+              const usage = usageFor(session);
+              return <tr key={session.id} data-selected={selectedId === session.id || undefined}>
+                <td><button type="button" className="session-table__title" aria-label={t("sessions.open", { name: displayName(session) })} onClick={() => setSelectedId(session.id)}><strong>{displayName(session)}</strong></button></td>
+                <td className="session-table__date"><time dateTime={new Date(session.startedAt).toISOString()}>{displayDate(session.startedAt)}</time></td>
+                <td className="session-table__date">{session.endedAt == null ? t("sessions.inProgress") : <time dateTime={new Date(session.endedAt).toISOString()}>{displayDate(session.endedAt)}</time>}</td>
+                <td><span className="session-table__agent">{agentName(session.agentId)}</span></td>
+                <td className="session-table__number">{workDuration(session.activeMs, locale)}</td>
+                <td className="session-table__number">{usage ? tokenCount(usage.inputTokens + usage.outputTokens) : usageFallback(session)}</td>
+              </tr>;
+            })}</tbody>
+          </table> : <div className="workspace-empty">{t("sessions.empty")}</div>}
         </div>
-
-        {selected ? (
-          <aside className="session-detail" aria-label={t("sessions.detail")}>
-            <div className="section-heading"><h3>{displayName(selected)}</h3><span>{selected.source === "agent" ? t("sessions.agent") : t("sessions.human")}</span></div>
-            <dl>
-              <div><dt>{t("sessions.project")}</dt><dd>{selected.projectName || t("sessions.unassigned")}</dd></div>
-              <div><dt>{t("sessions.started")}</dt><dd>{displayDate(selected.startedAt)}</dd></div>
-              <div><dt>{t("sessions.ended")}</dt><dd>{displayDate(selected.endedAt)}</dd></div>
-              <div><dt>{t("sessions.status")}</dt><dd>{displayStatus(selected)}</dd></div>
-              {selected.source === "agent" ? <>
-                <div><dt>{t("sessions.activeTime")}</dt><dd>{formatManagerDuration(selected.activeMs, locale)}</dd></div>
-                <div><dt>{t("sessions.workingDirectory")}</dt><dd title={selected.cwd || undefined}>{formatManagerPath(selected.cwd, 34, locale)}</dd></div>
-                <div><dt>{t("sessions.parent")}</dt><dd>{selected.parentSourceSessionId || t("sessions.none")}</dd></div>
-              </> : <>
-                <div><dt>{t("sessions.effectiveTime")}</dt><dd>{formatManagerDuration(selected.effectiveMs, locale)}</dd></div>
-                <div><dt>{t("sessions.pausedTime")}</dt><dd>{formatManagerDuration(selected.accumulatedPauseMs, locale)}</dd></div>
-                <div><dt>{t("sessions.notes")}</dt><dd>{selected.notes || t("sessions.none")}</dd></div>
-              </>}
-            </dl>
-          </aside>
-        ) : null}
+        {selected ? <aside className="session-detail" aria-label={t("sessions.detail")}>
+          <div className="section-heading"><h3>{displayName(selected)}</h3><span>{agentName(selected.agentId)}</span></div>
+          <dl>
+            <div><dt>{t("sessions.started")}</dt><dd>{displayDate(selected.startedAt)}</dd></div>
+            <div><dt>{t("sessions.ended")}</dt><dd>{displayDate(selected.endedAt)}</dd></div>
+            <div><dt>{t("usage.timeHeading")}</dt><dd>{workDuration(selected.activeMs, locale)}</dd></div>
+            <div><dt>{t("usage.inputTokens")}</dt><dd>{selectedUsage ? tokenCount(selectedUsage.inputTokens) : loadingUsageId === selected.id ? t("usage.loading") : t("usage.noData")}</dd></div>
+            <div><dt>{t("usage.outputTokens")}</dt><dd>{selectedUsage ? tokenCount(selectedUsage.outputTokens) : t("usage.noData")}</dd></div>
+            <div><dt>{t("usage.cacheTokens")}</dt><dd>{selectedUsage ? tokenCount(selectedUsage.cachedInputTokens) : t("usage.noData")}</dd></div>
+            {selectedUsage?.models?.length ? <div><dt>{t("sessions.models")}</dt><dd>{selectedUsage.models.join(", ")}</dd></div> : null}
+            {selectedUsage?.undatedRecords ? <div><dt>{t("usage.dataStatus")}</dt><dd>{t("usage.partialData")}</dd></div> : null}
+          </dl>
+        </aside> : null}
       </div>
     </section>
   );

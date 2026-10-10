@@ -76,6 +76,24 @@ describe("Codex official hook", () => {
     assert.strictEqual(normalizeCodexSessionId("official-session", "/tmp/rollout.jsonl"), "codex:official-session");
   });
 
+  it("normalizes suffixed rollout copies on POSIX and Windows paths", () => {
+    const id = "019d23d4-f1a9-7633-b9c7-758327137228";
+    const fileName = `rollout-2026-03-25T15-10-51-${id}_019d23d4-f1a9-7633-b9c7-758327137229.jsonl`;
+    for (const transcriptPath of [`/tmp/${fileName}`, `C:\\sessions\\${fileName}`]) {
+      assert.strictEqual(normalizeCodexSessionId("official-session", transcriptPath), `codex:${id}`);
+    }
+  });
+
+  it("uses transcript metadata identity when a rollout filename names a different session", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "clawd-codex-identity-"));
+    try {
+      const id = "019d23d4-f1a9-7633-b9c7-758327137228";
+      const transcriptPath = path.join(dir, "rollout-2026-03-25T15-10-51-019d23d4-f1a9-7633-b9c7-758327137229.jsonl");
+      fs.writeFileSync(transcriptPath, JSON.stringify({ type: "session_meta", payload: { id, source: "cli" } }) + "\n");
+      assert.strictEqual(normalizeCodexSessionId("official-session", transcriptPath), `codex:${id}`);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
   it("builds SessionStart state payloads", () => {
     const body = buildStateBody({
       hook_event_name: "SessionStart",

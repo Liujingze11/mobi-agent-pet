@@ -79,8 +79,12 @@ function createThemeRuntime(options = {}) {
     return activeThemeContext;
   }
 
-  function getActiveThemeId(fallback = "clawd") {
-    return activeTheme ? activeTheme._id : fallback;
+  function getActiveThemeId(fallback) {
+    if (activeTheme) return activeTheme._id;
+    if (fallback !== undefined) return fallback;
+    return typeof themeLoader.getDefaultThemeId === "function"
+      ? themeLoader.getDefaultThemeId()
+      : "clawd";
   }
 
   function getActiveThemeCapabilities() {

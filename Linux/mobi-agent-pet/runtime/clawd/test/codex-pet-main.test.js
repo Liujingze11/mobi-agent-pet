@@ -456,3 +456,49 @@ test("Codex Pet import queue ignores overlapping flush calls while the first dra
   ]);
   assert.strictEqual(importCalls.length, 2);
 });
+
+test("Codex Pet refresh uses the product default or resolves a retired saved selection", async () => {
+  for (const savedTheme of [undefined, "calico"]) {
+    const synced=[];
+    const {runtime}=createQueueRuntime({settingsController:{get:()=>savedTheme},themeLoader:{getDefaultThemeId:()=>"mobi-a",resolveThemeId:id=>id==="calico"?"mobi-a":id},codexPetAdapter:{syncCodexPetThemes:options=>{synced.push(options.activeThemeId);return {themes:[]};}}});
+    assert.strictEqual((await runtime.refreshFromSettings()).status,"ok");
+    assert.deepStrictEqual(synced,["mobi-a"]);
+  }
+});
+
+test("removing the active managed Codex Pet switches to 莫比 and completes cleanup", async t => {
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),"mobi-active-managed-pet-"));
+  t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+  const petsRoot=path.join(root,"pets"),themesRoot=path.join(root,"themes"),packageDir=path.join(petsRoot,"pet-one"),themeId="codex-pet-one";
+  fs.mkdirSync(packageDir,{recursive:true});fs.mkdirSync(path.join(themesRoot,themeId),{recursive:true});fs.writeFileSync(path.join(packageDir,"pet.json"),"{}");
+  const snapshot={theme:themeId,themeOverrides:{[themeId]:{states:{}},"mobi-a":{states:{}}},themeVariant:{[themeId]:"night"}};
+  const selections=[],synced=[];
+  const runtime=createCodexPetMain({
+    app:{getPath:()=>root,isReady:()=>false},dialog:{showMessageBox:async()=>({response:0})},shell:{},
+    settingsController:{get:key=>snapshot[key],applyCommand:async(action,payload)=>{selections.push([action,payload]);snapshot.theme=payload.themeId;return {status:"ok"};},applyBulk:patch=>{Object.assign(snapshot,patch);return {status:"ok"};}},
+    themeLoader:{getDefaultThemeId:()=>"mobi-a",ensureUserThemesDir:()=>themesRoot,getThemeMetadata:()=>({name:"Pet One"})},
+    codexPetAdapter:{readManagedMarker:()=>({sourcePetId:"pet-one",sourcePackagePath:packageDir}),syncCodexPetThemes:options=>{
+      synced.push(options.activeThemeId);
+      if(options.activeThemeId===themeId)return {themes:[],activeOrphanThemeIds:[themeId]};
+      fs.rmSync(path.join(themesRoot,themeId),{recursive:true,force:true});return {removed:1,themes:[]};
+    }},codexPetImporter:{getDefaultCodexPetsDir:()=>petsRoot},
+  });
+  const result=await runtime.removeCodexPet(themeId);
+  assert.strictEqual(result.status,"ok");assert.strictEqual(result.switchedToFallback,true);
+  assert.deepStrictEqual(selections,[["setThemeSelection",{themeId:"mobi-a"}]]);
+  assert.deepStrictEqual(synced,[themeId,"mobi-a"]);assert.strictEqual(snapshot.theme,"mobi-a");
+  assert.strictEqual(fs.existsSync(packageDir),false);assert.strictEqual(fs.existsSync(path.join(themesRoot,themeId)),false);
+  assert.strictEqual(Object.hasOwn(snapshot.themeOverrides,themeId),false);assert.strictEqual(Object.hasOwn(snapshot.themeOverrides,"mobi-a"),true);
+});
+
+test("Codex Pet orphan fallback keeps working with loaders predating product defaults", async () => {
+  const selections=[],synced=[];
+  const {runtime}=createQueueRuntime({
+    settingsController:{get:()=>"codex-pet-live",applyCommand:async(action,payload)=>{selections.push([action,payload]);return {status:"ok"};}},
+    codexPetAdapter:{syncCodexPetThemes:options=>{synced.push(options.activeThemeId);return options.activeThemeId==="codex-pet-live"?{themes:[],activeOrphanThemeIds:["codex-pet-live"]}:{themes:[],removed:1};}},
+  });
+  const result=await runtime.refreshFromSettings();
+  assert.strictEqual(result.status,"ok");assert.strictEqual(result.switchedToFallback,true);
+  assert.deepStrictEqual(selections,[["setThemeSelection",{themeId:"clawd"}]]);
+  assert.deepStrictEqual(synced,["codex-pet-live","clawd"]);
+});

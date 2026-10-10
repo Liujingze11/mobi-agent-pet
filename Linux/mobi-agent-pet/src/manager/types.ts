@@ -1,6 +1,34 @@
-export type RouteId = "overview" | "projects" | "sessions" | "agents" | "pet" | "settings";
+export type RouteId = "overview" | "projects" | "sessions" | "settings";
+import type { ProviderDraft, ProviderScope } from "./providers/types";
 
-export type InternalRouteId = Exclude<RouteId, "agents" | "pet">;
+export type ProviderSummary = {
+  id: string;
+  appId: ProviderScope;
+  name: string;
+  presetId: string | null;
+  activation: "available" | "unavailable";
+  unavailableReason: string | null;
+  apiHost?: string | null;
+  modelNames?: string[];
+  universalSourceId?: string | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type ProviderEditorView = { appId: ProviderScope; exists: boolean; config: string | null };
+export type ProviderStatus = { mode: "switch" | "coexist"; activeId?: string | null;
+  enabledIds?: string[]; conflict?: boolean; supported: boolean; restartHint: string };
+export type ProviderBalance = { providerId: string; kind: "money" | "quota" | null;
+  amount?: number | null; currency?: string | null; remaining?: number | null; unit?: string | null;
+  resetAt?: number | null; checkedAt?: number | null; stale: boolean;
+  error?: "auth" | "network" | "format" | "unsupported" | null };
+export type ProviderBalanceRule = { url: string; method: "GET" | "POST";
+  valuePath: string; kind: "money" | "quota"; unit: string };
+export type ProviderExportDocument = { format: "mobi-providers-public-v1"; providers: Array<{
+  sourceId: string; appId: ProviderScope; name: string; presetId: string | null;
+  providerKey?: string;
+  settingsConfig: Record<string, unknown>;
+}> };
 export type StorageStatus = "starting" | "ready" | "error";
 export type TrayStatus = "starting" | "native" | "electron-fallback" | "no-host" | "failed";
 export type TrayDiagnostics = { status: TrayStatus; code: string | null };
@@ -50,6 +78,7 @@ export type AgentSession = {
   parentSourceSessionId: string | null;
   projectId: string | null;
   projectName: string | null;
+  projectAssignmentSource?: "automatic" | "manual";
   cwd: string | null;
   title: string | null;
   startedAt: number;
@@ -124,7 +153,60 @@ export type OverviewSnapshot = {
   recentActivity: ActivityEvent[];
 };
 
+export type UsageReport = {
+  period: "day" | "week";
+  start: number;
+  end: number;
+  previousMs: number;
+  totalMs: number;
+  sessionCount: number;
+  ongoingSessions?: number;
+  buckets: Array<{ start: number; end: number; activeMs: number }>;
+  tokenBuckets?: Array<{ start: number; end: number; inputTokens: number; outputTokens: number }>;
+  projects: Array<{ projectId: string | null; name: string | null; activeMs: number }>;
+  usage?: {
+    inputTokens: number | null;
+    outputTokens: number | null;
+    cachedInputTokens: number | null;
+    estimatedUsd: number | null;
+    pricedSessions: number;
+    pricedRecords?: number;
+    measuredSessions: number;
+    eligibleSessions?: number;
+    missingLogSessions?: number;
+    priceCatalogDate?: string;
+  };
+  sessionUsage?: Record<string, SessionUsage>;
+};
+
+export type SessionUsage = { inputTokens: number; outputTokens: number; cachedInputTokens: number; cacheWriteTokens: number; estimatedUsd: number | null; pricedRecords: number; measuredRecords: number; undatedRecords?: number; models?: string[] };
+
 export type AgentLogApi = {
+  providers: {
+    list(appId: ProviderScope): Promise<ProviderSummary[]>;
+    getEditDraft(id: string): Promise<ProviderDraft | null>;
+    create(input: ProviderDraft): Promise<ProviderSummary>;
+    update(input: ProviderDraft & { id: string }): Promise<ProviderSummary | null>;
+    remove(id: string): Promise<boolean>;
+    move(id: string, beforeId: string | null): Promise<ProviderSummary[]>;
+    exportData(): Promise<ProviderExportDocument>;
+    importData(document: ProviderExportDocument): Promise<{ added: number; skipped: number }>;
+    getEditorView(appId: ProviderScope): Promise<ProviderEditorView>;
+    fetchModels(input: { appId: ProviderScope; endpoint: string; apiKey?: string; allowLocal?: boolean }): Promise<string[]>;
+    checkEndpoint(input: { appId: ProviderScope; endpoint: string; apiKey?: string; allowLocal?: boolean }): Promise<{ reachable: boolean; status: number }>;
+    status(appId: ProviderScope): Promise<ProviderStatus>;
+    activate(id: string): Promise<ProviderStatus>;
+    addToLive(id: string): Promise<ProviderStatus>;
+    removeFromLive(id: string): Promise<ProviderStatus>;
+    restoreOriginal(appId: ProviderScope): Promise<ProviderStatus>;
+    balance(id: string): Promise<ProviderBalance | null>;
+    refreshBalance(id: string): Promise<ProviderBalance | null>;
+    getBalanceRule(id: string): Promise<ProviderBalanceRule | null>;
+    setBalanceRule(id: string, rule: ProviderBalanceRule | null): Promise<ProviderBalanceRule | null>;
+  };
+  analytics: {
+    get(input?: { period?: "day" | "week"; anchor?: number; force?: boolean }): Promise<UsageReport>;
+  };
   overview: {
     get(): Promise<OverviewSnapshot>;
   };
@@ -143,6 +225,8 @@ export type AgentLogApi = {
   };
   sessions: {
     list(filters?: Record<string, unknown>): Promise<SessionSummary[]>;
+    usage(id: string): Promise<SessionUsage | null>;
+    assignProject(input: { sessionId: string; projectId: string | null }): Promise<{ sessionId: string; projectId: string | null } | { code: string }>;
     timeline(input: { projectId: string } & Record<string, unknown>): Promise<ActivityEvent[]>;
   };
   humanTimer: {

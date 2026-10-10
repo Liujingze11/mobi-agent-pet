@@ -113,6 +113,7 @@ const {
   uninstallAgentIntegration,
   repairAgentIntegration,
 } = require("./settings-actions-agents");
+const { setPetActionPlan } = require("./settings-actions-pet-actions");
 const {
   ANIMATION_OVERRIDES_EXPORT_VERSION,
   ONESHOT_OVERRIDE_STATES,
@@ -413,6 +414,7 @@ const updateRegistry = {
   allowEdgePinning: requireBoolean("allowEdgePinning"),
   disableMiniMode: requireBoolean("disableMiniMode"),
   freeRoam: requireBoolean("freeRoam"),
+  customModeProfile: {commandOnly:true, validate(value) { const error=require("./custom-mode-profile").validateCustomModeProfile(value); return error?{status:"error",message:error}:{status:"ok"}; }},
   keepSizeAcrossDisplays: requireBoolean("keepSizeAcrossDisplays"),
   fullscreenOverlay: requireBoolean("fullscreenOverlay"),
   mobilePreviewEnabled: requireBoolean("mobilePreviewEnabled"),
@@ -1948,7 +1950,20 @@ function setTextScaleForDisplay(payload, deps) {
   return { status: "ok", commit: { textScaleByDisplay: next } };
 }
 
+function setCustomModeProfile(payload, deps = {}) {
+  const model = require("./custom-mode-profile");
+  const error = model.validateCustomModeProfile(payload && payload.profile);
+  if (error) return {status:"error", message:error};
+  const previous = model.normalizeCustomModeProfile(deps.snapshot && deps.snapshot.customModeProfile);
+  if (typeof deps.getActiveAppMode === "function" && deps.getActiveAppMode() === "custom"
+      && payload.profile.permissionAutomationMode !== "off"
+      && payload.profile.permissionAutomationMode !== previous.permissionAutomationMode
+      && payload.confirmed !== true) return {status:"confirmation-required"};
+  return {status:"ok", commit:{customModeProfile:model.normalizeCustomModeProfile(payload.profile)}};
+}
+
 const commandRegistry = {
+  setCustomModeProfile,
   addCustomApplication,
   removeTheme,
   installHooks,
@@ -1980,6 +1995,7 @@ const commandRegistry = {
   "sessionCleanup.setTriple": setSessionCleanupTriple,
   setSessionAlias,
   setTextScaleForDisplay,
+  setPetActionPlan,
   setAnimationOverride,
   setSoundOverride,
   setThemeOverrideDisabled,

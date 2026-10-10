@@ -1,52 +1,25 @@
 import { Component, useCallback, useEffect, useRef, useState } from "react";
 import type { ErrorInfo, ReactNode } from "react";
+import { ChevronDown } from "lucide-react";
 
 import { AppShell } from "./components/AppShell";
+import { UsageOverview } from "./components/UsageOverview";
 import { createTranslator, I18nProvider, normalizeManagerLocale } from "./i18n";
-import type { ManagerLocale, TranslationKey } from "./i18n";
-import { OverviewPage } from "./pages/OverviewPage";
-import { ProjectsPage } from "./pages/ProjectsPage";
-import { SettingsPage } from "./pages/SettingsPage";
+import type { ManagerLocale } from "./i18n";
 import { SessionsPage } from "./pages/SessionsPage";
-import type {
-  AgentLogApi,
-  DiagnosticsHealth,
-  InternalRouteId,
-  OverviewSnapshot,
-  ProjectSummary,
-  RouteId,
-  SessionSummary,
-} from "./types";
+import { ProviderPage } from "./providers/ProviderPage";
+import type { AgentLogApi, DiagnosticsHealth, SessionSummary, UsageReport } from "./types";
 
-type OverviewRouteData = { snapshot: OverviewSnapshot; projects: ProjectSummary[] };
-type SessionsRouteData = { projects: ProjectSummary[]; sessions: SessionSummary[] };
-type RouteData = OverviewRouteData | SessionsRouteData | ProjectSummary[] | DiagnosticsHealth;
+type RecordsData = { sessions: SessionSummary[]; report: UsageReport };
 type ViewState =
-  | { status: "loading"; route: InternalRouteId }
-  | { status: "ready"; route: InternalRouteId; data: RouteData }
-  | { status: "error"; route: InternalRouteId };
+  | { status: "loading" }
+  | { status: "ready"; data: RecordsData }
+  | { status: "error" };
 
-type AppProps = {
-  api?: AgentLogApi;
-};
+type AppProps = { api?: AgentLogApi };
 
-const routeLabels: Record<InternalRouteId, TranslationKey> = {
-  overview: "nav.overview",
-  projects: "nav.projects",
-  sessions: "nav.sessions",
-  settings: "nav.settings",
-};
-
-function isRelevantScope(route: InternalRouteId, scope: string) {
-  if (route === "overview") return true;
-  if (route === "projects") {
-    return scope === "projects" || scope === "agent-events" || scope === "human-timer";
-  }
-  if (route === "sessions") {
-    return scope === "sessions" || scope === "projects"
-      || scope === "agent-events" || scope === "human-timer";
-  }
-  return false;
+function shouldRefreshRecords(scope: string) {
+  return scope === "sessions" || scope === "agent-events";
 }
 
 function StateSurface({
@@ -99,43 +72,48 @@ class UnexpectedErrorBoundary extends Component<{
 
 export function App({ api = window.agentLog }: AppProps) {
   const [locale, setLocale] = useState<ManagerLocale>("en");
-  const [route, setRoute] = useState<InternalRouteId>("overview");
   const [health, setHealth] = useState<DiagnosticsHealth | null | "unexpected">(null);
-  const [view, setView] = useState<ViewState>({ status: "loading", route: "overview" });
-  const [commandError, setCommandError] = useState(false);
+  const [view, setView] = useState<ViewState>({ status: "loading" });
+  const [refreshing, setRefreshing] = useState(false);
+  const [activePage, setActivePage] = useState<"usage" | "providers">("usage");
+  const [refreshError, setRefreshError] = useState(false);
+  const [period, setPeriod] = useState<"day" | "week">("day");
+  const [anchor, setAnchor] = useState(() => Date.now());
+  const periodRef = useRef<"day" | "week">("day");
+  const anchorRef = useRef(anchor);
   const mountedRef = useRef(false);
   const requestRef = useRef(0);
   const languageRequestRef = useRef(0);
-  const routeRef = useRef<InternalRouteId>(route);
-  const healthRef = useRef<DiagnosticsHealth | null | "unexpected">(health);
-  routeRef.current = route;
-  healthRef.current = health;
+  const refreshingRef = useRef(false);
   const t = createTranslator(locale);
 
-  const loadRoute = useCallback(async (target: InternalRouteId, { silent = false } = {}) => {
+  const loadRecords = useCallback(async ({ silent = false, force = false } = {}) => {
     if (!mountedRef.current) return;
+    if (refreshingRef.current && (force || silent)) return;
     const request = ++requestRef.current;
-    if (!silent) setView({ status: "loading", route: target });
-    if (target === "settings") {
-      const currentHealth = healthRef.current;
-      if (mountedRef.current && currentHealth && currentHealth !== "unexpected") {
-        setView({ status: "ready", route: target, data: currentHealth });
-      }
-      return;
+    if (force) {
+      refreshingRef.current = true;
+      setRefreshing(true);
+      setRefreshError(false);
     }
+    if (!silent) setView({ status: "loading" });
     try {
-      const data = target === "overview"
-        ? await Promise.all([api.overview.get(), api.projects.list({ lifecycle: "active" })])
-          .then(([snapshot, projects]) => ({ snapshot, projects }))
-        : target === "projects"
-          ? await api.projects.list()
-          : await Promise.all([api.sessions.list({ includeArchived: true, limit: 500 }), api.projects.list({ includeArchived: true })])
-            .then(([sessions, projects]) => ({ sessions, projects }));
-      if (!mountedRef.current || request !== requestRef.current || routeRef.current !== target) return;
-      setView({ status: "ready", route: target, data });
+      const [sessions, report] = await Promise.all([
+        api.sessions.list({ includeArchived: true, source: "agent", limit: 500 }),
+        api.analytics.get({ period: periodRef.current, anchor: anchorRef.current, ...(force ? { force: true } : {}) }),
+      ]);
+      if (!mountedRef.current || request !== requestRef.current) return;
+      setView({ status: "ready", data: { sessions, report } });
+      setRefreshError(false);
     } catch {
-      if (!mountedRef.current || request !== requestRef.current || routeRef.current !== target) return;
-      if (!silent) setView({ status: "error", route: target });
+      if (!mountedRef.current || request !== requestRef.current) return;
+      if (!silent) setView({ status: "error" });
+      if (force) setRefreshError(true);
+    } finally {
+      if (force) {
+        refreshingRef.current = false;
+        if (mountedRef.current) setRefreshing(false);
+      }
     }
   }, [api]);
 
@@ -151,12 +129,8 @@ export function App({ api = window.agentLog }: AppProps) {
       }).catch(() => {});
     };
     const unsubscribe = api.events.onChanged((scope) => {
-      if (scope === "language") {
-        refreshLanguage();
-        return;
-      }
-      const currentRoute = routeRef.current;
-      if (isRelevantScope(currentRoute, scope)) void loadRoute(currentRoute, { silent: true });
+      if (scope === "language") refreshLanguage();
+      else if (shouldRefreshRecords(scope)) void loadRecords({ silent: true });
     });
     refreshLanguage();
     void api.diagnostics.get().then((result) => {
@@ -171,36 +145,15 @@ export function App({ api = window.agentLog }: AppProps) {
       languageRequestRef.current += 1;
       unsubscribe();
     };
-  }, [api, loadRoute]);
+  }, [api, loadRecords]);
 
   useEffect(() => {
     document.documentElement.lang = locale === "zh" ? "zh-CN" : "en";
   }, [locale]);
 
   useEffect(() => {
-    if (health && health !== "unexpected" && health.storage === "ready") void loadRoute(route);
-  }, [health, loadRoute, route]);
-
-  async function openHostSettings(tab: "agents" | "theme") {
-    setCommandError(false);
-    try {
-      await api.settings.open(tab);
-    } catch {
-      if (mountedRef.current) setCommandError(true);
-    }
-  }
-
-  function navigate(destination: RouteId) {
-    if (destination === "agents") {
-      void openHostSettings("agents");
-      return;
-    }
-    if (destination === "pet") {
-      void openHostSettings("theme");
-      return;
-    }
-    setRoute(destination);
-  }
+    if (health && health !== "unexpected" && health.storage === "ready") void loadRecords();
+  }, [health, loadRecords]);
 
   let content: ReactNode;
   if (health === null) {
@@ -211,46 +164,53 @@ export function App({ api = window.agentLog }: AppProps) {
     content = <StateSurface kind="pending" title={t("app.storageStartingTitle")} detail={t("app.storageStartingDetail")} />;
   } else if (health.storage === "error") {
     content = <StateSurface kind="error" title={t("app.storageErrorTitle")} detail={t("app.storageErrorDetail")} />;
-  } else if (view.status === "loading" || view.route !== route) {
-    content = <StateSurface kind="loading" title={t("app.loadingRoute", { route: t(routeLabels[route]) })} detail={t("app.readingDetail")} />;
+  } else if (activePage === "providers") {
+    content = <ProviderPage api={api.providers} onChanged={api.events.onChanged} />;
+  } else if (view.status === "loading") {
+    content = <StateSurface kind="loading" title={t("app.loadingRoute", { route: t("sessions.title") })} detail={t("app.readingDetail")} />;
   } else if (view.status === "error") {
-    content = <StateSurface kind="error" title={t("app.loadRouteError", { route: t(routeLabels[route]) })} detail={t("app.viewErrorDetail")} retryLabel={t("app.retry")} onRetry={() => void loadRoute(route)} />;
-  } else if (route === "overview") {
-    const overviewData = view.data as OverviewRouteData;
-    content = (
-      <OverviewPage
-        onOpenProjects={() => setRoute("projects")}
-        projects={overviewData.projects}
-        snapshot={overviewData.snapshot}
-        timerApi={api.humanTimer}
-      />
-    );
-  } else if (route === "projects") {
-    content = <ProjectsPage projectApi={api.projects} projects={view.data as ProjectSummary[]} sessionApi={api.sessions} />;
-  } else if (route === "sessions") {
-    const sessionsData = view.data as SessionsRouteData;
-    content = <SessionsPage projects={sessionsData.projects} sessions={sessionsData.sessions} />;
+    content = <StateSurface kind="error" title={t("app.loadRouteError", { route: t("sessions.title") })} detail={t("app.viewErrorDetail")} retryLabel={t("app.retry")} onRetry={() => void loadRecords()} />;
   } else {
-    content = <SettingsPage health={health} onOpenSettings={() => api.settings.open("general")} />;
+    content = <>
+      <UsageOverview
+        report={view.data.report}
+        period={period}
+        anchor={anchor}
+        isRefreshing={refreshing}
+        refreshError={refreshError}
+        onRefresh={() => void loadRecords({ silent: true, force: true })}
+        onPeriodChange={(next) => {
+          periodRef.current = next;
+          setPeriod(next);
+          void loadRecords();
+        }}
+        onAnchorChange={(next) => {
+          anchorRef.current = next;
+          setAnchor(next);
+          void loadRecords();
+        }}
+      />
+      <details className="session-history" open><summary><span>{t("sessions.completeList")}</span><ChevronDown aria-hidden="true" size={18} /></summary>
+        <SessionsPage
+          sessions={view.data.sessions}
+          sessionUsage={view.data.report.sessionUsage || {}}
+          periodStart={view.data.report.start}
+          periodEnd={view.data.report.end}
+          onLoadUsage={api.sessions.usage}
+        />
+      </details>
+    </>;
   }
-
-  const overview = view.status === "ready" && view.route === "overview"
-    ? (view.data as OverviewRouteData).snapshot
-    : null;
 
   return (
     <I18nProvider locale={locale}>
       <UnexpectedErrorBoundary title={t("app.unexpectedTitle")} detail={t("app.unexpectedDetail")}>
         <AppShell
-        currentRoute={route}
-        isRefreshing={view.status === "loading"}
-        onHide={() => void api.managerWindow.hide()}
-        onNavigate={navigate}
-        onRefresh={() => void loadRoute(route)}
-        pendingProjectCount={overview?.pendingProjectCount || 0}
-      >
-        {commandError ? <p className="inline-alert inline-alert--error" role="alert">{t("app.settingsError")}</p> : null}
-        {content}
+          activePage={activePage}
+          onNavigate={setActivePage}
+          onHide={() => void api.managerWindow.hide()}
+        >
+          {content}
         </AppShell>
       </UnexpectedErrorBoundary>
     </I18nProvider>

@@ -12,6 +12,7 @@ const {
   validationError,
 } = require("./validation.cjs");
 const { sanitizeTrayDiagnostics } = require("../tray-diagnostics.cjs");
+const { boundedConfig } = require("../providers/service.cjs");
 
 const registrations = new WeakMap();
 const PROJECT_SOURCES = ["manual", "agent"];
@@ -21,6 +22,7 @@ const SESSION_SOURCES = ["agent", "human"];
 const AGENT_SESSION_STATUSES = ["active", "completed", "errored", "interrupted"];
 const HUMAN_SESSION_STATUSES = ["running", "paused", "completed"];
 const SUPPORTED_LANGUAGES = new Set(["en", "zh", "zh-TW", "ko", "ja"]);
+const PROVIDER_APP_IDS = ["claude", "codex", "gemini", "grokbuild", "claude-desktop", "opencode", "openclaw", "hermes", "pi", "mcode", "universal"];
 const EVENT_CATEGORIES = [
   "permission_requested",
   "session_started",
@@ -79,8 +81,16 @@ function registerManagerIpc({
   dialog,
   BrowserWindow,
   projectRepository,
+  projectAssignment,
   overviewQueries,
+  usageReader,
   humanTimer,
+  providerService,
+  providerActivation,
+  providerBalanceStore,
+  providerBalanceQuery,
+  providerProfileTransfer,
+  onProviderBalanceChange,
   runtime,
   hostBridge,
 } = {}) {
@@ -124,7 +134,128 @@ function registerManagerIpc({
   }
 
   try {
+  if (providerService) {
+    const providerAppId = (value) => optionalEnum(value, { name: "appId", values: PROVIDER_APP_IDS });
+    const providerPayload = (value) => {
+      const input = inputObject(value);
+      boundedConfig(input);
+      providerAppId(input.appId);
+      return input;
+    };
+    handle("agentlog:providers:list", (_event, value) => providerService.list(providerAppId(inputObject(value).appId)));
+    handle("agentlog:providers:get-edit-draft", (_event, value) => providerService.getEditDraft(requiredId(inputObject(value).id)));
+    handle("agentlog:providers:create", (_event, value) => mutation("providers", () => providerService.create(providerPayload(value))));
+    handle("agentlog:providers:update", (_event, value) => {
+      const input = providerPayload(value);
+      return mutation("providers", () => providerService.update(requiredId(input.id), input));
+    });
+    handle("agentlog:providers:remove", (_event, value) => mutation("providers", () => providerService.remove(requiredId(inputObject(value).id))));
+    handle("agentlog:providers:move", (_event, value) => {
+      const input = inputObject(value);
+      return mutation("providers", () => providerService.move(requiredId(input.id),
+        input.beforeId === null ? null : requiredId(input.beforeId)));
+    });
+    handle("agentlog:providers:get-editor-view", (_event, value) => providerService.getEditorView(providerAppId(inputObject(value).appId)));
+    handle("agentlog:providers:fetch-models", (_event, value) => {
+      const input = inputObject(value);
+      return providerService.fetchModels({
+        appId: providerAppId(input.appId),
+        endpoint: boundedText(input.endpoint, { name: "endpoint", max: 4000, required: true }),
+        apiKey: optionalText(input.apiKey, { name: "apiKey", max: 4000 }),
+        allowLocal: optionalBoolean(input.allowLocal, { name: "allowLocal" }) || false,
+      });
+    });
+    handle("agentlog:providers:check-endpoint", (_event, value) => {
+      const input = inputObject(value);
+      return providerService.checkEndpoint({
+        appId: providerAppId(input.appId),
+        endpoint: boundedText(input.endpoint, { name: "endpoint", max: 4000, required: true }),
+        apiKey: optionalText(input.apiKey, { name: "apiKey", max: 4000 }),
+        allowLocal: optionalBoolean(input.allowLocal, { name: "allowLocal" }) || false,
+      });
+    });
+  }
+  if (providerActivation) {
+    const switchingAppId = (value) => {
+      const appId = optionalEnum(value, { name: "appId", values: PROVIDER_APP_IDS });
+      if (!appId || appId === "universal") throw validationError("appId is required");
+      return appId;
+    };
+    handle("agentlog:providers:status", (_event, value) => providerActivation.status(switchingAppId(inputObject(value).appId)));
+    handle("agentlog:providers:activate", async (_event, value) => {
+      const id = requiredId(inputObject(value).id);
+      const result = await providerActivation.activate(id);
+      broadcast("providers");
+      onProviderBalanceChange?.();
+      if (providerBalanceQuery) void providerBalanceQuery.query(id).catch(() => {});
+      return result;
+    });
+    handle("agentlog:providers:add-to-live", async (_event, value) => {
+      const id = requiredId(inputObject(value).id);
+      const result = await providerActivation.addToLive(id);
+      broadcast("providers");
+      onProviderBalanceChange?.();
+      if (providerBalanceQuery) void providerBalanceQuery.query(id).catch(() => {});
+      return result;
+    });
+    handle("agentlog:providers:remove-from-live", async (_event, value) => {
+      const result = await providerActivation.removeFromLive(requiredId(inputObject(value).id));
+      broadcast("providers");
+      onProviderBalanceChange?.();
+      return result;
+    });
+    handle("agentlog:providers:restore-original", async (_event, value) => {
+      const result = await providerActivation.restoreOriginal(switchingAppId(inputObject(value).appId));
+      broadcast("providers");
+      onProviderBalanceChange?.();
+      return result;
+    });
+  }
+  if (providerBalanceStore && providerBalanceQuery) {
+    handle("agentlog:providers:balance", (_event, value) =>
+      providerBalanceStore.get(requiredId(inputObject(value).id)));
+    handle("agentlog:providers:refresh-balance", (_event, value) =>
+      providerBalanceQuery.query(requiredId(inputObject(value).id), { force: true }));
+    handle("agentlog:providers:get-balance-rule", (_event, value) =>
+      providerBalanceQuery.getRule(requiredId(inputObject(value).id)));
+    handle("agentlog:providers:set-balance-rule", (_event, value) => {
+      const input = inputObject(value);
+      boundedConfig(input.rule);
+      return mutation("providers", () => providerBalanceQuery.setRule(requiredId(input.id), input.rule));
+    });
+  }
+  if (providerProfileTransfer) {
+    handle("agentlog:providers:export", () => providerProfileTransfer.exportData());
+    handle("agentlog:providers:import", (_event, value) => {
+      const document = inputObject(value);
+      boundedConfig(document);
+      return mutation("providers", () => providerProfileTransfer.importData(document));
+    });
+  }
   handle("agentlog:overview:get", () => overviewQueries.getOverview());
+  handle("agentlog:analytics:get", async (_event, value) => {
+    const input = inputObject(value);
+    const force = optionalBoolean(input.force, { name: "force" }) || false;
+    const report = overviewQueries.getUsageReport(copyDefined({
+      period: optionalEnum(input.period, { name: "period", values: ["day", "week"] }),
+      anchor: input.anchor === undefined ? undefined : boundedInteger(input.anchor, {
+        name: "anchor", min: 0, max: Number.MAX_SAFE_INTEGER,
+      }),
+    }));
+    if (!usageReader) return report;
+    try {
+      const sessions = overviewQueries.listUsageSessions(report.start, report.end);
+      const boundaries = Array.isArray(report.buckets) && report.buckets.length
+        ? [...report.buckets.map((bucket) => bucket.start), report.buckets.at(-1).end]
+        : [report.start, report.end];
+      const usage = await usageReader.report(sessions, { start: report.start, end: report.end, boundaries, force });
+      return { ...report, ...usage };
+    } catch {
+      if (typeof runtime.recordProblem === "function") runtime.recordProblem("usage-refresh");
+      if (force) throw new Error("usage refresh failed");
+      return report;
+    }
+  });
   handle("agentlog:projects:list", (_event, value) => {
     const input = inputObject(value);
     return overviewQueries.listProjects(copyDefined({
@@ -216,6 +347,21 @@ function registerManagerIpc({
       includeArchived: optionalBoolean(input.includeArchived, { name: "includeArchived" }),
       limit: input.limit === undefined ? undefined : boundedInteger(input.limit, { name: "limit", min: 0, max: 500 }),
     }));
+  });
+  handle("agentlog:sessions:usage", async (_event, value) => {
+    const input = inputObject(value);
+    const session = overviewQueries.getUsageSession(requiredId(input.id));
+    if (!session || !usageReader) return null;
+    try { return await usageReader.sessionSummary(session); }
+    catch { return null; }
+  });
+  handle("agentlog:sessions:assign-project", (_event, value) => {
+    const input = inputObject(value);
+    if (!projectAssignment) throw new Error("project assignment unavailable");
+    return mutation("sessions", () => projectAssignment.assign(
+      requiredId(input.sessionId, "sessionId"),
+      input.projectId === null ? null : requiredId(input.projectId, "projectId")
+    ));
   });
   handle("agentlog:sessions:timeline", (_event, value) => {
     const input = inputObject(value);

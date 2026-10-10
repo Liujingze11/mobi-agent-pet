@@ -144,7 +144,7 @@ describe("doctor modal: no active integrations (#490 UI copy)", () => {
     assert.strictEqual(HOOKS.connectionDetailText(core, null), STRINGS.en.doctorConnectionInstruction);
   });
 
-  it("renders an all-disabled report as green (pass) with the nudge and hint, never critical", () => {
+  it("renders no active Agent as waiting without a fault", () => {
     const core = makeCore(STRINGS, "zh");
     HOOKS.setState({
       checksLoading: false,
@@ -156,15 +156,47 @@ describe("doctor modal: no active integrations (#490 UI copy)", () => {
       generatedAt: "2026-06-14T00:00:00.000Z",
       overall: { status: "pass", level: null, issueCount: 0 },
       checks: [allInfoCheck()],
+      selfCheck: { agents: [], features: [
+        { id: "icon", status: "ok" }, { id: "pet", status: "ok" }, { id: "data", status: "ok" },
+      ] },
+      problems: [],
     };
 
-    assert.strictEqual(HOOKS.overallClass(result), "pass");
+    assert.strictEqual(HOOKS.overallClass(result), "unknown");
 
     const html = HOOKS.renderModalBody(core, result, {});
-    assert.ok(html.includes("doctor-overall pass"), "overall pill should be pass");
+    assert.ok(html.includes("doctor-overall unknown"), "overall pill should wait for verification");
     assert.ok(!html.includes("doctor-overall critical"), "must not render critical");
     assert.ok(!html.includes(STRINGS.zh.doctorStatusCritical), "must not show the 严重 label");
-    assert.ok(html.includes(STRINGS.zh.doctorAgentSummaryNoneActive), "agent nudge missing from body");
-    assert.ok(html.includes(STRINGS.zh.doctorConnectionNoActivityHint), "no-activity hint missing from body");
+    assert.ok(html.includes(STRINGS.zh.selfCheckNoAgents), "empty Agent state missing from body");
+    assert.ok(html.includes(STRINGS.zh.selfCheckNoProblems), "empty problem log missing from body");
+  });
+
+  it("shows a manual conversation jump test in the app check section", () => {
+    const core = makeCore(STRINGS, "zh");
+    HOOKS.setState({ checksLoading: false, modalOpen: true });
+    const html = HOOKS.renderModalBody(core, {
+      generatedAt: "2026-09-29T00:00:00.000Z",
+      overall: { status: "pass", level: null, issueCount: 0 },
+      checks: [], problems: [],
+      selfCheck: { agents: [], features: [{ id: "jump", status: "waiting" }] },
+    }, {});
+    assert.ok(html.includes(STRINGS.zh.selfCheckJump));
+    assert.ok(html.includes('data-action="test-conversation-jump"'));
+  });
+
+  it("keeps the overall check healthy while the optional jump test awaits a click", () => {
+    assert.strictEqual(HOOKS.overallClass({
+      overall: { status: "pass", level: null },
+      selfCheck: {
+        agents: [{ status: "ok" }],
+        features: [
+          { id: "icon", status: "ok" },
+          { id: "pet", status: "ok" },
+          { id: "data", status: "ok" },
+          { id: "jump", status: "waiting" },
+        ],
+      },
+    }), "pass");
   });
 });

@@ -8,11 +8,11 @@ function isSvgFile(file) {
   return typeof file === "string" && file.toLowerCase().endsWith(".svg");
 }
 
-function resolveViewBox(theme, state, file) {
+function resolveViewBox(theme, state, file, options = {}) {
   if (!theme) return null;
   const key = basenameOnly(file);
   if (key && theme.fileViewBoxes && theme.fileViewBoxes[key]) return theme.fileViewBoxes[key];
-  if (state && state.startsWith("mini-") && theme.miniMode && theme.miniMode.viewBox) {
+  if (options.miniMode && theme.miniMode && theme.miniMode.viewBox) {
     return theme.miniMode.viewBox;
   }
   return theme.viewBox;
@@ -48,10 +48,10 @@ function usesObjectChannel(theme, state, file) {
   return eyeStates.includes(state) || trustedFiles.includes(basenameOnly(file));
 }
 
-function usesNormalizedLayout(theme, state, file) {
+function usesNormalizedLayout(theme, state, file, options = {}) {
   if (!theme || !theme.layout || !theme.layout.contentBox) return false;
   if (hasRootViewBoxFileOverride(theme, file)) return true;
-  if ((state && state.startsWith("mini-")) || (file && file.startsWith("mini-"))) return false;
+  if (options.miniMode) return false;
   return true;
 }
 
@@ -74,9 +74,9 @@ function getFileLayout(theme, file) {
   };
 }
 
-function getNormalizedLayout(theme, state, file) {
+function getNormalizedLayout(theme, state, file, options = {}) {
   if (!theme || !theme.layout || !theme.layout.contentBox) return null;
-  const viewBox = resolveViewBox(theme, state, file);
+  const viewBox = resolveViewBox(theme, state, file, options);
   if (!viewBox) return null;
   const layout = theme.layout;
   const os = (theme && theme.objectScale) || {};
@@ -109,14 +109,14 @@ function fitViewBoxIntoRect(outerRect, viewBox) {
   };
 }
 
-function getAssetRectScreen(theme, bounds, state, file) {
+function getAssetRectScreen(theme, bounds, state, file, options = {}) {
   if (!theme || !bounds) return null;
 
-  const viewBox = resolveViewBox(theme, state, file);
+  const viewBox = resolveViewBox(theme, state, file, options);
   if (!viewBox) return null;
 
-  if (usesNormalizedLayout(theme, state, file)) {
-    const normalized = getNormalizedLayout(theme, state, file);
+  if (usesNormalizedLayout(theme, state, file, options)) {
+    const normalized = getNormalizedLayout(theme, state, file, options);
     if (!normalized) return null;
     return {
       x: bounds.x + bounds.width * normalized.leftRatio + normalized.offsetPxX,
@@ -158,10 +158,10 @@ function getAssetRectScreen(theme, bounds, state, file) {
 function getHitRectScreen(theme, bounds, state, file, hitBox, options = {}) {
   if (!theme || !bounds || !hitBox) return null;
 
-  const artRect = getAssetRectScreen(theme, bounds, state, file);
+  const artRect = getAssetRectScreen(theme, bounds, state, file, options);
   if (!artRect) return null;
 
-  const vb = resolveViewBox(theme, state, file);
+  const vb = resolveViewBox(theme, state, file, options);
   if (!vb) return null;
   const scaleX = artRect.w / vb.width;
   const scaleY = artRect.h / vb.height;
@@ -180,10 +180,10 @@ function getContentRectScreen(theme, bounds, state, file, options = {}) {
   const box = options.box || (theme && theme.layout && theme.layout.contentBox);
   if (!theme || !bounds || !box) return null;
 
-  const artRect = getAssetRectScreen(theme, bounds, state, file);
+  const artRect = getAssetRectScreen(theme, bounds, state, file, options);
   if (!artRect) return null;
 
-  const vb = resolveViewBox(theme, state, file);
+  const vb = resolveViewBox(theme, state, file, options);
   if (!vb) return null;
   const scaleX = artRect.w / vb.width;
   const scaleY = artRect.h / vb.height;
@@ -196,11 +196,11 @@ function getContentRectScreen(theme, bounds, state, file, options = {}) {
   };
 }
 
-function getAssetPointerPayload(theme, bounds, state, file, point) {
+function getAssetPointerPayload(theme, bounds, state, file, point, options = {}) {
   if (!theme || !bounds || !point) return null;
 
-  const artRect = getAssetRectScreen(theme, bounds, state, file);
-  const vb = resolveViewBox(theme, state, file);
+  const artRect = getAssetRectScreen(theme, bounds, state, file, options);
+  const vb = resolveViewBox(theme, state, file, options);
   if (!artRect || !vb || artRect.w <= 0 || artRect.h <= 0) return null;
 
   return {

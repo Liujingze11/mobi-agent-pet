@@ -792,6 +792,17 @@ describe("server-route-state POST", () => {
     assert.strictEqual(metadataCalls.length, 0);
   });
 
+  it("passes a metadata-only model to the existing session without a lifecycle event", async () => {
+    const metadataCalls = [];
+    const res = await callStatePost(JSON.stringify({
+      state: "idle", metadata_only: true, session_id: "model-session",
+      agent_id: "antigravity-cli", model: "Gemini 3.1 Pro",
+    }), { ctx: { updateSessionMetadata: (...args) => metadataCalls.push(args) } });
+    assert.strictEqual(res.statusCode, 204);
+    assert.strictEqual(res.calls.updateSession.length, 0);
+    assert.deepStrictEqual(metadataCalls, [[localSessionKey("model-session"), { model: "Gemini 3.1 Pro" }]]);
+  });
+
   it("metadata_only still respects the disabled-agent gate", async () => {
     const metadataCalls = [];
     const res = await callStatePost(JSON.stringify({
@@ -1413,4 +1424,10 @@ describe("server-route-state ExitPlanMode stale sweep", () => {
     assert.deepStrictEqual(res.calls.resolved, []);
     assert.match(res.calls.logs.join("\n"), /decision sweep ambiguous:.*candidates=2/);
   });
+});
+it('Agent state acceptance is independent of the seven-state pet asset table',async()=>{
+ const states=Object.fromEntries(['idle','roam','working','waiting','complete','error','held'].map(s=>[s,['x.svg']]));
+ const res=await callStatePost(JSON.stringify({state:'thinking',event:'UserPromptSubmit',session_id:'legacy',agent_id:'claude-code'}),{ctx:{STATE_SVGS:states}});
+ assert.equal(res.statusCode,200);assert.equal(res.calls.updateSession[0][1],'thinking');
+ const bad=await callStatePost(JSON.stringify({state:'invented',session_id:'legacy',agent_id:'claude-code'}),{ctx:{STATE_SVGS:states}});assert.equal(bad.statusCode,400);
 });

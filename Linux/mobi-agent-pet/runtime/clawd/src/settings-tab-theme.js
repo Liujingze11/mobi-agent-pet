@@ -12,6 +12,10 @@
   let customizationSelectionPendingThemeId = null;
   let customizationSelectionSeq = 0;
 
+  function themeApi() {
+    return root.petThemeAPI || root.settingsAPI;
+  }
+
   function t(key) {
     return helpers.t(key);
   }
@@ -218,7 +222,7 @@
     const requestSeq = ++customizationSelectionSeq;
     customizationSelectionPendingThemeId = theme.id;
     ops.requestRender({ content: true });
-    Promise.resolve(window.settingsAPI.command("setThemeSelection", { themeId: theme.id }))
+    Promise.resolve(themeApi().command("setThemeSelection", { themeId: theme.id }))
       .then((result) => {
         if (requestSeq !== customizationSelectionSeq) return;
         if (!result || result.status !== "ok") {
@@ -389,9 +393,12 @@
       else nextMap[theme.id] = next;
       select.classList.add("pending");
       select.disabled = true;
-      Promise.resolve(window.settingsAPI.update("petTint", nextMap))
+      Promise.resolve(themeApi().update("petTint", nextMap))
         .then((result) => {
-          if (result && result.status === "ok") return;
+          if (result && result.status === "ok") {
+            state.snapshot = { ...(state.snapshot || {}), petTint: nextMap };
+            return;
+          }
           const message = (result && result.message) || "unknown error";
           ops.showToast(t("toastSaveFailed") + message, { error: true });
           syncFromSnapshot();
@@ -470,9 +477,12 @@
       else nextMap[theme.id] = next;
       select.classList.add("pending");
       select.disabled = true;
-      Promise.resolve(window.settingsAPI.update("petAccessory", nextMap))
+      Promise.resolve(themeApi().update("petAccessory", nextMap))
         .then((result) => {
-          if (result && result.status === "ok") return;
+          if (result && result.status === "ok") {
+            state.snapshot = { ...(state.snapshot || {}), petAccessory: nextMap };
+            return;
+          }
           const message = (result && result.message) || "unknown error";
           ops.showToast(t("toastSaveFailed") + message, { error: true });
           syncFromSnapshot();
@@ -507,8 +517,8 @@
     importBtn.className = "soft-btn";
     importBtn.textContent = t("themeImportPetZip");
     importBtn.disabled = !!runtime.codexPetZipImportPending
-      || !window.settingsAPI
-      || typeof window.settingsAPI.importCodexPetZip !== "function";
+      || !themeApi()
+      || typeof themeApi().importCodexPetZip !== "function";
     if (runtime.codexPetZipImportPending) importBtn.classList.add("pending");
     importBtn.addEventListener("click", handleImportCodexPetZip);
     codexGroup.buttons.appendChild(importBtn);
@@ -518,8 +528,8 @@
     refreshBtn.className = "soft-btn";
     refreshBtn.textContent = t("themeRefreshImportedPets");
     refreshBtn.disabled = !!runtime.codexPetsRefreshPending
-      || !window.settingsAPI
-      || typeof window.settingsAPI.refreshCodexPets !== "function";
+      || !themeApi()
+      || typeof themeApi().refreshCodexPets !== "function";
     if (runtime.codexPetsRefreshPending) refreshBtn.classList.add("pending");
     refreshBtn.addEventListener("click", handleRefreshCodexPets);
     codexGroup.buttons.appendChild(refreshBtn);
@@ -532,8 +542,8 @@
     importThemeBtn.textContent = t("themeImportUserThemeZip");
     importThemeBtn.title = t("themeImportUserThemeZipHint");
     importThemeBtn.disabled = !!runtime.userThemeZipImportPending
-      || !window.settingsAPI
-      || typeof window.settingsAPI.importUserThemeZip !== "function";
+      || !themeApi()
+      || typeof themeApi().importUserThemeZip !== "function";
     if (runtime.userThemeZipImportPending) importThemeBtn.classList.add("pending");
     importThemeBtn.addEventListener("click", handleImportUserThemeZip);
     userThemeGroup.buttons.appendChild(importThemeBtn);
@@ -542,8 +552,8 @@
     userThemeFolderBtn.type = "button";
     userThemeFolderBtn.className = "soft-btn";
     userThemeFolderBtn.textContent = t("themeOpenUserThemesFolder");
-    userThemeFolderBtn.disabled = !window.settingsAPI
-      || typeof window.settingsAPI.openUserThemesDir !== "function";
+    userThemeFolderBtn.disabled = !themeApi()
+      || typeof themeApi().openUserThemesDir !== "function";
     userThemeFolderBtn.addEventListener("click", handleOpenUserThemesFolder);
     userThemeGroup.buttons.appendChild(userThemeFolderBtn);
 
@@ -551,8 +561,8 @@
     refreshThemesBtn.type = "button";
     refreshThemesBtn.className = "soft-btn";
     refreshThemesBtn.textContent = t("themeRefreshThemes");
-    refreshThemesBtn.disabled = !window.settingsAPI
-      || typeof window.settingsAPI.listThemes !== "function";
+    refreshThemesBtn.disabled = !themeApi()
+      || typeof themeApi().listThemes !== "function";
     refreshThemesBtn.addEventListener("click", handleRefreshThemes);
     userThemeGroup.buttons.appendChild(refreshThemesBtn);
     row.appendChild(userThemeGroup.group);
@@ -687,7 +697,7 @@
 
     if (!theme.active) {
       helpers.attachActivation(card, () => (
-        Promise.resolve(window.settingsAPI.command("setThemeSelection", { themeId: theme.id }))
+        Promise.resolve(themeApi().command("setThemeSelection", { themeId: theme.id }))
           .then((result) => {
             if (result && result.status === "ok") {
               mirrorThemeSelectionResult(theme.id, result);
@@ -723,10 +733,10 @@
   }
 
   function handleRefreshCodexPets() {
-    if (!window.settingsAPI || typeof window.settingsAPI.refreshCodexPets !== "function") return;
+    if (!themeApi() || typeof themeApi().refreshCodexPets !== "function") return;
     runtime.codexPetsRefreshPending = true;
     if (state.activeTab === "theme") ops.requestRender({ content: true });
-    window.settingsAPI.refreshCodexPets()
+    themeApi().refreshCodexPets()
       .then((result) => {
         if (!result || result.status !== "ok") {
           ops.showToast(formatCodexPetsRefreshFailed(result && result.message), { error: true });
@@ -747,8 +757,8 @@
   }
 
   function handleOpenUserThemesFolder() {
-    if (!window.settingsAPI || typeof window.settingsAPI.openUserThemesDir !== "function") return;
-    window.settingsAPI.openUserThemesDir()
+    if (!themeApi() || typeof themeApi().openUserThemesDir !== "function") return;
+    themeApi().openUserThemesDir()
       .then((result) => {
         if (!result || result.status !== "ok") {
           ops.showToast(t("toastUserThemesFolderFailed") + ((result && result.message) || "unknown error"), { error: true });
@@ -779,10 +789,10 @@
   }
 
   function handleImportUserThemeZip() {
-    if (!window.settingsAPI || typeof window.settingsAPI.importUserThemeZip !== "function") return;
+    if (!themeApi() || typeof themeApi().importUserThemeZip !== "function") return;
     runtime.userThemeZipImportPending = true;
     if (state.activeTab === "theme") ops.requestRender({ content: true });
-    window.settingsAPI.importUserThemeZip()
+    themeApi().importUserThemeZip()
       .then((result) => {
         if (!result || result.status === "cancel") return null;
         if (result.status !== "ok") {
@@ -818,10 +828,10 @@
   }
 
   function handleImportCodexPetZip() {
-    if (!window.settingsAPI || typeof window.settingsAPI.importCodexPetZip !== "function") return;
+    if (!themeApi() || typeof themeApi().importCodexPetZip !== "function") return;
     runtime.codexPetZipImportPending = true;
     if (state.activeTab === "theme") ops.requestRender({ content: true });
-    window.settingsAPI.importCodexPetZip()
+    themeApi().importCodexPetZip()
       .then((result) => {
         if (!result || result.status === "cancel") return null;
         if (result.status !== "ok") {
@@ -857,10 +867,10 @@
   }
 
   function handleRemoveCodexPet(theme) {
-    if (!window.settingsAPI || typeof window.settingsAPI.removeCodexPet !== "function") return;
+    if (!themeApi() || typeof themeApi().removeCodexPet !== "function") return;
     runtime.codexPetRemovalPendingThemeId = theme.id;
     if (state.activeTab === "theme") ops.requestRender({ content: true });
-    window.settingsAPI.removeCodexPet(theme.id)
+    themeApi().removeCodexPet(theme.id)
       .then((result) => {
         if (!result || result.status === "cancel") return null;
         if (result.status !== "ok") {
@@ -882,12 +892,12 @@
   }
 
   function handleDeleteTheme(theme) {
-    if (!window.settingsAPI) return;
-    window.settingsAPI
+    if (!themeApi()) return;
+    themeApi()
       .confirmRemoveTheme(theme.id)
       .then((res) => {
         if (!res || !res.confirmed) return null;
-        return window.settingsAPI.command("removeTheme", theme.id);
+        return themeApi().command("removeTheme", theme.id);
       })
       .then((result) => {
         if (result == null) return;

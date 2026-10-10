@@ -199,6 +199,7 @@ describe("formatDiagnosticReport", () => {
           count: 1,
         }],
       },
+      problems: [{ code: "usage-refresh", at: Date.parse("2026-04-28T14:30:00Z") }],
     }, {
       version: "0.6.2",
       platform: "win32",
@@ -208,7 +209,7 @@ describe("formatDiagnosticReport", () => {
       appRoot: "D:\\animation",
     });
 
-    assert.match(report, /# Clawd Diagnostic Report/);
+    assert.match(report, /# Mobi Agent Pet Diagnostic Report/);
     assert.match(report, /Overall: WARNING/);
     assert.match(report, /Cursor Agent/);
     assert.match(report, /permission bubbles disabled/);
@@ -220,6 +221,8 @@ describe("formatDiagnosticReport", () => {
     assert.match(report, /HTTP works but events were dropped/);
     assert.match(report, /dropped-by-dnd/);
     assert.match(report, /Fallback file activity also observed: codex \(1\)\./);
+    assert.match(report, /## Recent Problems/);
+    assert.match(report, /usage-refresh/);
     assert.doesNotMatch(report, /\| gemini-cli \| file-mtime \| 1 \|/);
     assert.ok(!report.includes("Alice"));
     assert.ok(!report.includes("D:/animation"));

@@ -262,10 +262,13 @@ function createRendererHarness(options = {}) {
   };
   context.globalThis = context;
 
-  const source = `${readNormalized(ACCESSORY_LAYOUT)}
+  const source = `${readNormalized(path.join(__dirname, "../src/pet-states.js"))}
+${readNormalized(path.join(__dirname, "../src/pet-action-plan.js"))}
+${readNormalized(ACCESSORY_LAYOUT)}
 ${readNormalized(RENDERER)}
 globalThis.__rendererTest = {
   swapToFile,
+  displayStateFile,
   pauseCurrentSvgForLowPower,
   setLowPowerSvgPaused,
   recoverFromSystemWake,
@@ -595,7 +598,7 @@ describe("renderer low-power idle mode", () => {
 
     harness.electronHandlers.onSystemWake({ id: "wake-state-1", trigger: "resume", attempt: 0 });
     const wakeObject = harness.api.pendingNext;
-    harness.electronHandlers.onStateChange("working", "working.svg");
+    harness.api.displayStateFile("working", "working.svg");
 
     assert.equal(wakeObject.isConnected, false);
     const firstReport = harness.electronCalls.find((call) => (
@@ -782,7 +785,7 @@ describe("renderer object-channel selection", () => {
         trustedScriptedSvgFiles: ["sleep.svg"],
         rendering: {
           lowPowerStaticImageOverrides: {
-            sleeping: { from: "sleep.svg", to: "sleep-static.png" },
+            idle: { from: "sleep.svg", to: "sleep-static.png" },
           },
         },
       },
@@ -790,7 +793,7 @@ describe("renderer object-channel selection", () => {
     const filter = "grayscale(1) brightness(1.05)";
     harness.electronHandlers.onPetTintChange({ id: "mono", filter });
 
-    harness.electronHandlers.onStateChange("sleeping", "sleep.svg");
+    harness.api.displayStateFile("idle", "sleep.svg");
     assert.strictEqual(harness.api.pendingNext.tagName, "OBJECT");
     assert.strictEqual(harness.api.pendingSvgFile, "sleep.svg");
     assert.strictEqual(harness.api.pendingNext.style.filter, filter);
@@ -817,13 +820,13 @@ describe("renderer object-channel selection", () => {
     );
   });
 
-  it("does not hard-code click or drag reactions to the img channel", () => {
-    const source = readNormalized(RENDERER);
-
-    assert.ok(source.includes("swapToFile(svgFile, null);"));
-    assert.ok(source.includes("swapToFile(dragSvg, null);"));
-    assert.ok(!source.includes("swapToFile(svgFile, null, false);"));
-    assert.ok(!source.includes("swapToFile(dragSvg, null, false);"));
+  it("legacy reaction handlers cannot select arbitrary files", () => {
+    const h = createRendererHarness();
+    h.api.displayStateFile("idle", "rest.svg");
+    const before=h.api.pendingSvgFile;
+    h.electronHandlers.onPlayClickReaction("unassigned.svg",5000);
+    h.electronHandlers.onStartDragReaction("left");
+    assert.strictEqual(h.api.pendingSvgFile,before);
   });
 
   it("uses a monotonic cache-bust counter for remaining img-channel SVG swaps", () => {
@@ -976,7 +979,7 @@ describe("renderer pet tint", () => {
     const displayed = harness.api.clawdEl;
     assert.strictEqual(displayed.style.filter, filter);
 
-    harness.electronHandlers.onStateChange("working", "rest.svg");
+    harness.api.displayStateFile("working", "rest.svg");
     assert.strictEqual(harness.api.pendingNext, null);
     assert.strictEqual(harness.api.clawdEl, displayed);
     assert.strictEqual(displayed.style.filter, filter);
@@ -1273,7 +1276,7 @@ describe("renderer pet accessory wardrobe", () => {
       offsetY: 0,
     };
     harness.electronHandlers.onPetAccessoryChange(payload);
-    harness.electronHandlers.onStateChange("working", "working.svg");
+    harness.api.displayStateFile("working", "working.svg");
 
     const workingObject = harness.api.pendingNext;
     assert.strictEqual(workingObject.tagName, "OBJECT");
@@ -1510,7 +1513,7 @@ describe("renderer Cloudling pointer bridge", () => {
     const source = fs.readFileSync(RENDERER, "utf8");
     const preload = fs.readFileSync(PRELOAD, "utf8");
 
-    assert.ok(source.includes('const CLOUDLING_POINTER_BRIDGE_STATES = new Set(["idle", "mini-idle", "mini-peek"]);'));
+    assert.ok(source.includes('const CLOUDLING_POINTER_BRIDGE_STATES = new Set(["idle"]);'));
     assert.ok(source.includes('typeof svgWindow.__cloudlingSetPointer === "function"'));
     assert.ok(source.includes('svgWindow.__cloudlingSetPointer(payload);'));
     assert.ok(source.includes('window.electronAPI.onCloudlingPointer((payload) => {'));
@@ -1519,33 +1522,9 @@ describe("renderer Cloudling pointer bridge", () => {
 });
 
 describe("renderer sound preload and warmup", () => {
-  it("preloads sound files without playing a primer", () => {
-    const harness = createRendererHarness();
-    const preload = harness.electronHandlers.onPreloadSounds;
 
-    assert.strictEqual(typeof preload, "function");
-    preload({ urls: ["file:///complete.mp3"] });
 
-    assert.strictEqual(harness.audioInstances.length, 1);
-    assert.strictEqual(harness.audioInstances[0].url, "file:///complete.mp3");
-    assert.strictEqual(harness.audioInstances[0].loadCalls, 1);
-    assert.strictEqual(harness.audioInstances[0].playCalls, 0);
-  });
 
-  it("does not reload a cached sound object on playback", () => {
-    const harness = createRendererHarness();
-    const preload = harness.electronHandlers.onPreloadSounds;
-    const playSound = harness.electronHandlers.onPlaySound;
-
-    preload({ urls: ["file:///complete.mp3"] });
-    const cached = harness.audioInstances[0];
-    playSound({ url: "file:///complete.mp3", volume: 1 });
-
-    assert.strictEqual(cached.loadCalls, 1);
-    assert.strictEqual(harness.audioInstances.length, 2);
-    assert.strictEqual(harness.audioInstances[1].url, "file:///complete.mp3");
-    assert.strictEqual(harness.audioInstances[1].playCalls, 1);
-  });
 });
 
 describe("renderer initial frame idle visual", () => {
@@ -1574,7 +1553,7 @@ describe("renderer initial frame idle visual", () => {
 
 describe("renderer file-aware idle eye tracking", () => {
   function restOnIdleVisual(harness, file, { withEyes } = {}) {
-    harness.electronHandlers.onStateChange("idle", file);
+    harness.api.displayStateFile("idle", file);
     const next = harness.api.pendingNext;
     assert.ok(next, `state change to ${file} should start a swap`);
     attachFakeSvgDocument(next, { withEyes: !!withEyes });
@@ -1640,7 +1619,7 @@ describe("renderer file-aware idle eye tracking", () => {
     harness.api.attachEyeTracking(nonFollowObject);
     assert.ok(harness.api.eyeTarget);
 
-    harness.electronHandlers.onStateChange("idle", "clawd-idle-reading.svg");
+    harness.api.displayStateFile("idle", "clawd-idle-reading.svg");
 
     assert.strictEqual(harness.api.clawdEl, nonFollowObject);
     assert.strictEqual(harness.api.pendingNext, null, "same-file re-entry must not swap media");
@@ -1651,7 +1630,8 @@ describe("renderer file-aware idle eye tracking", () => {
     const harness = createRendererHarness({
       themeConfig: { idleFollowSvg: "clawd-idle-follow.svg" },
     });
-    harness.electronHandlers.onStateChange("mini-idle", "clawd-mini.svg");
+    harness.electronHandlers.onMiniModeChange(true, "right");
+    harness.api.displayStateFile("idle", "clawd-mini.svg");
     const next = harness.api.pendingNext;
     assert.ok(next);
     attachFakeSvgDocument(next, { withEyes: true });
@@ -1687,17 +1667,17 @@ describe("renderer glyph flip compensation", () => {
       },
     });
 
-    harness.electronHandlers.onStateChange("idle", "shared.svg");
+    harness.api.displayStateFile("idle", "shared.svg");
     const displayedObject = harness.api.pendingNext;
     assert.strictEqual(displayedObject.tagName, "OBJECT");
     attachFakeSvgDocument(displayedObject, { withEyes: true });
     displayedObject.listeners.get("load")();
 
-    harness.electronHandlers.onStateChange("roam", "shared.svg");
+    harness.api.displayStateFile("roam", "shared.svg");
     const staleImage = harness.api.pendingNext;
     assert.strictEqual(staleImage.tagName, "IMG");
 
-    harness.electronHandlers.onStateChange("idle", "shared.svg");
+    harness.api.displayStateFile("idle", "shared.svg");
 
     assert.strictEqual(harness.api.pendingNext, null);
     assert.strictEqual(harness.api.clawdEl, displayedObject);
@@ -1717,12 +1697,12 @@ describe("renderer glyph flip compensation", () => {
     });
 
     harness.electronHandlers.onRoamHeading(true);
-    harness.electronHandlers.onStateChange("roam", "shared-crabwalk.svg");
+    harness.api.displayStateFile("roam", "shared-crabwalk.svg");
     const pending = harness.api.pendingNext;
     assert.ok(pending);
 
     harness.electronHandlers.onMiniModeChange(true, "right", { preEntry: true });
-    harness.electronHandlers.onStateChange("mini-crabwalk", "shared-crabwalk.svg");
+    harness.api.displayStateFile("working", "shared-crabwalk.svg");
 
     assert.strictEqual(
       harness.api.pendingNext,
@@ -1731,7 +1711,7 @@ describe("renderer glyph flip compensation", () => {
     );
     pending.listeners.get("load")();
 
-    assert.strictEqual(harness.api.currentDisplayedState, "mini-crabwalk");
+    assert.strictEqual(harness.api.currentDisplayedState, "working");
     assert.strictEqual(
       harness.assetDirectionStage.style.scale,
       "none",
@@ -1752,18 +1732,18 @@ describe("renderer glyph flip compensation", () => {
     });
 
     harness.electronHandlers.onRoamHeading(true);
-    harness.electronHandlers.onStateChange("roam", "shared-crabwalk.svg");
+    harness.api.displayStateFile("roam", "shared-crabwalk.svg");
     const pending = harness.api.pendingNext;
     assert.ok(pending);
     assert.strictEqual(pending.tagName, "OBJECT");
 
     harness.electronHandlers.onMiniModeChange(true, "right", { preEntry: true });
-    harness.electronHandlers.onStateChange("mini-crabwalk", "shared-crabwalk.svg");
+    harness.api.displayStateFile("working", "shared-crabwalk.svg");
 
     assert.strictEqual(harness.api.pendingNext, pending);
     pending.listeners.get("load")();
 
-    assert.strictEqual(harness.api.currentDisplayedState, "mini-crabwalk");
+    assert.strictEqual(harness.api.currentDisplayedState, "working");
     assert.strictEqual(harness.assetDirectionStage.style.scale, "none");
   });
 
@@ -1802,7 +1782,7 @@ describe("renderer glyph flip compensation", () => {
 
     assert.ok(source.includes("let _miniPreEntryMode = false;"));
     assert.ok(source.includes("_miniPreEntryMode = !!enabled && preEntry;"));
-    assert.ok(source.includes("_miniPreEntryMode && state === \"mini-crabwalk\""));
+    assert.ok(source.includes("_miniPreEntryMode"));
     assert.ok(source.includes("_inMiniMode = !!enabled && !preEntry;"));
     assert.ok(source.includes("applyMiniFlip(next, commitState);"));
   });
@@ -1814,4 +1794,82 @@ describe("renderer glyph flip compensation", () => {
     assert.ok(source.includes("svgWindow.__clawdSetGlyphFlipCompensation(true);"));
     assert.ok(source.includes("svgWindow.__clawdSetGlyphFlipCompensation(false);"));
   });
+});
+
+
+it("action plan renders the configured sequence and holds through an Agent error until release", () => {
+  const harness = createRendererHarness({themeConfig:{dragSvg:"lift.svg",actionPlan:{version:1,states:{
+    idle:{mode:"sequence",actions:[{file:"rest.svg",enabled:true,durationMs:5000}]},
+    working:{mode:"sequence",actions:[{file:"type.svg",enabled:true,durationMs:2000},{file:"build.svg",enabled:true,durationMs:3000}]},
+    error:{mode:"sequence",actions:[{file:"error.svg",enabled:true,durationMs:5000}]},
+    held:{mode:"sequence",actions:[{file:"lift.svg",enabled:true,durationMs:5000}]},
+  }}}});
+  harness.electronHandlers.onStateChange("working","thinking.svg");
+  assert.strictEqual(harness.api.pendingSvgFile,"type.svg");
+  const timer=harness.activeTimers().find(t=>t.ms===2000);assert.ok(timer);timer.cleared=true;timer.callback();
+  assert.strictEqual(harness.api.pendingSvgFile,"build.svg");
+  harness.electronHandlers.onStateChange("held","lift.svg");
+  assert.strictEqual(harness.api.pendingSvgFile,"lift.svg");
+  harness.electronHandlers.onStateChange("error","error.svg");
+  assert.strictEqual(harness.api.pendingSvgFile,"error.svg");
+});
+
+it('legacy directional messages cannot bypass the effective action plan',()=>{
+  const h=createRendererHarness({themeConfig:{dragSvg:'drag.svg',dragSvgs:{left:'left.svg',right:'right.svg'}}});
+  h.api.displayStateFile('idle','rest.svg');const before=h.api.pendingSvgFile;
+  h.electronHandlers.onStartDragReaction('left');h.electronHandlers.onStartDragReaction('right');
+  assert.strictEqual(h.api.pendingSvgFile,before);
+});
+it('idle action playback pauses its timer in low-power mode and resumes after activity',()=>{
+  const h=createRendererHarness({themeConfig:{actionPlan:{version:1,states:{idle:{mode:'sequence',actions:[{file:'rest.svg',enabled:true,durationMs:1000}]}}}}});
+  h.electronHandlers.onStateChange('idle','rest.svg');h.api.setLowPowerIdleMode(true);
+  h.api.pauseCurrentSvgForLowPower();
+  assert.ok(!h.activeTimers().some(t=>t.ms===1000),'paused idle must stop the action replay timer');
+  h.electronHandlers.onStateChange('working','work.svg');
+  assert.ok(h.api.pendingSvgFile);
+});
+
+it('timer-driven idle replay preserves the original low-power inactivity deadline',()=>{
+  const h=createRendererHarness({themeConfig:{actionPlan:{version:1,states:{idle:{mode:'sequence',actions:[{file:'rest.svg',enabled:true,durationMs:1000}]}}}}});
+  let now=0;h.context.Date={now:()=>now};h.electronHandlers.onStateChange('idle','rest.svg');h.api.setLowPowerIdleMode(true);
+  const replay=h.activeTimers().find(t=>t.ms===1000);assert.ok(replay);now=1000;replay.cleared=true;replay.callback();
+  const pending=h.api.pendingNext;const load=pending.listeners.get('load');load();
+  assert.ok(h.activeTimers().some(t=>t.ms===4000),'a playlist frame must retain the original five-second deadline');
+  const pause=h.activeTimers().find(t=>t.ms===4000);now=5000;pause.cleared=true;pause.callback();
+  assert.ok(!h.activeTimers().some(t=>t.ms===1000),'deadline expiry stops replay timers');
+});
+
+
+it('empty completion reports the selected random idle duration to the main process', () => {
+  const h = createRendererHarness({ themeConfig: { actionPlan: { version: 1, states: {
+    idle: { mode: 'random', actions: [
+      { file: 'short.svg', enabled: true, durationMs: 2000 },
+      { file: 'long.svg', enabled: true, durationMs: 6000 },
+    ] },
+    complete: { mode: 'sequence', actions: [] },
+  } } } });
+  h.electronHandlers.onStateChange('complete', 'done.svg', {state:'complete',themeGeneration:2,stateRevision:7});
+  const frame = h.electronCalls.filter(call => call.name === 'reportActionFrame').at(-1).args[0];
+  assert.ok(['short.svg', 'long.svg'].includes(frame.file));
+  assert.strictEqual(frame.state, 'complete');
+  assert.strictEqual(frame.themeGeneration, 2);
+  assert.strictEqual(frame.stateRevision, 7);
+  assert.strictEqual(frame.returnAfterMs, undefined);
+  assert.ok(!h.activeTimers().some(timer => [2000, 6000].includes(timer.ms)), 'random completion plays only one fallback action');
+});
+
+it('low-power overrides cannot draw a file outside the effective idle slot',()=>{
+ const h=createRendererHarness({themeConfig:{actionPlan:{version:1,states:{idle:{mode:'sequence',actions:[{file:'rest.svg',enabled:true,durationMs:5000}]}}},rendering:{lowPowerStaticImageOverrides:{idle:{from:'rest.svg',to:'unassigned.png'}}}}});
+ h.electronHandlers.onStateChange('idle','rest.svg',{state:'idle',themeGeneration:1,stateRevision:2});
+ h.electronHandlers.onLowPowerIdleModeChange(true);
+ assert.strictEqual(h.api.pendingSvgFile,'rest.svg');
+ assert.strictEqual(h.electronCalls.filter(x=>x.name==='reportActionFrame').at(-1).args[0].file,'rest.svg');
+});
+
+it('retired sound IPC cannot allocate or play audio, including preview URLs',async()=>{
+ const h=createRendererHarness();
+ h.electronHandlers.onPreloadSounds({urls:['file:///complete.mp3']});
+ h.electronHandlers.onPlaySound({url:'file:///complete.mp3',volume:1});
+ h.electronHandlers.onPlaySound({url:'file:///complete.mp3?_t=1',volume:1});
+ await Promise.resolve();assert.equal(h.audioInstances.length,0);
 });

@@ -104,18 +104,19 @@
   }
 
   function overallClass(result) {
-    const status = result && result.overall && result.overall.status;
     if (!result) return "unknown";
-    if (status === "critical") return "critical";
-    if (status === "warning") return "warning";
+    const view = result.selfCheck;
+    if (!view) return "unknown";
+    if ([...(view.agents || []), ...(view.features || [])].some((item) => item.status === "issue")) return "warning";
+    if (!(view.agents || []).length || [...(view.agents || []), ...(view.features || [])]
+      .some((item) => item.status === "waiting" && item.id !== "jump")) return "unknown";
     return "pass";
   }
 
   function overallText(core, result) {
-    const status = result && result.overall && result.overall.status;
     if (!result) return t(core, "doctorStatusUnknown");
-    if (status === "critical") return t(core, "doctorStatusCritical");
-    if (status === "warning") return t(core, "doctorStatusWarning");
+    if (overallClass(result) === "warning") return t(core, "selfCheckNeedsAttention");
+    if (overallClass(result) === "unknown") return t(core, "selfCheckWaiting");
     return t(core, "doctorStatusPass");
   }
 
@@ -565,11 +566,46 @@
 
   function renderModalBody(core, result, options = {}) {
     state.fixActionByKey = new Map();
-    const issueCount = result && result.overall ? result.overall.issueCount || 0 : 0;
-    const testDisabled = state.connectionTesting ? " disabled" : "";
-    const checkList = renderCheckList(core, result);
+    const view = result && result.selfCheck ? result.selfCheck : { agents: [], features: [] };
+    const agents = Array.isArray(view.agents) ? view.agents : [];
+    const features = Array.isArray(view.features) ? view.features : [];
+    const problems = result && Array.isArray(result.problems) ? result.problems.slice(0, 5) : [];
+    const issueCount = [...agents, ...features].filter((item) => item.status === "issue").length;
     const fixConfirm = renderFixConfirm(core);
     const modalClass = options.entering ? "doctor-modal doctor-modal-entering" : "doctor-modal";
+    const statusText = (status) => t(core, {
+      ok: "doctorStatusPass", waiting: "selfCheckWaiting", issue: "selfCheckNeedsAttention",
+      off: "selfCheckOff", hidden: "selfCheckHidden",
+    }[status] || "selfCheckWaiting");
+    const renderAgent = (agent) => {
+      const lastAt = agent.lastActivityAt ? formatCheckedDateTime(agent.lastActivityAt) : "";
+      const lastLine = lastAt ? `<span class="self-check-last">${escape(core, t(core, "selfCheckLastActivity"))} ${escape(core, lastAt)}</span>` : "";
+      const fix = renderFixButton(core, agent.fixAction);
+      return `<div class="self-check-item ${escape(core, agent.status)}">` +
+        `<div class="self-check-item-top"><strong>${escape(core, agent.name)}</strong><span class="self-check-pill">${escape(core, statusText(agent.status))}</span>${fix}</div>` +
+        `<div class="self-check-item-sub">${escape(core, t(core, "selfCheckConnection"))} ${escape(core, statusText(agent.connection))}<span class="self-check-separator">·</span>${escape(core, t(core, "selfCheckFeedback"))} ${escape(core, statusText(agent.feedback))}<span class="self-check-separator">·</span>${escape(core, t(core, "selfCheckRecording"))} ${escape(core, statusText(agent.recording))}</div>` +
+        lastLine + renderRepairFeedback(core, agent.fixAction) + `</div>`;
+    };
+    const renderFeature = (feature) => {
+      const names = { icon: "selfCheckIcon", pet: "selfCheckPet", data: "selfCheckData", jump: "selfCheckJump" };
+      const logo = feature.id === "icon" ? `<img class="self-check-logo" src="../../../assets/brand/icon.png" alt="" />` : "";
+      const testButton = feature.id === "jump"
+        ? `<button type="button" class="soft-btn self-check-test-button" data-action="test-conversation-jump">${escape(core, t(core, "selfCheckTestJump"))}</button>`
+        : "";
+      return `<div class="self-check-feature ${escape(core, feature.status)}">${logo}<span>${escape(core, t(core, names[feature.id] || "selfCheckData"))}</span><span class="self-check-pill">${escape(core, statusText(feature.status))}</span>${testButton}</div>`;
+    };
+    const agentNames = new Map(agents.map((agent) => [agent.id, agent.name]));
+    const renderProblem = (problem) => {
+      const labels = {
+        "agent-connection": "selfCheckProblemAgent", "local-service": "selfCheckProblemService",
+        "icon-unavailable": "selfCheckProblemIcon", "pet-window": "selfCheckProblemPet",
+        "storage-unavailable": "selfCheckProblemStorage", "usage-refresh": "selfCheckProblemUsage",
+        "conversation-jump": "selfCheckProblemJump",
+        "tray-unavailable": "selfCheckProblemIcon", "remote-connection": "selfCheckProblemAgent",
+      };
+      const name = problem.agentId ? `${agentNames.get(problem.agentId) || problem.agentId} · ` : "";
+      return `<div class="self-check-problem"><span>${escape(core, name + t(core, labels[problem.code] || "selfCheckProblemUnknown"))}</span><time>${escape(core, formatCheckedDateTime(problem.at))}</time></div>`;
+    };
     return (
       `<div class="${modalClass}">` +
         `<div class="doctor-modal-header">` +
@@ -578,25 +614,31 @@
             `<div class="doctor-overall ${overallClass(result)}">` +
               `<span class="doctor-overall-dot"></span>` +
               `<span>${escape(core, overallText(core, result))}</span>` +
-              `<span class="doctor-issue-count">${escape(core, t(core, "doctorIssueCount").replace("{count}", String(issueCount)))}</span>` +
+              (issueCount ? `<span class="doctor-issue-count">${escape(core, t(core, "doctorIssueCount").replace("{count}", String(issueCount)))}</span>` : "") +
               renderLastChecked(core, result) +
             `</div>` +
           `</div>` +
           `<button type="button" class="doctor-close" aria-label="${escape(core, t(core, "doctorClose"))}" title="${escape(core, t(core, "doctorClose"))}"><svg viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="M6 6l8 8M14 6l-8 8"></path></svg></button>` +
         `</div>` +
-        `<div class="doctor-privacy">${escape(core, t(core, "doctorPrivacy"))}</div>` +
         renderRepairSummary(core) +
-        `<div class="doctor-check-list">${checkList}</div>` +
+        `<div class="self-check-content">` +
+          `<section class="self-check-section"><h3>${escape(core, t(core, "selfCheckAgents"))}</h3><p>${escape(core, t(core, "selfCheckAgentsHint"))}</p>` +
+            (state.checksLoading ? `<div class="self-check-empty">${escape(core, t(core, "selfCheckChecking"))}</div>` : agents.length ? agents.map(renderAgent).join("") : `<div class="self-check-empty">${escape(core, t(core, "selfCheckNoAgents"))}</div>`) +
+          `</section>` +
+          `<section class="self-check-section"><h3>${escape(core, t(core, "selfCheckFeatures"))}</h3><p>${escape(core, t(core, "selfCheckFeaturesHint"))}</p>` +
+            (state.checksLoading ? `<div class="self-check-empty">${escape(core, t(core, "selfCheckChecking"))}</div>` : features.map(renderFeature).join("")) +
+          `</section>` +
+          `<section class="self-check-section"><h3>${escape(core, t(core, "selfCheckProblems"))}</h3><p>${escape(core, t(core, "selfCheckProblemsHint"))}</p>` +
+            (problems.length ? problems.map(renderProblem).join("") : `<div class="self-check-empty">${escape(core, t(core, "selfCheckNoProblems"))}</div>`) +
+          `</section>` +
+        `</div>` +
         fixConfirm +
-        renderConnectionTest(core) +
         `<div class="doctor-action-bar">` +
           `<div class="doctor-action-side">` +
             renderActionNotice(core) +
           `</div>` +
           `<div class="doctor-actions">` +
-            `<button type="button" class="soft-btn" data-action="copy">${escape(core, t(core, "doctorCopyReport"))}</button>` +
-            `<button type="button" class="soft-btn" data-action="open-log">${escape(core, t(core, "doctorOpenLog"))}</button>` +
-            `<button type="button" class="soft-btn" data-action="test-connection"${testDisabled}>${escape(core, t(core, "doctorTestConnection"))}</button>` +
+            `<button type="button" class="soft-btn" data-action="copy">${escape(core, t(core, "selfCheckCopyReport"))}</button>` +
             `<button type="button" class="soft-btn accent" data-action="rerun">${escape(core, t(core, "doctorRerun"))}</button>` +
           `</div>` +
         `</div>` +
@@ -654,6 +696,7 @@
     const copy = rootEl.querySelector('[data-action="copy"]');
     const rerun = rootEl.querySelector('[data-action="rerun"]');
     const testConnection = rootEl.querySelector('[data-action="test-connection"]');
+    const testJump = rootEl.querySelector('[data-action="test-conversation-jump"]');
     const openLog = rootEl.querySelector('[data-action="open-log"]');
     const fixButtons = rootEl.querySelectorAll('[data-action="fix"]');
     const confirmFix = rootEl.querySelector('[data-action="confirm-fix"]');
@@ -682,6 +725,27 @@
     }
     if (testConnection) {
       testConnection.addEventListener("click", () => startConnectionTest(core));
+    }
+    if (testJump) {
+      testJump.addEventListener("click", async () => {
+        testJump.disabled = true;
+        testJump.textContent = t(core, "selfCheckJumpTesting");
+        let result;
+        try {
+          result = await root.doctor.testConversationJump();
+          await runChecks(core);
+        } catch {
+          result = { status: "failed" };
+        }
+        if (!result || typeof result.status !== "string") result = { status: "failed" };
+        const messageKey = result.status === "ok" ? "selfCheckJumpPassed"
+          : result.status === "unavailable" ? "selfCheckJumpUnavailable"
+            : result.status === "submitted" ? "selfCheckJumpSubmitted" : "selfCheckJumpFailed";
+        showToast(core, t(core, messageKey).replace("{agent}", result.agentName || "Agent"), {
+          error: result.status === "failed",
+        });
+        refreshModal(core);
+      });
     }
     if (openLog) {
       openLog.addEventListener("click", async () => {

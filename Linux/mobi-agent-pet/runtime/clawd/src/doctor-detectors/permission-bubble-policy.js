@@ -14,11 +14,9 @@ function checkPermissionBubblePolicy(options = {}) {
   if (!policy.enabled) {
     return {
       id: "permission-bubble-policy",
-      status: "fail",
-      level: "warning",
-      detail: "Permission bubbles are globally disabled",
-      textHint: "Open Settings -> General and turn on permission bubbles.",
-      fixAction: { type: "permission-bubble-policy" },
+      status: "disabled-by-user",
+      level: "info",
+      detail: "Permission bubbles are turned off in Settings",
     };
   }
 

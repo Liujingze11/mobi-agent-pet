@@ -81,8 +81,8 @@ describe("updateSession: Notification hook gate", () => {
     assert.strictEqual(api.sessions.has("cc-1"), true, "session must still be registered (bookkeeping runs)");
     assert.strictEqual(api.sessions.get("cc-1").state, "idle", "session state resolves to idle after Notification");
     const stateChanges = ctx._rendererEvents.filter(([ch]) => ch === "state-change");
-    assert.ok(stateChanges.length >= 1, "pet must still get a state-change (to idle, not notification)");
-    assert.notStrictEqual(stateChanges[0][1], "notification", "must not enter notification state");
+    assert.strictEqual(api.getCurrentState(), "idle");
+    assert.ok(stateChanges.every(entry => entry[1] !== "waiting"), "must not enter waiting state");
     assert.deepStrictEqual(ctx._soundsPlayed, [], "confirm sound must not play");
   });
 
@@ -95,7 +95,7 @@ describe("updateSession: Notification hook gate", () => {
 
     const stateChanges = ctx._rendererEvents.filter(([ch]) => ch === "state-change");
     assert.ok(stateChanges.length >= 1, "notification state must be broadcast");
-    assert.strictEqual(stateChanges[0][1], "notification");
+    assert.strictEqual(stateChanges[0][1], "waiting");
     assert.deepStrictEqual(ctx._soundsPlayed, ["confirm"], "confirm sound must play");
   });
 
@@ -106,17 +106,17 @@ describe("updateSession: Notification hook gate", () => {
     api = require("../src/state")(ctx);
 
     api.updateSession("cc-1", "attention", "Stop", { agentId: "claude-code" });
-    assert.strictEqual(api.getCurrentState(), "mini-happy", "completion should still show mini-happy");
+    assert.strictEqual(api.getCurrentState(), "complete", "completion should still show mini-happy");
 
-    mock.timers.tick(defaultTheme.timings.autoReturn["mini-happy"] + 1);
-    assert.strictEqual(api.getCurrentState(), "mini-idle", "mini-happy should settle before the idle ping");
+    mock.timers.tick(5001);
+    assert.strictEqual(api.getCurrentState(), "idle", "mini-happy should settle before the idle ping");
     ctx._rendererEvents.length = 0;
     ctx._soundsPlayed.length = 0;
 
     api.updateSession("cc-1", "notification", "Notification", { agentId: "claude-code" });
 
     const stateChanges = ctx._rendererEvents.filter(([ch]) => ch === "state-change");
-    assert.ok(stateChanges.every(([, s]) => s !== "mini-alert"), "post-completion idle ping must not show mini-alert");
+    assert.ok(stateChanges.every(([, s]) => s !== "waiting"), "post-completion idle ping must not show mini-alert");
     assert.deepStrictEqual(ctx._soundsPlayed, [], "post-completion idle ping must not play confirm");
     assert.deepStrictEqual(
       api.sessions.get("cc-1").recentEvents.map((entry) => entry.event),
@@ -135,7 +135,7 @@ describe("updateSession: Notification hook gate", () => {
 
     const stateChanges = ctx._rendererEvents.filter(([ch]) => ch === "state-change");
     assert.ok(stateChanges.length >= 1, "standalone mini notification should still broadcast");
-    assert.strictEqual(stateChanges[0][1], "mini-alert");
+    assert.strictEqual(stateChanges[0][1], "waiting");
     assert.deepStrictEqual(ctx._soundsPlayed, ["confirm"], "standalone mini notification should still chime");
   });
 
@@ -146,7 +146,7 @@ describe("updateSession: Notification hook gate", () => {
     api = require("../src/state")(ctx);
 
     api.updateSession("cc-1", "attention", "Stop", { agentId: "claude-code" });
-    mock.timers.tick(defaultTheme.timings.autoReturn["mini-happy"] + 1);
+    mock.timers.tick(5001);
     ctx._rendererEvents.length = 0;
     ctx._soundsPlayed.length = 0;
 
@@ -163,7 +163,7 @@ describe("updateSession: Notification hook gate", () => {
 
     const stateChanges = ctx._rendererEvents.filter(([ch]) => ch === "state-change");
     assert.ok(stateChanges.length >= 1, "notification after user activity should broadcast");
-    assert.strictEqual(stateChanges[0][1], "mini-alert");
+    assert.strictEqual(stateChanges[0][1], "waiting");
     assert.deepStrictEqual(ctx._soundsPlayed, ["confirm"], "notification after user activity should chime");
   });
 
@@ -173,7 +173,7 @@ describe("updateSession: Notification hook gate", () => {
     api = require("../src/state")(ctx);
 
     api.updateSession("cc-1", "attention", "Stop", { agentId: "claude-code" });
-    mock.timers.tick(defaultTheme.timings.autoReturn.attention + 1);
+    mock.timers.tick(5001);
     ctx._rendererEvents.length = 0;
     ctx._soundsPlayed.length = 0;
 
@@ -181,7 +181,7 @@ describe("updateSession: Notification hook gate", () => {
 
     const stateChanges = ctx._rendererEvents.filter(([ch]) => ch === "state-change");
     assert.ok(stateChanges.length >= 1, "normal-mode wait-for-input alert should still broadcast");
-    assert.strictEqual(stateChanges[0][1], "notification");
+    assert.strictEqual(stateChanges[0][1], "waiting");
     assert.deepStrictEqual(ctx._soundsPlayed, ["confirm"], "normal-mode wait-for-input alert should still chime");
   });
 
@@ -195,8 +195,9 @@ describe("updateSession: Notification hook gate", () => {
     assert.strictEqual(api.sessions.has("gemini-1"), true, "Gemini session must still be registered");
     assert.strictEqual(api.sessions.get("gemini-1").state, "idle", "Gemini Notification must still resolve bookkeeping");
     const stateChanges = ctx._rendererEvents.filter(([ch]) => ch === "state-change");
-    assert.ok(stateChanges.length >= 1, "pet must still get a state-change broadcast");
-    assert.notStrictEqual(stateChanges[0][1], "notification", "Gemini mute must skip notification state");
+    assert.strictEqual(api.getCurrentState(), "idle");
+    assert.ok(stateChanges.every(entry => entry[1] !== "waiting"));
+    assert.notStrictEqual(api.getCurrentState(), "waiting", "Gemini mute must skip notification state");
     assert.deepStrictEqual(ctx._soundsPlayed, [], "Gemini mute must suppress confirm sound");
   });
 
@@ -209,7 +210,7 @@ describe("updateSession: Notification hook gate", () => {
 
     const stateChanges = ctx._rendererEvents.filter(([ch]) => ch === "state-change");
     assert.ok(stateChanges.length >= 1, "Gemini notification state must be broadcast");
-    assert.strictEqual(stateChanges[0][1], "notification");
+    assert.strictEqual(stateChanges[0][1], "waiting");
     assert.deepStrictEqual(ctx._soundsPlayed, ["confirm"], "Gemini notification must play confirm sound");
   });
 
@@ -228,8 +229,9 @@ describe("updateSession: Notification hook gate", () => {
     assert.strictEqual(api.sessions.has("qoder-1"), true, "Qoder session must still be registered (bookkeeping runs)");
     assert.strictEqual(api.sessions.get("qoder-1").state, "idle", "Qoder Notification resolves bookkeeping to idle");
     const stateChanges = ctx._rendererEvents.filter(([ch]) => ch === "state-change");
-    assert.ok(stateChanges.length >= 1, "pet must still get a state-change broadcast");
-    assert.notStrictEqual(stateChanges[0][1], "notification", "muted: must not enter notification state");
+    assert.strictEqual(api.getCurrentState(), "idle");
+    assert.ok(stateChanges.every(entry => entry[1] !== "waiting"));
+    assert.notStrictEqual(api.getCurrentState(), "waiting", "muted: must not enter notification state");
     assert.deepStrictEqual(ctx._soundsPlayed, [], "muted: confirm sound must not play");
   });
 
@@ -242,7 +244,7 @@ describe("updateSession: Notification hook gate", () => {
 
     const stateChanges = ctx._rendererEvents.filter(([ch]) => ch === "state-change");
     assert.ok(stateChanges.length >= 1, "Qoder notification must broadcast");
-    assert.strictEqual(stateChanges[0][1], "notification");
+    assert.strictEqual(stateChanges[0][1], "waiting");
     assert.deepStrictEqual(ctx._soundsPlayed, ["confirm"], "Qoder notification must play confirm");
   });
 
@@ -256,8 +258,8 @@ describe("updateSession: Notification hook gate", () => {
     assert.strictEqual(api.sessions.has("codewhale-1"), true, "CodeWhale session must still be registered");
     assert.strictEqual(api.sessions.get("codewhale-1").state, "idle", "CodeWhale attention resolves bookkeeping to idle");
     const stateChanges = ctx._rendererEvents.filter(([ch]) => ch === "state-change");
-    assert.ok(stateChanges.length >= 1, "pet must still get a state-change broadcast");
-    assert.notStrictEqual(stateChanges[0][1], "attention", "muted: must not enter attention state");
+    assert.strictEqual(api.getCurrentState(), "idle");
+    assert.notStrictEqual(api.getCurrentState(), "complete", "muted: must not enter attention state");
   });
 
   it("lets CodeWhale passive attention notifications through when the per-agent flag is on", () => {
@@ -269,7 +271,7 @@ describe("updateSession: Notification hook gate", () => {
 
     const stateChanges = ctx._rendererEvents.filter(([ch]) => ch === "state-change");
     assert.ok(stateChanges.length >= 1, "CodeWhale attention notification must broadcast");
-    assert.strictEqual(stateChanges[0][1], "attention");
+    assert.strictEqual(stateChanges[0][1], "complete");
   });
 
   it("never drops PermissionRequest events even when the flag is off", () => {
@@ -284,7 +286,7 @@ describe("updateSession: Notification hook gate", () => {
 
     const stateChanges = ctx._rendererEvents.filter(([ch]) => ch === "state-change");
     assert.ok(stateChanges.length >= 1, "permission request must still broadcast notification");
-    assert.strictEqual(stateChanges[0][1], "notification");
+    assert.strictEqual(stateChanges[0][1], "waiting");
   });
 
   it("can mute only the Codex native PermissionRequest prompt sound", () => {
@@ -299,7 +301,7 @@ describe("updateSession: Notification hook gate", () => {
 
     const stateChanges = ctx._rendererEvents.filter(([ch]) => ch === "state-change");
     assert.ok(stateChanges.length >= 1, "Codex native prompt must still show notification");
-    assert.strictEqual(stateChanges[0][1], "notification");
+    assert.strictEqual(stateChanges[0][1], "waiting");
     assert.deepStrictEqual(ctx._soundsPlayed, [], "Codex native prompt sound must be muted");
   });
 
@@ -361,7 +363,7 @@ describe("updateSession: Notification hook gate", () => {
 
     const stateChanges = ctx._rendererEvents.filter(([ch]) => ch === "state-change");
     assert.ok(stateChanges.length >= 1, "mini mode should still show the alert animation");
-    assert.strictEqual(stateChanges[0][1], "mini-alert");
+    assert.strictEqual(stateChanges[0][1], "waiting");
     assert.deepStrictEqual(ctx._soundsPlayed, [], "mini-alert prompt sound must be muted");
   });
 
@@ -442,7 +444,7 @@ describe("updateSession: Notification hook gate", () => {
     const stateChanges = ctx._rendererEvents.filter(([ch]) => ch === "state-change");
     // Pet still gets a broadcast (fall-through to resolveDisplayState), but
     // never enters notification state and never plays the bell.
-    assert.ok(stateChanges.every(([, s]) => s !== "notification"), "must not enter notification state");
+    assert.ok(stateChanges.every(([, s]) => s !== "waiting"), "must not enter notification state");
     assert.deepStrictEqual(ctx._soundsPlayed, [], "no bell when gate resolves agentId from session");
   });
 
@@ -459,7 +461,7 @@ describe("updateSession: Notification hook gate", () => {
 
     // Open a Kimi permission hold — pet pins on notification.
     api.updateSession("kimi-a", "notification", "PermissionRequest", { agentId: "kimi-cli" });
-    assert.strictEqual(api.resolveDisplayState(), "notification", "hold pins display");
+    assert.strictEqual(api.resolveDisplayState(), "waiting", "hold pins display");
 
     // Kimi emits Notification with the toggle off. The bell must be muted
     // *and* the hold must release so the pet returns to idle.

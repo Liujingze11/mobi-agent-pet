@@ -124,13 +124,13 @@ describe("mini mode entry timing", () => {
     // After the 100ms window slide: window is at mini position,
     // mini-enter has just been applied, enter animation is playing.
     mock.timers.tick(120);
-    assert.deepStrictEqual(stateLog, ["mini-enter"]);
+    assert.deepStrictEqual(stateLog, []);
     assert.equal(ctx.getBoundsSnapshot().x, mini.getCurrentMiniX());
-    assert.equal(mini.getMiniTransitioning(), true);
+    assert.equal(mini.getMiniTransitioning(), false);
 
     // After the mini-enter animation settles (mocked to 1000ms).
     mock.timers.tick(1020);
-    assert.deepStrictEqual(stateLog, ["mini-enter", "mini-idle"]);
+    assert.deepStrictEqual(stateLog, []);
     assert.equal(mini.getMiniTransitioning(), false);
     assert.equal(mini.getMiniMode(), true);
   });
@@ -149,7 +149,7 @@ describe("mini mode entry timing", () => {
     mini.enterMiniMode({ x: 0, y: 0, width: 800, height: 600 }, true, "right");
     mock.timers.tick(360);
 
-    assert.deepStrictEqual(stateLog, ["mini-enter"]);
+    assert.deepStrictEqual(stateLog, []);
     assert.notEqual(ctx.getBoundsSnapshot().x, mini.getCurrentMiniX());
     assert.equal(mini.getMiniTransitioning(), true);
 
@@ -158,7 +158,7 @@ describe("mini mode entry timing", () => {
 
     mock.timers.tick(1020);
 
-    assert.deepStrictEqual(stateLog, ["mini-enter", "mini-idle"]);
+    assert.deepStrictEqual(stateLog, []);
     assert.equal(mini.getMiniTransitioning(), false);
     assert.equal(mini.getMiniMode(), true);
   });
@@ -178,7 +178,7 @@ describe("mini mode entry timing", () => {
 
     mini.enterMiniViaMenu();
 
-    assert.deepStrictEqual(stateLog, ["mini-crabwalk"]);
+    assert.deepStrictEqual(stateLog, []);
     assert.deepStrictEqual(rendererEvents[0], [
       "mini-mode-change",
       true,
@@ -204,10 +204,10 @@ describe("mini mode entry timing", () => {
 
     mini.enterMiniMode({ x: 0, y: 0, width: 800, height: 600 }, false, "right");
     mock.timers.tick(120);
-    assert.deepStrictEqual(stateLog, ["mini-enter"]);
+    assert.deepStrictEqual(stateLog, []);
 
     mock.timers.tick(1020);
-    assert.deepStrictEqual(stateLog, ["mini-enter", "mini-idle"]);
+    assert.deepStrictEqual(stateLog, []);
     assert.equal(mini.getMiniTransitioning(), false);
     assert.equal(mini.getMiniMode(), true);
   });
@@ -561,4 +561,29 @@ describe("mini mode restore screen ownership", () => {
       `expected restored center ${centerX} to stay on right screen`
     );
   });
+});
+it('mini entry keeps the current task instead of creating a mini state',()=>{
+ mock.timers.enable({apis:['setTimeout','Date']});
+ const loader=loadMiniWithElectron({getAllDisplays:()=>[{bounds:{x:0,y:0,width:800,height:600},workArea:{x:0,y:0,width:800,height:600}}]});
+ const log=[],ctx=makeCtx(cloneTheme(_defaultTheme),log,600);ctx.currentState='working';ctx.resolveDisplayState=()=> 'working';const mini=loader.initMini(ctx);
+ try{mini.enterMiniMode({x:0,y:0,width:800,height:600},false,'right');mock.timers.tick(8000);assert.equal(ctx.currentState,'working');assert.ok(log.every(x=>x==='working'));}finally{mini.cleanup();loader.restore();mock.timers.reset();}
+});
+
+it('mini geometry entry and exit cannot truncate real completion or error deadlines',()=>{
+ mock.timers.enable({apis:['setTimeout','Date']});
+ const loader=loadMiniWithElectron({getAllDisplays:()=>[{bounds:{x:0,y:0,width:800,height:600},workArea:{x:0,y:0,width:800,height:600}}]});
+ const ctx=makeCtx(cloneTheme(_defaultTheme),[],600);
+ Object.assign(ctx,{playSound(){},t:x=>x,getCursorScreenPoint:()=>({x:0,y:0})});
+ const state=require('../src/state')(ctx);
+ Object.defineProperty(ctx,'currentState',{get:()=>state.getCurrentState()});
+ ctx.applyState=(...args)=>state.applyState(...args);ctx.resolveDisplayState=()=>state.resolveDisplayState();
+ const mini=loader.initMini(ctx);
+ try{
+  state.applyState('complete');const initial=state.getPetStateSnapshot();
+  mini.enterMiniMode({x:0,y:0,width:800,height:600},false,'right');mock.timers.tick(220);
+  assert.equal(state.getCurrentState(),'complete');assert.equal(state.getPetStateSnapshot().stateRevision,initial.stateRevision);
+  mini.exitMiniMode();state.applyState('error');const failure=state.getPetStateSnapshot();mock.timers.tick(400);
+  assert.equal(state.getCurrentState(),'error');assert.equal(state.getPetStateSnapshot().stateRevision,failure.stateRevision);
+  mock.timers.tick(4600);assert.equal(state.getCurrentState(),'idle');
+ }finally{mini.cleanup();state.cleanup();loader.restore();mock.timers.reset();}
 });

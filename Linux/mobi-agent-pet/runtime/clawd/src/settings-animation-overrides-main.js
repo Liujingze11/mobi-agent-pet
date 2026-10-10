@@ -1,5 +1,6 @@
 "use strict";
 
+const petActions = require("./pet-action-plan");
 const defaultFs = require("fs");
 const defaultPath = require("path");
 const { pathToFileURL } = require("url");
@@ -184,6 +185,7 @@ function createSettingsAnimationOverridesMain(options = {}) {
   const animationCycle = options.animationCycle || defaultAnimationCycle;
   const getActiveTheme = options.getActiveTheme || (() => null);
   const getSettingsWindow = options.getSettingsWindow || (() => null);
+  const getDashboardWindow = options.getDashboardWindow || (() => null);
   const getLang = options.getLang || (() => "en");
   const getThemeReloadInProgress = options.getThemeReloadInProgress || (() => false);
   const getStateRuntime = options.getStateRuntime || (() => options.stateRuntime || null);
@@ -442,16 +444,12 @@ function createSettingsAnimationOverridesMain(options = {}) {
   }
 
   function getLiveSettingsWebContents() {
-    const settingsWindow = getSettingsWindow();
-    if (
-      !settingsWindow
-      || settingsWindow.isDestroyed()
-      || !settingsWindow.webContents
-      || settingsWindow.webContents.isDestroyed()
-    ) {
-      return null;
+    for (const window of [getDashboardWindow(), getSettingsWindow()]) {
+      if (window && !window.isDestroyed() && window.webContents && !window.webContents.isDestroyed()) {
+        return window.webContents;
+      }
     }
-    return settingsWindow.webContents;
+    return null;
   }
 
   function bumpPreviewPosterGeneration() {
@@ -1134,57 +1132,21 @@ function createSettingsAnimationOverridesMain(options = {}) {
       sounds: buildSoundOverrideSlots(),
       idleDefaultVisual: buildIdleDefaultVisualData(),
     };
+    const normalFiles = new Set(petActions.collectActionFiles(activeTheme));
+    data.actionManagement = {
+      defaults: petActions.defaultPlan(activeTheme),
+      plan: petActions.resolveEffectivePlan(activeTheme),
+      durations: Object.fromEntries([...normalFiles].map(file => [file, petActions.actionDuration(activeTheme, file)])),
+      labels: activeTheme.actionLabels || {},
+      assets: data.assets.filter(asset => normalFiles.has(asset.name)),
+    };
     scheduleAnimationPreviewPosters(data);
     return data;
   }
 
-  function runAnimationOverridePreview(stateKey, file, durationMs) {
-    clearPreviewTimer();
-    const stateRuntime = getStateRuntime();
-    try {
-      stateRuntime.applyState(stateKey, file);
-    } catch (err) {
-      return { status: "error", message: `previewAnimationOverride: ${err && err.message}` };
-    }
-    const activeTheme = getActiveTheme();
-    const trustedScriptedCycleMs = getTrustedScriptedAnimationCycleMs(file, activeTheme, path);
-    const previewMaxMs = isTrustedScriptedAnimationFile(file, activeTheme, path)
-      ? TRUSTED_SCRIPTED_PREVIEW_HOLD_MAX_MS
-      : PREVIEW_HOLD_MAX_MS;
-    const requested = (typeof durationMs === "number" && Number.isFinite(durationMs) && durationMs > 0)
-      ? durationMs
-      : (trustedScriptedCycleMs != null ? trustedScriptedCycleMs : PREVIEW_HOLD_MIN_MS);
-    const holdMs = Math.max(PREVIEW_HOLD_MIN_MS, Math.min(previewMaxMs, requested));
-    animationOverridePreviewTimer = setTimeout(() => {
-      animationOverridePreviewTimer = null;
-      const latestStateRuntime = getStateRuntime();
-      try {
-        latestStateRuntime.applyState("idle", latestStateRuntime.getSvgOverride("idle"));
-      } catch {}
-    }, holdMs);
-    return { status: "ok" };
-  }
-
-  function previewAnimationOverride(payload) {
-    if (!payload || typeof payload !== "object") {
-      return { status: "error", message: "previewAnimationOverride payload must be an object" };
-    }
-    const { stateKey, file, durationMs } = payload;
-    if (typeof stateKey !== "string" || !stateKey) {
-      return { status: "error", message: "previewAnimationOverride.stateKey must be a non-empty string" };
-    }
-    if (typeof file !== "string" || !file) {
-      return { status: "error", message: "previewAnimationOverride.file must be a non-empty string" };
-    }
-    const stateRuntime = getStateRuntime();
-    if (!stateRuntime || typeof stateRuntime.applyState !== "function" || typeof stateRuntime.resolveDisplayState !== "function") {
-      return { status: "error", message: "previewAnimationOverride requires state runtime" };
-    }
-    if (getThemeReloadInProgress()) {
-      pendingPostReloadTasks.push(() => runAnimationOverridePreview(stateKey, file, durationMs));
-      return { status: "ok", deferred: true };
-    }
-    return runAnimationOverridePreview(stateKey, file, durationMs);
+  function previewAnimationOverride() {
+    return { status: "error", code: "PET_PREVIEW_MOVED", message: getLang() === "zh"
+      ? "请在动作管理中预览动作。" : "Preview actions in the action manager." };
   }
 
   function previewReaction(payload) {

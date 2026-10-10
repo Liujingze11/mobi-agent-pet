@@ -75,6 +75,18 @@ const VISUAL_FALLBACK_STATES = new Set([
 ]);
 
 function validateTheme(cfg) {
+  const petIds = require("./pet-states").PET_STATE_IDS;
+  const canonical = cfg && cfg.states && petIds.every(id => Object.hasOwn(cfg.states, id));
+  if (canonical) {
+    const states = { ...cfg.states };
+    for (const id of petIds) {
+      if (Array.isArray(states[id]) && !states[id].length && id !== "idle") states[id] = { files: [], fallbackTo: "idle" };
+    }
+    cfg = { ...cfg, sleepSequence: { mode: "direct" }, states: {
+      ...states, thinking: states.working, sleeping: { files: [], fallbackTo: "idle" },
+    } };
+  }
+
   const errors = [];
   const sleepMode = deriveSleepMode(cfg);
   const normalizedStates = normalizeStateBindings(cfg && cfg.states);
@@ -177,7 +189,7 @@ function validateTheme(cfg) {
   for (const stateKey of fallbackStateKeys) {
     const entry = normalizedStates[stateKey];
     if (!entry.fallbackTo) continue;
-    if (!VISUAL_FALLBACK_STATES.has(stateKey)) {
+    if (!VISUAL_FALLBACK_STATES.has(stateKey) && !(canonical && petIds.includes(stateKey))) {
       errors.push(`states.${stateKey}.fallbackTo is only allowed on error/attention/notification/sweeping/carrying/sleeping/roam`);
       continue;
     }

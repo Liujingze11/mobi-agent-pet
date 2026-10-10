@@ -50,6 +50,20 @@ function writeFile(filePath, content = "x") {
   fs.writeFileSync(filePath, content, "utf8");
 }
 
+test("renderer uses native action timings even when a saved plan contains short manual durations", () => {
+  const saved = { version: 1, states: { idle: { mode: "random", actions: [
+    { file: "idle.svg", enabled: true, durationMs: 500 },
+  ] }, working: { mode: "sequence", actions: [
+    { file: "working.svg", enabled: true, durationMs: 1000 },
+  ] } } };
+  const context = createThemeContext(makeTheme({ states: { idle: ["idle.svg"], working: ["working.svg"] }, actionDurations: { "idle.svg": 4000, "working.svg": 6000 }, _userOverrides: { actionPlan: saved } }));
+  const plan = context.getRendererConfig().actionPlan;
+  assert.strictEqual(plan.states.idle.actions[0].durationMs, 4000);
+  assert.strictEqual(plan.states.working.actions[0].durationMs, 6000);
+  assert.strictEqual(plan.states.idle.mode, "random");
+  assert.strictEqual(saved.states.idle.actions[0].durationMs, 500);
+});
+
 test("explicit contexts resolve independent external asset paths without active-theme state", () => {
   const fixture = makeRoot();
   try {

@@ -5,8 +5,28 @@ const assert = require("node:assert");
 
 const {
   extractClaudeContextUsageFromEntries,
+  extractClaudeModelFromEntries,
   resolveClaudeContextLimit,
 } = require("../hooks/context-usage");
+
+describe("Claude model parser", () => {
+  it("uses the most recent main-session assistant model and ignores sidechains and errors", () => {
+    assert.strictEqual(extractClaudeModelFromEntries([
+      { type: "assistant", sessionId: "main", message: { model: "claude-sonnet-4-6" } },
+      { type: "assistant", sessionId: "other", message: { model: "claude-opus-4-6" } },
+      { type: "assistant", sessionId: "main", isSidechain: true, message: { model: "claude-haiku-4-5" } },
+      { type: "assistant", sessionId: "main", isApiErrorMessage: true, message: { model: "claude-opus-4-6" } },
+      { type: "user", sessionId: "main", model: "claude-haiku-4-5" },
+    ], "main"), "claude-sonnet-4-6");
+  });
+
+  it("returns no model when a conversation has no valid assistant response", () => {
+    assert.strictEqual(extractClaudeModelFromEntries([
+      { type: "assistant", sessionId: "other", message: { model: "claude-opus-4-6" } },
+      { type: "assistant", sessionId: "main", message: { model: "<synthetic>" } },
+    ], "main"), null);
+  });
+});
 
 describe("Claude context usage parser", () => {
   it("extracts the latest assistant input usage with cache tokens", () => {

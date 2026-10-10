@@ -69,6 +69,11 @@ describe("Codex monitor callback helpers", () => {
     });
   });
 
+  it("passes a reported Codex model through to session state", () => {
+    const options = buildCodexMonitorUpdateOptions({ cwd: "/repo", model: "gpt-5.4-codex" });
+    assert.strictEqual(options.model, "gpt-5.4-codex");
+  });
+
   it("defaults normal monitor headless to false", () => {
     assert.deepStrictEqual(buildCodexMonitorUpdateOptions({
       cwd: "/repo",

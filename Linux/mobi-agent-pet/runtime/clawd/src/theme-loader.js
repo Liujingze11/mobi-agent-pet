@@ -52,6 +52,27 @@ let userDataDir = null;        // app.getPath("userData") — set by init()
 let userThemesDir = null;      // {userData}/themes/
 let themeCacheDir = null;      // {userData}/theme-cache/
 let soundOverridesRoot = null; // {userData}/sound-overrides/ — per-theme copied audio
+let defaultThemeId = "clawd";
+let excludedBuiltinThemeIds = new Set();
+
+// Product catalog policy is installed before initialization. It does not affect
+// user-created themes or delete preferences associated with retired characters.
+function setThemePolicy({ defaultThemeId: nextDefault = "clawd", excludedBuiltinThemeIds: excluded = [] } = {}) {
+  if (typeof nextDefault !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(nextDefault)
+      || !Array.isArray(excluded) || excluded.some(id => typeof id !== "string") || excluded.includes(nextDefault)) {
+    throw new TypeError("Invalid theme catalog policy");
+  }
+  defaultThemeId = nextDefault;
+  excludedBuiltinThemeIds = new Set(excluded);
+}
+
+function getDefaultThemeId() { return defaultThemeId; }
+
+function resolveThemeId(themeId) {
+  const id = themeId || defaultThemeId;
+  const { raw } = _readThemeJson(id);
+  return raw && validateTheme(raw).length === 0 ? id : defaultThemeId;
+}
 
 // ── Public API ──
 
@@ -125,6 +146,7 @@ function _scanThemesDir(dir, builtin, themes, seen) {
   try {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       if (!entry.isDirectory()) continue;
+      if (builtin && excludedBuiltinThemeIds.has(entry.name)) continue;
       if (seen.has(entry.name)) continue;
       const jsonPath = path.join(dir, entry.name, "theme.json");
       let cfg;
@@ -141,7 +163,7 @@ function _scanThemesDir(dir, builtin, themes, seen) {
 /**
  * Load a theme by ID without activating it.
  *
- * Strict mode throws on missing/invalid; lenient falls back to "clawd".
+ * Strict mode throws on missing/invalid; lenient uses the product default.
  * Callers detect fallback by comparing the requested id against
  * `returnedTheme._id` / `returnedTheme._variantId` — no synthetic flag needed.
  *
@@ -162,8 +184,8 @@ function loadTheme(themeId, opts = {}) {
     const msg = `Theme "${themeId}" not found`;
     if (strict) throw new Error(msg);
     console.error(`[theme-loader] ${msg}`);
-    if (themeId !== "clawd") return loadTheme("clawd");
-    throw new Error("Default theme 'clawd' not found");
+    if (themeId !== defaultThemeId) return loadTheme(defaultThemeId);
+    throw new Error(`Default theme '${defaultThemeId}' not found`);
   }
 
   const errors = validateTheme(raw);
@@ -171,7 +193,8 @@ function loadTheme(themeId, opts = {}) {
     const msg = `Theme "${themeId}" validation errors: ${errors.join("; ")}`;
     if (strict) throw new Error(msg);
     console.error(`[theme-loader] ${msg}`);
-    if (themeId !== "clawd") return loadTheme("clawd");
+    if (themeId !== defaultThemeId) return loadTheme(defaultThemeId);
+    throw new Error(msg);
   }
 
   // Resolve variant + apply patch BEFORE mergeDefaults so that geometry
@@ -215,6 +238,17 @@ function loadTheme(themeId, opts = {}) {
 
   theme._soundOverrideFiles = _resolveSoundOverrideFiles(themeId, userOverrides);
 
+  require("./pet-theme-model").normalizePetTheme(theme);
+  theme._availablePetActionFiles = require("./pet-action-plan").collectActionFiles(theme)
+    .filter(file => fs.existsSync(_resolveAssetPath(theme, file)));
+  try {
+    require("./pet-action-plan").resolveEffectivePlan(theme);
+  } catch (error) {
+    const msg = `Theme "${themeId}" cannot play: ${error.message}`;
+    if (strict || themeId === defaultThemeId) throw new Error(msg);
+    console.error(`[theme-loader] ${msg}`);
+    return loadTheme(defaultThemeId);
+  }
   return theme;
 }
 
@@ -245,7 +279,7 @@ function _resolveSoundOverrideFiles(themeId, userOverrides) {
  */
 function _readThemeJson(themeId) {
   // Built-in first
-  if (builtinThemesDir) {
+  if (builtinThemesDir && !excludedBuiltinThemeIds.has(themeId)) {
     const builtinPath = path.resolve(builtinThemesDir, themeId, "theme.json");
     if (!_isPathInsideDir(builtinThemesDir, builtinPath)) {
       console.error(`[theme-loader] Path traversal detected for built-in theme "${themeId}"`);
@@ -458,10 +492,13 @@ function getThemeMetadata(themeId) {
  * `theme` / `themeOverrides` broadcast.
  */
 function listThemesWithMetadata() {
-  return _listThemesWithMetadata({ builtinThemesDir, userThemesDir, assetsSvgDir });
+  return _listThemesWithMetadata({ builtinThemesDir, userThemesDir, assetsSvgDir, excludedBuiltinThemeIds: [...excludedBuiltinThemeIds] });
 }
 
 module.exports = {
+  setThemePolicy,
+  getDefaultThemeId,
+  resolveThemeId,
   init,
   bindActiveThemeRuntime,
   discoverThemes,

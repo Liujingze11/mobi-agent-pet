@@ -629,33 +629,9 @@ function makeGeneralSnapshot(overrides = {}) {
   };
 }
 
-it("General settings places live Hide Pet switch above Open at login and keeps it in sync", async () => {
-  const calls = [];
-  const harness = loadGeneralTabForTest({
-    snapshot: makeGeneralSnapshot(),
-    settingsAPI: {
-      setPetHidden: async (hidden) => {
-        calls.push(hidden);
-        harness.core.runtime.petHidden = hidden;
-        return { status: "ok", hidden };
-      },
-    },
-  });
-  harness.renderContent();
-  const hide = harness.getSwitchMeta("petHidden");
-  const startup = harness.getSwitchMeta("openAtLogin");
-  assert.ok(hide);
-  assert.ok(startup);
-  assert.ok(hide.row.parentNode.children.indexOf(hide.row) < startup.row.parentNode.children.indexOf(startup.row));
-  assert.equal(hide.row.parentNode, startup.row.parentNode);
-  assert.equal(harness.content.children.indexOf(hide.row.parentNode.parentNode), 4);
-  hide.element.dispatchEvent({ type: "click" });
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.deepStrictEqual(calls, [true]);
-  assert.equal(hide.element.getAttribute("aria-checked"), "true");
-  harness.core.runtime.petHidden = false;
-  harness.core.ops.applyChanges({ changes: { petHidden: false } });
-  assert.equal(hide.element.getAttribute("aria-checked"), "false");
+it("General settings delegates pet visibility to mode and retains startup control",()=>{
+ const h=loadGeneralTabForTest({snapshot:makeGeneralSnapshot()});h.renderContent();
+ assert.ok(!h.getSwitchMeta("petHidden"));assert.ok(h.getSwitchMeta("openAtLogin"));
 });
 
 function createKeyboardEventForTest(key) {
@@ -1501,9 +1477,6 @@ describe("settings renderer browser environment", () => {
       "settings-agent-order.js",
       "settings-tab-general.js",
       "settings-tab-agents.js",
-      "settings-tab-theme.js",
-      "settings-tab-anim-map.js",
-      "settings-tab-anim-overrides.js",
       "settings-tab-shortcuts.js",
       "settings-tab-telegram-approval.js",
       "settings-tab-about.js",
@@ -3247,217 +3220,27 @@ describe("settings renderer browser environment", () => {
     assert.equal(harness.renderRequests.length, beforeStatusResolve + 2);
   });
 
-  it("wires Clawd Doctor through Settings with Step 2 connection actions", () => {
-    const html = fs.readFileSync(SETTINGS_HTML, "utf8");
-    const css = fs.readFileSync(SETTINGS_CSS, "utf8");
+  it("places Mobi Check at the bottom with three plain-language sections", () => {
     const rendererSource = fs.readFileSync(SETTINGS_RENDERER, "utf8");
-    const doctorModalSource = fs.readFileSync(SETTINGS_DOCTOR_MODAL, "utf8");
-    const preloadSource = fs.readFileSync(PRELOAD_SETTINGS, "utf8");
-    const mainSource = fs.readFileSync(MAIN_PROCESS, "utf8");
-    const doctorIpcSource = fs.readFileSync(DOCTOR_IPC, "utf8");
+    const doctorSource = fs.readFileSync(SETTINGS_DOCTOR_MODAL, "utf8");
     const i18nSource = fs.readFileSync(SETTINGS_I18N, "utf8");
-
-    assert.ok(html.includes('<script src="settings-doctor-modal.js"></script>'));
-    assert.ok(css.includes(".doctor-indicator"));
-    assert.ok(css.includes(".doctor-modal"));
-    assert.ok(rendererSource.includes("ClawdSettingsDoctorModal.renderSidebarIndicator"));
-    assert.ok(doctorModalSource.includes("initialRunStarted"));
-    assert.ok(doctorModalSource.includes("runningPromise"));
-    assert.ok(doctorModalSource.includes("root.doctor.runChecks"));
-    assert.ok(doctorModalSource.includes("root.doctor.getReport"));
-    assert.ok(doctorModalSource.includes("root.doctor.testConnection"));
-    assert.ok(doctorModalSource.includes("root.doctor.openClawdLog"));
-    assert.ok(doctorModalSource.includes('root.settingsAPI.command("repairDoctorIssue"'));
-    assert.ok(doctorModalSource.includes("requiresFixConfirmation"));
-    assert.ok(doctorModalSource.includes("renderFixConfirm"));
-    assert.ok(doctorModalSource.includes("doctorFixConfirmCodexDetail"));
-    assert.ok(doctorModalSource.includes("doctorRestartConfirmDetail"));
-    assert.ok(doctorModalSource.includes("doctorRestartButton"));
-    assert.ok(doctorModalSource.includes('commandAction.type !== "restart-clawd"'));
-    assert.ok(doctorModalSource.includes("repairFeedback"));
-    assert.ok(doctorModalSource.includes("lastRepairFeedback"));
-    assert.ok(doctorModalSource.includes("actionNotice"));
-    assert.ok(doctorModalSource.includes("actionNoticeTimer"));
-    assert.ok(doctorModalSource.includes("checkExpansionOverrides"));
-    assert.ok(doctorModalSource.includes("checksLoading"));
-    assert.ok(doctorModalSource.includes("connectionRunId"));
-    assert.ok(doctorModalSource.includes("repairRunId"));
-    assert.ok(doctorModalSource.includes("modalEntering"));
-    assert.ok(doctorModalSource.includes("clearModalEnteringTimer"));
-    assert.ok(doctorModalSource.includes("startModalEntering"));
-    assert.ok(doctorModalSource.includes("showActionNotice"));
-    assert.ok(doctorModalSource.includes("if (state.modalOpen)"));
-    assert.ok(doctorModalSource.includes("core.ops.showToast"));
-    assert.ok(!doctorModalSource.includes("core.helpers.showToast"));
-    assert.ok(doctorModalSource.includes("agentDetailText"));
-    assert.ok(doctorModalSource.includes("startConnectionTest"));
-    assert.ok(doctorModalSource.includes("stopConnectionCountdown();"));
-    assert.ok(doctorModalSource.includes('class="doctor-title-row"'));
-    assert.ok(doctorModalSource.includes("renderLocalServerCheck"));
-    assert.ok(doctorModalSource.includes("doctor-local-server-main"));
-    assert.ok(doctorModalSource.includes('class="doctor-check-summary" title='));
-    assert.ok(doctorModalSource.includes('const fullDetail = detail && cls !== "pass"'));
-    assert.ok(doctorModalSource.includes("renderAgentIntegrationCheck"));
-    assert.ok(doctorModalSource.includes("doctor-agent-collapsible"));
-    assert.ok(doctorModalSource.includes("doctor-agent-chevron"));
-    assert.ok(/doctor-agent-chevron[\s\S]*doctor-check-label[\s\S]*doctor-check-summary[\s\S]*doctor-check-status/.test(doctorModalSource));
-    assert.ok(doctorModalSource.includes("doctor-agent-body"));
-    assert.ok(doctorModalSource.includes("doctor-agent-body-inner"));
-    assert.ok(doctorModalSource.includes('data-action="toggle-check"'));
-    assert.ok(doctorModalSource.includes('button.setAttribute("aria-expanded"'));
-    assert.ok(doctorModalSource.includes('row.classList.toggle("expanded"'));
-    assert.ok(doctorModalSource.includes('body.setAttribute("aria-hidden"'));
-    assert.ok(doctorModalSource.includes('" inert"'));
-    assert.ok(doctorModalSource.includes('body.setAttribute("inert", "")'));
-    assert.ok(doctorModalSource.includes("body.removeAttribute(\"inert\")"));
-    assert.ok(doctorModalSource.includes("checkNeedsAttention"));
-    assert.ok(doctorModalSource.includes("formatAgentIntegrationSummary"));
-    assert.ok(doctorModalSource.includes("formatAgentAttentionNames"));
-    assert.ok(doctorModalSource.includes("AGENT_ATTENTION_NAME_LIMIT"));
-    assert.ok(doctorModalSource.includes("doctorAgentSummaryNeedsAttention"));
-    assert.ok(doctorModalSource.includes("+${hidden}"));
-    assert.ok(doctorModalSource.includes("doctorAgentSummaryOk"));
-    assert.ok(doctorModalSource.includes("doctorAgentSummaryAttention"));
-    assert.ok(doctorModalSource.includes("doctorAgentSummarySkipped"));
-    assert.ok(doctorModalSource.includes("AGENT_WARNING_STATUSES"));
-    assert.ok(doctorModalSource.includes("AGENT_INFO_STATUSES"));
-    assert.ok(doctorModalSource.includes("renderCheckSkeleton"));
-    assert.ok(doctorModalSource.includes("doctor-check-skeleton"));
-    assert.ok(doctorModalSource.includes("doctor-skeleton-line"));
-    assert.ok(doctorModalSource.includes("doctor-connection-progress"));
-    assert.ok(doctorModalSource.includes("const runId = ++state.connectionRunId"));
-    assert.ok(doctorModalSource.includes("if (runId !== state.connectionRunId) return;"));
-    assert.ok(doctorModalSource.includes("state.connectionTesting = false"));
-    assert.ok(doctorModalSource.includes("state.connectionTest = null"));
-    assert.ok(doctorModalSource.includes('state.checksLoading = true'));
-    assert.ok(doctorModalSource.includes('state.checksLoading = false'));
-    assert.ok(doctorModalSource.includes("formatCheckedDateTime"));
-    assert.ok(doctorModalSource.includes('year: "numeric"'));
-    assert.ok(doctorModalSource.includes('month: "2-digit"'));
-    assert.ok(doctorModalSource.includes('day: "2-digit"'));
-    assert.ok(doctorModalSource.includes("renderLastChecked"));
-    assert.ok(doctorModalSource.includes("doctorLastCheckedAt"));
-    assert.ok(doctorModalSource.includes("result.generatedAt"));
-    assert.ok(doctorModalSource.includes("doctor-last-checked"));
-    assert.ok(doctorModalSource.includes("const opening = !state.modalOpen"));
-    assert.ok(doctorModalSource.includes("const entering = state.modalEntering"));
-    assert.ok(doctorModalSource.includes("doctor-modal-entering"));
-    assert.ok(doctorModalSource.includes("renderModalBody(core, result, { entering })"));
-    assert.ok(doctorModalSource.includes("renderActionNotice"));
-    assert.ok(doctorModalSource.includes("doctor-action-notice-icon"));
-    assert.ok(doctorModalSource.includes("doctor-action-notice-text"));
-    assert.ok(doctorModalSource.includes("doctor-action-bar"));
-    assert.ok(doctorModalSource.includes("clearActionNoticeTimer();"));
-    assert.ok(doctorModalSource.includes("state.repairFeedback = {};"));
-    assert.ok(doctorModalSource.includes("state.repairingKey = null;"));
-    assert.ok(doctorModalSource.includes("const runId = ++state.repairRunId"));
-    assert.ok(doctorModalSource.includes("if (runId !== state.repairRunId) return;"));
-    assert.ok(doctorModalSource.includes("doctor-privacy"));
-    assert.ok(!doctorModalSource.includes("doctorPrivacyShort"));
-    assert.ok(!i18nSource.includes("doctorPrivacyShort"));
-    assert.ok(!doctorModalSource.includes("doctor-privacy-inline"));
-    assert.ok(css.includes(".doctor-agent-detail"));
-    assert.ok(css.includes(".doctor-connection-panel"));
-    assert.ok(css.includes(".doctor-fix-button"));
-    assert.ok(css.includes(".doctor-fix-confirm"));
-    assert.ok(!css.includes(".doctor-privacy-inline"));
-    assert.ok(css.includes(".doctor-repair-feedback"));
-    assert.ok(css.includes(".doctor-repair-summary"));
-    assert.ok(css.includes(".doctor-title-row"));
-    assert.ok(css.includes(".doctor-check-row-compact"));
-    assert.ok(css.includes(".doctor-local-server-main"));
-    assert.ok(css.includes(".doctor-agent-toggle"));
-    assert.ok(css.includes(".doctor-agent-chevron"));
-    assert.ok(css.includes(".doctor-agent-collapsible.expanded"));
-    assert.ok(css.includes(".doctor-agent-body"));
-    assert.ok(css.includes(".doctor-agent-body-inner"));
-    assert.ok(css.includes(".doctor-action-bar"));
-    assert.ok(css.includes(".doctor-action-notice"));
-    assert.ok(!css.includes(".doctor-action-notice::after"));
-    assert.ok(css.includes(".doctor-action-notice-icon"));
-    assert.ok(/\.doctor-action-notice\.ok\s*\{[^}]*color:\s*var\(--doctor-pass-strong\);/.test(css));
-    assert.ok(/\.doctor-action-notice\.error\s*\{[^}]*color:\s*var\(--doctor-critical-strong\);/.test(css));
-    assert.ok(css.includes("@keyframes doctor-notice-in"));
-    assert.ok(/\.doctor-modal\s*\{[\s\S]*width:\s*min\(728px,\s*100%\);[\s\S]*max-height:\s*calc\(100vh \/ var\(--clawd-text-zoom, 1\) - 32px\);/.test(css));
-    assert.ok(/\.doctor-modal\s*\{[\s\S]*gap:\s*8px;[\s\S]*padding:\s*14px;/.test(css));
-    assert.ok(css.includes(".doctor-modal-entering"));
-    assert.ok(css.includes("@keyframes doctor-modal-in"));
-    assert.ok(css.includes(".doctor-last-checked"));
-    assert.ok(/\.doctor-overall\s*\{[\s\S]*flex-wrap:\s*wrap;/.test(css));
-    assert.ok(/\.doctor-check-list\s*\{[\s\S]*gap:\s*6px;/.test(css));
-    assert.ok(/\.doctor-check-row\s*\{[\s\S]*padding:\s*8px 10px;/.test(css));
-    assert.ok(/\.doctor-check-detail\s*\{[\s\S]*margin:\s*5px 0 0 17px;/.test(css));
-    assert.ok(css.includes("--doctor-pass"));
-    assert.ok(css.includes("--doctor-warning"));
-    assert.ok(css.includes("--doctor-critical"));
-    assert.ok(css.includes("--doctor-critical-rgb: 220, 38, 38;"));
-    assert.ok(css.includes(".doctor-check-skeleton"));
-    assert.ok(css.includes("@keyframes doctor-skeleton-sheen"));
-    assert.ok(css.includes(".doctor-connection-panel.testing"));
-    assert.ok(css.includes(".doctor-connection-progress"));
-    assert.ok(/\.doctor-action-bar\s*\{[\s\S]*align-items:\s*center;/.test(css));
-    assert.ok(/\.doctor-action-notice-slot\s*\{[\s\S]*min-height:\s*24px;/.test(css));
-    assert.ok(/\.doctor-check-row\.pass\s*\{[\s\S]*border-left-color:\s*rgba\(var\(--doctor-pass-rgb\),\s*0\.72\);/.test(css));
-    assert.ok(/\.doctor-check-row\.warning\s*\{[\s\S]*border-left-color:\s*rgba\(var\(--doctor-warning-rgb\),\s*0\.78\);/.test(css));
-    assert.ok(/\.doctor-check-row\.critical\s*\{[\s\S]*border-left-color:\s*rgba\(var\(--doctor-critical-rgb\),\s*0\.78\);/.test(css));
-    assert.ok(/\.doctor-agent-toggle\s*\{[\s\S]*grid-template-columns:\s*auto auto auto minmax\(0,\s*1fr\) auto;/.test(css));
-    assert.ok(/\.doctor-agent-body\s*\{[\s\S]*grid-template-rows:\s*0fr;[\s\S]*transition:[\s\S]*grid-template-rows 0\.24s cubic-bezier/.test(css));
-    assert.ok(/\.doctor-agent-collapsible\.expanded \.doctor-agent-body\s*\{[\s\S]*grid-template-rows:\s*1fr;/.test(css));
-    assert.ok(/\.doctor-check-row\s*\{[\s\S]*border-left-width:\s*3px;/.test(css));
-    assert.ok(/\.doctor-check-status\s*\{[\s\S]*border-radius:\s*999px;/.test(css));
-    assert.ok(/\.doctor-close:hover\s*\{[\s\S]*background:\s*rgba\(52,\s*120,\s*246,\s*0\.1\);[\s\S]*transform:\s*scale\(1\.04\);/.test(css));
-    assert.ok(/\.doctor-close:focus-visible\s*\{[\s\S]*outline:\s*2px solid var\(--accent\);/.test(css));
-    assert.ok(/\.doctor-agent-toggle:focus-visible\s*\{[\s\S]*outline:\s*2px solid var\(--accent\);/.test(css));
-    assert.ok(/@media \(prefers-reduced-motion:\s*reduce\)\s*\{[\s\S]*\.doctor-modal-entering[\s\S]*animation:\s*none;/.test(css));
-    assert.ok(/@media \(max-width:\s*720px\)\s*\{[\s\S]*\.doctor-action-bar\s*\{[\s\S]*flex-direction:\s*column;/.test(css));
-    // Regression guard: agent list must not introduce its own scroll viewport.
-    // The outer .doctor-check-list owns scrolling so users get a single scrollbar.
-    // [^}]*? keeps the match scoped to this rule body so unrelated max-height
-    // declarations elsewhere in settings.css don't trip the assertion.
-    assert.ok(!/\.doctor-agent-list\s*\{[^}]*?max-height:/.test(css));
-    assert.ok(!/\.doctor-agent-list\s*\{[^}]*?overflow-y:\s*auto/.test(css));
-    assert.ok(/\.doctor-agent-item \+ \.doctor-agent-item\s*\{[\s\S]*border-top:\s*1px solid var\(--row-border\);/.test(css));
-    assert.ok(preloadSource.includes('contextBridge.exposeInMainWorld("doctor"'));
-    assert.ok(preloadSource.includes('ipcRenderer.invoke("doctor:run-checks")'));
-    assert.ok(preloadSource.includes('ipcRenderer.invoke("doctor:get-report")'));
-    assert.ok(preloadSource.includes('ipcRenderer.invoke("doctor:test-connection"'));
-    assert.ok(preloadSource.includes('ipcRenderer.invoke("doctor:open-clawd-log"'));
-    assert.ok(mainSource.includes("registerDoctorIpc"));
-    assert.ok(doctorIpcSource.includes('ipcMain.handle("doctor:run-checks"'));
-    assert.ok(doctorIpcSource.includes('ipcMain.handle("doctor:get-report"'));
-    assert.ok(doctorIpcSource.includes('ipcMain.handle("doctor:test-connection"'));
-    assert.ok(doctorIpcSource.includes('ipcMain.handle("doctor:open-clawd-log"'));
-    assert.ok(doctorIpcSource.includes("createConnectionTestDeduper"));
-    assert.ok(doctorIpcSource.includes("createDoctorRunChecksDeduper"));
-    assert.ok(doctorIpcSource.includes("runDedupedDoctorChecks"));
-    assert.ok(doctorIpcSource.includes("runDedupedDoctorConnectionTest"));
-    assert.ok(doctorIpcSource.includes("normalizeDoctorConnectionTestPayload"));
-    assert.ok(doctorIpcSource.includes("normalizeDoctorOpenLogPayload"));
-    assert.ok(doctorIpcSource.includes("runConnectionTest"));
-    assert.ok(doctorIpcSource.includes("openClawdLog"));
-    assert.ok(doctorIpcSource.includes("formatDiagnosticReport"));
-    assert.ok(doctorIpcSource.includes("getDoctorRedactionOptions"));
-    assert.ok(doctorIpcSource.includes("redactDoctorResult(await runDedupedDoctorChecks(), getDoctorRedactionOptions(app))"));
-    assert.ok(i18nSource.includes("doctorRunFailed"));
-    assert.ok(i18nSource.includes("doctorFixApplied"));
-    assert.ok(i18nSource.includes("doctorFixConfirmCodexDetail"));
-    assert.ok(i18nSource.includes("doctorRestartConfirmDetail"));
-    assert.ok(i18nSource.includes("doctorPrivacy"));
-    assert.ok(i18nSource.includes("doctorLastCheckedAt"));
-    assert.ok(i18nSource.includes("doctorAgentSummaryOk"));
-    assert.ok(i18nSource.includes("doctorAgentSummaryAttention"));
-    assert.ok(i18nSource.includes("doctorAgentSummaryNeedsAttention"));
-    assert.ok(i18nSource.includes("doctorAgentSummarySkipped"));
-    assert.ok(i18nSource.includes("doctorConnectionHttpVerified"));
-    assert.ok(i18nSource.includes("doctorOpenLog"));
-    assert.ok(i18nSource.includes('doctorOpenLogOpened: "Debug log opened"'));
-    assert.ok(i18nSource.includes('doctorOpenLogOpened: "已打开调试日志"'));
-    assert.ok(i18nSource.includes('doctorOpenLogOpened: "디버그 로그를 열었습니다"'));
-    assert.ok(i18nSource.includes('doctorOpenLogOpened: "デバッグログを開きました"'));
-    assert.ok(!i18nSource.includes('doctorOpenLogOpened: "Debug log opened."'));
-    assert.ok(!i18nSource.includes('doctorOpenLogOpened: "已打开调试日志。"'));
-    assert.ok(!i18nSource.includes('doctorOpenLogOpened: "디버그 로그를 열었습니다."'));
-    assert.ok(!i18nSource.includes('doctorOpenLogOpened: "デバッグログを開きました。"'));
+    const css = fs.readFileSync(SETTINGS_CSS, "utf8");
+    const body = doctorSource.slice(
+      doctorSource.indexOf("function renderModalBody"),
+      doctorSource.indexOf("function closeModal")
+    );
+    assert.ok(rendererSource.indexOf("renderSidebarIndicator(sidebar, core)") > rendererSource.indexOf("for (const tab of SIDEBAR_TABS)"));
+    assert.ok(css.includes("margin-top: auto"));
+    assert.ok(body.includes("selfCheckAgents"));
+    assert.ok(body.includes("selfCheckFeatures"));
+    assert.ok(body.includes("selfCheckProblems"));
+    assert.ok(body.includes("result.problems"));
+    assert.ok(body.includes("result.selfCheck"));
+    assert.ok(!body.includes("renderCheckList(core, result)"));
+    assert.ok(!body.includes("renderConnectionTest(core)"));
+    assert.ok(!body.includes('data-action="test-connection"'));
+    assert.ok(!body.includes('data-action="open-log"'));
+    assert.ok(i18nSource.includes('doctorSidebarLabel: "Mobi 自检"'));
   });
 
   it("unifies the size slider on the simple volume-style control (no floating bubble, no ticks)", () => {
@@ -3756,33 +3539,7 @@ describe("settings renderer browser environment", () => {
     assert.strictEqual(harness.getDocumentListenerCount("keydown"), 1);
   });
 
-  it("exposes aggregate permission and notification bubble controls in the General tab", () => {
-    const generalSource = fs.readFileSync(path.join(SRC_DIR, "settings-tab-general.js"), "utf8");
-    const i18nSource = fs.readFileSync(SETTINGS_I18N, "utf8");
-    const css = fs.readFileSync(SETTINGS_CSS, "utf8");
-    assert.ok(generalSource.includes('key: "hideBubbles"'));
-    assert.ok(generalSource.includes("rowHideBubbles"));
-    assert.ok(generalSource.includes("setAllBubblesHidden"));
-    assert.ok(generalSource.includes('{ hidden: nextRaw }'));
-    assert.ok(generalSource.includes('keys.includes("hideBubbles")'));
-    assert.ok(generalSource.includes("buildBubblePolicyRow()"));
-    assert.ok(generalSource.includes("setBubbleCategoryEnabled"));
-    assert.ok(generalSource.includes("state.mountedControls.bubblePolicyControls"));
-    assert.ok(generalSource.includes("state.mountedControls.bubblePolicySummary"));
-    assert.ok(generalSource.indexOf("buildBubblePolicyRow()") < generalSource.indexOf('key: "bubbleFollowPet"'));
-    assert.ok(generalSource.includes("notificationBubbleAutoCloseSeconds"));
-    assert.ok(!generalSource.includes("updateBubbleAutoCloseSeconds"));
-    assert.ok(generalSource.includes("bubble-policy-prefix"));
-    assert.ok(generalSource.includes('input.type = "text"'));
-    assert.ok(generalSource.includes("input.maxLength = 4"));
-    assert.ok(generalSource.includes('input.pattern = "[0-9]*"'));
-    assert.ok(generalSource.includes('input.value.replace(/\\D+/g, "").slice(0, 4)'));
-    assert.ok(/\.bubble-policy-seconds\s*\{[\s\S]*width:\s*42px;/.test(css));
-    assert.ok(/\.bubble-policy-seconds\s*\{[\s\S]*box-sizing:\s*border-box;[\s\S]*text-align:\s*center;[\s\S]*padding:\s*0 3px;/.test(css));
-    assert.ok(i18nSource.includes("rowHideBubbles"));
-    assert.ok(i18nSource.includes("rowBubblePolicy"));
-    assert.ok(i18nSource.includes("bubbleSecondsPrefix"));
-  });
+
 
   it("registers the Session cleanup group with three number rows, atomic reset, and i18n keys", () => {
     const generalSource = fs.readFileSync(path.join(SRC_DIR, "settings-tab-general.js"), "utf8");
@@ -3837,48 +3594,7 @@ describe("settings renderer browser environment", () => {
     }
   });
 
-  it("uses collapsible option lists for Session HUD and sound controls", () => {
-    const generalSource = fs.readFileSync(path.join(SRC_DIR, "settings-tab-general.js"), "utf8");
-    const css = fs.readFileSync(SETTINGS_CSS, "utf8");
-    const i18nSource = fs.readFileSync(SETTINGS_I18N, "utf8");
-    assert.ok(generalSource.includes("function buildSessionHudOptionsList("));
-    assert.ok(generalSource.includes("session-hud-option-list"));
-    assert.ok(generalSource.includes("function buildSoundGroup("));
-    assert.ok(generalSource.includes("function buildSoundEnabledRow("));
-    assert.ok(generalSource.includes('id: "general:sound"'));
-    assert.ok(generalSource.includes("sound-option-list"));
-    assert.ok(generalSource.includes("state.mountedControls.soundSummary"));
-    assert.ok(generalSource.includes('sw.setAttribute("aria-label", t("rowSoundEnabled"));'));
-    assert.ok(generalSource.includes("toggleSound"));
-    assert.ok(generalSource.includes("syncVolumePreview"));
-    assert.ok(!/key:\s*"soundMuted",[\s\S]{0,120}descKey:\s*"rowSoundDesc"/.test(generalSource));
-    assert.ok(generalSource.includes('state.transientUiState.generalSwitches.set("soundMuted"'));
-    assert.ok(generalSource.includes("if (!result || result.status !== \"ok\" || result.noop)"));
-    assert.ok(generalSource.includes("sessionHudSummaryLabels"));
-    assert.ok(generalSource.includes('key: "sessionHudShowStateLabels"'));
-    assert.ok(generalSource.includes("session-hud-summary-control"));
-    assert.ok(/\.settings-option-list\s*\{[\s\S]*display:\s*grid;[\s\S]*gap:\s*8px;/.test(css));
-    assert.ok(/\.settings-option-list \.settings-option-item\s*\{[\s\S]*background:\s*color-mix\(in srgb,\s*var\(--panel-bg\) 78%,\s*transparent\);/.test(css));
-    assert.ok(/\.session-hud-collapsible \.collapsible-summary-chip,[\s\S]*\.sound-collapsible \.collapsible-summary-chip\s*\{[\s\S]*max-width:\s*min\(280px,\s*100%\);/.test(css));
-    assert.ok(/\.session-hud-collapsible \.collapsible-group-summary\s*\{[\s\S]*flex:\s*0 0 auto;[\s\S]*max-width:\s*none;/.test(css));
-    assert.ok(/\.sound-collapsible \.collapsible-group-summary\s*\{[\s\S]*flex:\s*0 0 auto;[\s\S]*max-width:\s*none;/.test(css));
-    assert.ok(/\.bubble-policy-collapsible \.collapsible-group-summary\s*\{[^}]*flex:\s*0 0 auto;[^}]*flex-wrap:\s*nowrap;[^}]*max-width:\s*none;[^}]*\}/.test(css));
-    assert.ok(!/\.session-hud-collapsible \.collapsible-group-summary\s*\{[^}]*flex-wrap:\s*nowrap;/.test(css));
-    assert.ok(!/\.sound-collapsible \.collapsible-group-summary\s*\{[^}]*flex-wrap:\s*nowrap;/.test(css));
-    assert.ok(/\.session-hud-summary-control\s*\{[\s\S]*grid-template-columns:\s*repeat\(3,\s*max-content\);/.test(css));
-    assert.ok(/\.session-hud-summary-control\.compact\s*\{[\s\S]*display:\s*inline-flex;[\s\S]*width:\s*auto;/.test(css));
-    assert.ok(/@media \(max-width:\s*720px\)\s*\{[\s\S]*\.session-hud-collapsible \.collapsible-group-header\s*\{[\s\S]*flex-wrap:\s*wrap;/.test(css));
-    assert.ok(/@media \(max-width:\s*720px\)\s*\{[\s\S]*\.session-hud-collapsible \.collapsible-group-summary\s*\{[\s\S]*flex:\s*0 0 calc\(100% - 22px\);[\s\S]*margin-left:\s*22px;/.test(css));
-    assert.ok(/@media \(max-width:\s*720px\)\s*\{[\s\S]*\.session-hud-summary-control\s*\{[\s\S]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);[\s\S]*width:\s*min\(238px,\s*100%\);/.test(css));
-    assert.ok(/\.collapsible-group-text \.row-label\s*\{[\s\S]*text-overflow:\s*ellipsis;[\s\S]*white-space:\s*nowrap;/.test(css));
-    assert.ok(/\.collapsible-group-text \.row-desc\s*\{[\s\S]*white-space:\s*normal;[\s\S]*-webkit-line-clamp:\s*2;/.test(css));
-    assert.ok(/\.sound-summary-control\s*\{[\s\S]*display:\s*inline-flex;/.test(css));
-    assert.ok(/\.sound-summary-control\s*\{[\s\S]*min-width:\s*max-content;/.test(css));
-    assert.ok(/\.sound-summary-control \.collapsible-summary-chip\s*\{[\s\S]*max-width:\s*none;/.test(css));
-    assert.ok(/\.sound-summary-control \.collapsible-summary-chip\s*\{[\s\S]*flex:\s*0 0 auto;/.test(css));
-    assert.ok(/\.sound-collapsible \.collapsible-group-text \.row-desc\s*\{[\s\S]*white-space:\s*normal;[\s\S]*-webkit-line-clamp:\s*2;/.test(css));
-    assert.ok(i18nSource.includes("rowSoundEnabled"));
-  });
+
 
   it("adds hover affordance to General sliders via the shared volume-style classes", () => {
     const css = fs.readFileSync(SETTINGS_CSS, "utf8");
@@ -3948,44 +3664,7 @@ describe("settings renderer browser environment", () => {
     assert.ok(i18nSource.includes("claudeHooksDisconnectConfirmKeep"));
   });
 
-  it("renders three permission automation modes with two confirmation-gated automatic choices", () => {
-    const generalSource = fs.readFileSync(path.join(SRC_DIR, "settings-tab-general.js"), "utf8");
-    const coreSource = fs.readFileSync(SETTINGS_UI_CORE, "utf8");
-    const i18nSource = fs.readFileSync(SETTINGS_I18N, "utf8");
-    const css = fs.readFileSync(SETTINGS_CSS, "utf8");
-    assert.ok(generalSource.includes("PERMISSION_AUTOMATION_OPTIONS"));
-    assert.ok(generalSource.includes('{ id: "off", labelKey: "permissionAutomationOff" }'));
-    assert.ok(generalSource.includes('{ id: "auto-tools", labelKey: "permissionAutomationAutoTools" }'));
-    assert.ok(generalSource.includes('{ id: "unattended", labelKey: "permissionAutomationUnattended" }'));
-    assert.ok(generalSource.includes('window.settingsAPI.command("setPermissionAutomationMode"'));
-    assert.ok(generalSource.includes("confirmed: true"));
-    assert.ok(generalSource.includes("showPermissionAutomationConfirmModal"));
-    assert.ok(generalSource.includes("permissionAutomationUnattendedConfirmTitle"));
-    assert.ok(generalSource.includes("permissionAutomationAutoToolsWarningDismissed"));
-    assert.ok(generalSource.includes("permissionAutomationUnattendedWarningDismissed"));
-    assert.ok(generalSource.includes("permissionAutomationAutoToolsDontShowAgain"));
-    assert.ok(generalSource.includes("permissionAutomationUnattendedDontShowAgain"));
-    assert.ok(generalSource.includes("suppressFutureConfirmation: result.checkboxChecked === true"));
-    assert.ok(generalSource.includes("isPermissionAutomationWarningDismissed(mode)"));
-    assert.ok(i18nSource.includes("permissionAutomationAutoToolsDontShowAgain"));
-    assert.ok(i18nSource.includes("permissionAutomationUnattendedDontShowAgain"));
-    assert.ok(css.includes(".settings-confirm-checkbox"));
-    assert.ok(coreSource.includes("checkboxLabel = \"\""));
-    assert.ok(coreSource.includes('checkboxInput.type = "checkbox"'));
-    assert.ok(coreSource.includes("checkboxChecked: !!(checkboxInput && checkboxInput.checked)"));
-    assert.ok(css.includes("grid-template-columns: repeat(3, minmax(0, 1fr))"));
-    assert.ok(generalSource.includes('segmented.setAttribute("role", "group")'));
-    assert.ok(generalSource.includes('segmented.setAttribute("aria-label", t("rowPermissionAutomation"))'));
-    assert.ok(generalSource.includes('btn.setAttribute("aria-pressed", selected ? "true" : "false")'));
-    assert.ok(i18nSource.includes('rowPermissionAutomation: "Permission request handling"'));
-    assert.ok(i18nSource.includes('rowPermissionAutomation: "权限请求处理"'));
-    assert.ok(i18nSource.includes("permissionAutomationAutoToolsConfirmTitle"));
-    assert.ok(i18nSource.includes("CodeBuddy"));
-    assert.ok(!generalSource.includes("autoApproveAllPermissions"));
-    // Lives in its own Permissions section, not under Bubbles.
-    assert.ok(generalSource.includes('t("sectionPermissions")'));
-    assert.ok(i18nSource.includes('sectionPermissions: "Permissions"'));
-  });
+
 
   it("clears successful switch transient state so rerenders do not keep wait cursors", () => {
     const coreSource = fs.readFileSync(SETTINGS_UI_CORE, "utf8");
@@ -4015,337 +3694,17 @@ describe("settings renderer browser environment", () => {
     assert.ok(clearIndex < renderIndex, "broadcast cleanup must happen before full rerender");
   });
 
-  it("patches the Session HUD master switch without rebuilding General content", async () => {
-    const updateCalls = [];
-    const initialSnapshot = {
-      lang: "en",
-      size: 50,
-      sessionHudEnabled: false,
-      sessionHudShowStateLabels: true,
-      sessionHudShowElapsed: true,
-      sessionHudShowContextUsage: true,
-      sessionHudCleanupDetached: true,
-      soundMuted: false,
-      soundVolume: 0.5,
-      lowPowerIdleMode: false,
-      allowEdgePinning: true,
-      keepSizeAcrossDisplays: true,
-      manageClaudeHooksAutomatically: false,
-      openAtLogin: false,
-      autoStartWithClaude: false,
-      hideBubbles: false,
-      bubbleFollowPet: true,
-      permissionBubblesEnabled: true,
-      notificationBubbleAutoCloseSeconds: 8,
-    };
-    const harness = loadGeneralTabForTest({
-      snapshot: initialSnapshot,
-      settingsAPI: {
-        update: (key, value) => {
-          updateCalls.push({ key, value });
-          return Promise.resolve({ status: "ok" });
-        },
-      },
-    });
-    harness.renderContent();
 
-    const master = harness.getSwitch("sessionHudEnabled");
-    const labels = harness.getSwitch("sessionHudShowStateLabels");
-    const elapsed = harness.getSwitch("sessionHudShowElapsed");
-    const contextUsage = harness.getSwitch("sessionHudShowContextUsage");
-    const cleanup = harness.getSwitch("sessionHudCleanupDetached");
-    const summary = harness.core.state.mountedControls.sessionHudSummary.element;
-    const optionList = harness.content.querySelector(".session-hud-option-list");
-    assert.ok(master);
-    assert.ok(labels);
-    assert.ok(elapsed);
-    assert.ok(contextUsage);
-    assert.ok(cleanup);
-    assert.ok(optionList);
-    assert.ok(optionList.children.every((child) => child.classList.contains("settings-option-item")));
-    assert.strictEqual(harness.getSwitchMeta("sessionHudEnabled").row.querySelector(".row-desc"), null);
-    assert.strictEqual(summary.children.length, 1);
-    assert.strictEqual(summary.children[0].textContent, "HUD: off");
-    assert.strictEqual(summary.classList.contains("compact"), true);
-    assert.strictEqual(labels.classList.contains("disabled"), true);
-    assert.strictEqual(labels.attributes["aria-disabled"], "true");
-    assert.strictEqual(labels.tabIndex, -1);
-    assert.strictEqual(elapsed.classList.contains("disabled"), true);
-    assert.strictEqual(elapsed.attributes["aria-disabled"], "true");
-    assert.strictEqual(elapsed.tabIndex, -1);
-    assert.strictEqual(contextUsage.classList.contains("disabled"), true);
-    assert.strictEqual(contextUsage.attributes["aria-disabled"], "true");
-    assert.strictEqual(contextUsage.tabIndex, -1);
 
-    const beforeRenderCount = harness.getContentRenderCount();
-    harness.core.ops.applyChanges({
-      changes: { sessionHudEnabled: true },
-      snapshot: { ...initialSnapshot, sessionHudEnabled: true },
-    });
 
-    assert.strictEqual(
-      harness.getContentRenderCount(),
-      beforeRenderCount,
-      "Session HUD master broadcasts should patch mounted controls instead of rebuilding General"
-    );
-    assert.strictEqual(harness.getSwitch("sessionHudEnabled"), master);
-    assert.strictEqual(harness.getSwitch("sessionHudShowStateLabels"), labels);
-    assert.strictEqual(harness.getSwitch("sessionHudShowElapsed"), elapsed);
-    assert.strictEqual(harness.getSwitch("sessionHudShowContextUsage"), contextUsage);
-    assert.strictEqual(harness.getSwitch("sessionHudCleanupDetached"), cleanup);
-    assert.strictEqual(master.classList.contains("on"), true);
-    assert.strictEqual(master.classList.contains("pending"), false);
-    assert.strictEqual(labels.classList.contains("disabled"), false);
-    assert.strictEqual(labels.attributes["aria-disabled"], undefined);
-    assert.strictEqual(labels.tabIndex, 0);
-    assert.strictEqual(elapsed.classList.contains("disabled"), false);
-    assert.strictEqual(elapsed.attributes["aria-disabled"], undefined);
-    assert.strictEqual(elapsed.tabIndex, 0);
-    assert.strictEqual(contextUsage.classList.contains("disabled"), false);
-    assert.strictEqual(contextUsage.attributes["aria-disabled"], undefined);
-    assert.strictEqual(contextUsage.tabIndex, 0);
-    assert.strictEqual(cleanup.classList.contains("disabled"), false);
-    assert.strictEqual(cleanup.tabIndex, 0);
-    assert.strictEqual(summary.children.length, 4);
-    assert.strictEqual(summary.classList.contains("compact"), false);
-    assert.strictEqual(summary.children[0].textContent, "Labels: on");
-    assert.strictEqual(summary.children[1].textContent, "Time: on");
-    assert.strictEqual(summary.children[2].textContent, "Context: on");
-    assert.strictEqual(summary.children[3].textContent, "Auto-clear: on");
 
-    assert.ok(
-      elapsed.eventListeners.click && elapsed.eventListeners.click.length > 0,
-      "Session HUD child switches must remain wired after being enabled in place"
-    );
-    elapsed.eventListeners.click[0]();
-    await Promise.resolve();
-    await Promise.resolve();
-    assert.deepStrictEqual(updateCalls, [{ key: "sessionHudShowElapsed", value: false }]);
-  });
 
-  it("keeps the quota ring as an independent sibling of the Session HUD", async () => {
-    const harness = loadGeneralTabForTest({
-      snapshot: makeGeneralSnapshot({
-        sessionHudEnabled: false,
-        sessionHudShowQuota: true,
-        claudeQuotaCollectionEnabled: false,
-        quotaMergeSources: false,
-      }),
-      settingsAPI: {
-        getQuotaSourceCount: async () => 2,
-      },
-    });
-    harness.renderContent();
-    await new Promise((resolve) => setImmediate(resolve));
 
-    const ringEnabled = harness.getSwitch("sessionHudShowQuota");
-    const claudeCollection = harness.getSwitch("claudeQuotaCollectionEnabled");
-    const mergeSources = harness.getSwitch("quotaMergeSources");
-    const ringOptions = harness.content.querySelector(".quota-ring-option-list");
-    const hudOptions = harness.content.querySelector(".session-hud-option-list");
-    const summary = harness.core.state.mountedControls.sessionHudSummary.element;
 
-    assert.ok(ringEnabled);
-    assert.ok(claudeCollection);
-    assert.ok(mergeSources);
-    assert.ok(ringOptions);
-    assert.ok(hudOptions);
-    assert.notStrictEqual(ringOptions, hudOptions);
-    assert.strictEqual(ringEnabled.classList.contains("disabled"), false);
-    assert.strictEqual(mergeSources.classList.contains("disabled"), false);
-    assert.strictEqual(harness.getSwitchMeta("quotaMergeSources").row.style.display, "");
-    assert.strictEqual(summary.children.length, 1);
-    assert.strictEqual(summary.children[0].textContent, "HUD: off");
-  });
 
-  it("groups sound and volume into one collapsible control with in-place summary updates", () => {
-    const initialSnapshot = makeGeneralSnapshot({
-      soundMuted: false,
-      soundVolume: 0.5,
-    });
-    const harness = loadGeneralTabForTest({ snapshot: initialSnapshot });
-    harness.renderContent();
 
-    const soundSwitch = harness.getSwitch("soundMuted");
-    const summary = harness.core.state.mountedControls.soundSummary.element;
-    const volumeControl = harness.core.state.mountedControls.soundVolume;
-    const volumeSlider = volumeControl.row.querySelector(".volume-slider");
-    const optionList = harness.content.querySelector(".sound-option-list");
-    assert.ok(soundSwitch);
-    assert.ok(summary);
-    assert.ok(volumeControl);
-    assert.ok(volumeSlider);
-    assert.ok(optionList);
-    assert.ok(optionList.children.every((child) => child.classList.contains("settings-option-item")));
-    assert.strictEqual(harness.getSwitchMeta("soundMuted").row.querySelector(".row-desc"), null);
-    assert.strictEqual(summary.children.length, 2);
-    assert.strictEqual(summary.children[0].textContent, "on · 50%");
-    assert.ok(summary.children[1].classList.contains("sound-header-switch"));
-    assert.strictEqual(summary.children[1].attributes["aria-label"], "Enable sound effects");
 
-    volumeSlider.value = "75";
-    for (const listener of volumeSlider.eventListeners.input || []) listener();
-    assert.strictEqual(summary.children[0].textContent, "on · 75%");
 
-    const beforeRenderCount = harness.getContentRenderCount();
-    harness.core.ops.applyChanges({
-      changes: { soundVolume: 0.25 },
-      snapshot: { ...initialSnapshot, soundVolume: 0.25 },
-    });
-
-    assert.strictEqual(harness.getContentRenderCount(), beforeRenderCount);
-    assert.strictEqual(harness.core.state.mountedControls.soundSummary.element, summary);
-    assert.strictEqual(volumeSlider.value, "25");
-    assert.strictEqual(volumeSlider.style.getPropertyValue("--volume-fill"), "25%");
-    assert.strictEqual(summary.children[0].textContent, "on · 25%");
-
-    harness.core.ops.applyChanges({
-      changes: { soundMuted: true },
-      snapshot: { ...initialSnapshot, soundMuted: true, soundVolume: 0.25 },
-    });
-
-    assert.strictEqual(harness.getContentRenderCount(), beforeRenderCount);
-    assert.strictEqual(harness.getSwitch("soundMuted"), soundSwitch);
-    assert.strictEqual(soundSwitch.classList.contains("on"), false);
-    assert.strictEqual(summary.children[1].classList.contains("on"), false);
-    assert.strictEqual(volumeSlider.disabled, true);
-    assert.strictEqual(summary.children[0].textContent, "off · 25%");
-  });
-
-  it("lets the sound summary switch toggle sound without opening the collapsible group", async () => {
-    const updateCalls = [];
-    const initialSnapshot = makeGeneralSnapshot({
-      soundMuted: false,
-      soundVolume: 1,
-    });
-    const harness = loadGeneralTabForTest({
-      snapshot: initialSnapshot,
-      settingsAPI: {
-        update: (key, value) => {
-          updateCalls.push({ key, value });
-          return Promise.resolve({ status: "ok" });
-        },
-      },
-    });
-    harness.renderContent();
-
-    const summary = harness.core.state.mountedControls.soundSummary;
-    const headerSwitch = summary.headerSwitch;
-    const soundGroup = harness.content.querySelector(".sound-collapsible");
-    assert.ok(headerSwitch);
-    assert.ok(soundGroup.classList.contains("collapsed"));
-
-    let stopped = false;
-    let prevented = false;
-    headerSwitch.eventListeners.click[0]({
-      stopPropagation: () => { stopped = true; },
-      preventDefault: () => { prevented = true; },
-    });
-    assert.strictEqual(headerSwitch.classList.contains("pending"), true);
-    assert.strictEqual(harness.getSwitch("soundMuted").classList.contains("pending"), true);
-    assert.strictEqual(summary.element.children[0].textContent, "off · 100%");
-    headerSwitch.eventListeners.click[0]({
-      stopPropagation: () => {},
-      preventDefault: () => {},
-    });
-    await Promise.resolve();
-    await Promise.resolve();
-
-    assert.deepStrictEqual(updateCalls, [{ key: "soundMuted", value: true }]);
-    assert.strictEqual(stopped, true);
-    assert.strictEqual(prevented, true);
-    assert.ok(soundGroup.classList.contains("collapsed"));
-    assert.strictEqual(headerSwitch.classList.contains("on"), false);
-    assert.strictEqual(headerSwitch.classList.contains("pending"), false);
-    assert.strictEqual(summary.element.children[0].textContent, "off · 100%");
-  });
-
-  it("keeps the sound child switch and summary in sync while the update is pending", async () => {
-    const updateCalls = [];
-    let resolveUpdate = null;
-    const initialSnapshot = makeGeneralSnapshot({
-      soundMuted: false,
-      soundVolume: 1,
-    });
-    const harness = loadGeneralTabForTest({
-      snapshot: initialSnapshot,
-      settingsAPI: {
-        update: (key, value) => {
-          updateCalls.push({ key, value });
-          return new Promise((resolve) => {
-            resolveUpdate = resolve;
-          });
-        },
-      },
-    });
-    harness.renderContent();
-
-    const summary = harness.core.state.mountedControls.soundSummary;
-    const headerSwitch = summary.headerSwitch;
-    const childSwitch = harness.getSwitch("soundMuted");
-    let stopped = false;
-    let prevented = false;
-    childSwitch.eventListeners.click[0]({
-      stopPropagation: () => { stopped = true; },
-      preventDefault: () => { prevented = true; },
-    });
-
-    assert.deepStrictEqual(updateCalls, [{ key: "soundMuted", value: true }]);
-    assert.strictEqual(stopped, true);
-    assert.strictEqual(prevented, true);
-    assert.strictEqual(childSwitch.classList.contains("on"), false);
-    assert.strictEqual(childSwitch.classList.contains("pending"), true);
-    assert.strictEqual(headerSwitch.classList.contains("on"), false);
-    assert.strictEqual(headerSwitch.classList.contains("pending"), true);
-    assert.strictEqual(summary.element.children[0].textContent, "off · 100%");
-
-    resolveUpdate({ status: "ok" });
-    await Promise.resolve();
-    await Promise.resolve();
-
-    assert.strictEqual(childSwitch.classList.contains("on"), false);
-    assert.strictEqual(childSwitch.classList.contains("pending"), false);
-    assert.strictEqual(headerSwitch.classList.contains("on"), false);
-    assert.strictEqual(headerSwitch.classList.contains("pending"), false);
-    assert.strictEqual(summary.element.children[0].textContent, "off · 100%");
-    assert.strictEqual(harness.core.state.transientUiState.generalSwitches.has("soundMuted"), false);
-  });
-
-  it("restores the sound summary switch when a toggle is a noop", async () => {
-    const updateCalls = [];
-    const initialSnapshot = makeGeneralSnapshot({
-      soundMuted: false,
-      soundVolume: 1,
-    });
-    const harness = loadGeneralTabForTest({
-      snapshot: initialSnapshot,
-      settingsAPI: {
-        update: (key, value) => {
-          updateCalls.push({ key, value });
-          return Promise.resolve({ status: "ok", noop: true });
-        },
-      },
-    });
-    harness.renderContent();
-
-    const summary = harness.core.state.mountedControls.soundSummary;
-    const headerSwitch = summary.headerSwitch;
-    const childSwitch = harness.getSwitch("soundMuted");
-    headerSwitch.eventListeners.click[0]({
-      stopPropagation: () => {},
-      preventDefault: () => {},
-    });
-    await Promise.resolve();
-    await Promise.resolve();
-
-    assert.deepStrictEqual(updateCalls, [{ key: "soundMuted", value: true }]);
-    assert.strictEqual(headerSwitch.classList.contains("on"), true);
-    assert.strictEqual(headerSwitch.classList.contains("pending"), false);
-    assert.strictEqual(childSwitch.classList.contains("on"), true);
-    assert.strictEqual(childSwitch.classList.contains("pending"), false);
-    assert.strictEqual(summary.element.children[0].textContent, "on · 100%");
-    assert.strictEqual(harness.core.state.transientUiState.generalSwitches.has("soundMuted"), false);
-  });
 
   it("renders Claude hook management in the Agents claude-code group with autoStart gated", () => {
     const harness = loadAgentsTabForTest({
@@ -4415,110 +3774,9 @@ describe("settings renderer browser environment", () => {
     assert.strictEqual(autoStart.extraElement, null);
   });
 
-  it("patches hide-bubbles aggregate changes without rebuilding General content", () => {
-    const initialSnapshot = {
-      lang: "en",
-      size: 50,
-      sessionHudEnabled: true,
-      sessionHudShowStateLabels: true,
-      sessionHudShowElapsed: true,
-      sessionHudCleanupDetached: true,
-      soundMuted: false,
-      soundVolume: 0.5,
-      lowPowerIdleMode: false,
-      allowEdgePinning: true,
-      keepSizeAcrossDisplays: true,
-      manageClaudeHooksAutomatically: true,
-      openAtLogin: false,
-      autoStartWithClaude: false,
-      hideBubbles: false,
-      bubbleFollowPet: true,
-      permissionBubblesEnabled: true,
-      notificationBubbleAutoCloseSeconds: 8,
-    };
-    const harness = loadGeneralTabForTest({ snapshot: initialSnapshot });
-    harness.renderContent();
 
-    const aggregate = harness.getSwitch("hideBubbles");
-    const notificationPolicy = harness.core.state.mountedControls.bubblePolicyControls.get("notificationBubbleAutoCloseSeconds");
-    const notificationSwitch = notificationPolicy.row.querySelector(".switch");
-    const notificationSeconds = notificationPolicy.row.querySelector("input");
-    assert.ok(aggregate);
-    assert.ok(notificationSwitch);
-    assert.ok(notificationSeconds);
-    assert.strictEqual(notificationSwitch.classList.contains("on"), true);
-    assert.strictEqual(notificationSeconds.disabled, false);
 
-    const beforeRenderCount = harness.getContentRenderCount();
-    harness.core.ops.applyChanges({
-      changes: { hideBubbles: true },
-      snapshot: { ...initialSnapshot, hideBubbles: true },
-    });
 
-    assert.strictEqual(
-      harness.getContentRenderCount(),
-      beforeRenderCount,
-      "hide-bubbles broadcasts should patch summary and category controls in place"
-    );
-    assert.strictEqual(harness.getSwitch("hideBubbles"), aggregate);
-    assert.strictEqual(aggregate.classList.contains("on"), true);
-    assert.strictEqual(notificationSwitch.classList.contains("on"), false);
-    assert.strictEqual(notificationSeconds.disabled, true);
-  });
-
-  it("patches the Session HUD master switch off without rebuilding General content", async () => {
-    const updateCalls = [];
-    const initialSnapshot = makeGeneralSnapshot({ sessionHudEnabled: true });
-    const harness = loadGeneralTabForTest({
-      snapshot: initialSnapshot,
-      settingsAPI: {
-        update: (key, value) => {
-          updateCalls.push({ key, value });
-          return Promise.resolve({ status: "ok" });
-        },
-      },
-    });
-    harness.renderContent();
-
-    const master = harness.getSwitch("sessionHudEnabled");
-    const labels = harness.getSwitch("sessionHudShowStateLabels");
-    const elapsed = harness.getSwitch("sessionHudShowElapsed");
-    const cleanup = harness.getSwitch("sessionHudCleanupDetached");
-    assert.ok(master);
-    assert.ok(labels);
-    assert.ok(elapsed);
-    assert.ok(cleanup);
-    assert.strictEqual(labels.classList.contains("disabled"), false);
-    assert.strictEqual(elapsed.classList.contains("disabled"), false);
-    assert.strictEqual(cleanup.classList.contains("disabled"), false);
-
-    const beforeRenderCount = harness.getContentRenderCount();
-    harness.core.ops.applyChanges({
-      changes: { sessionHudEnabled: false },
-      snapshot: { ...initialSnapshot, sessionHudEnabled: false },
-    });
-
-    assert.strictEqual(harness.getContentRenderCount(), beforeRenderCount);
-    assert.strictEqual(harness.getSwitch("sessionHudEnabled"), master);
-    assert.strictEqual(harness.getSwitch("sessionHudShowStateLabels"), labels);
-    assert.strictEqual(harness.getSwitch("sessionHudShowElapsed"), elapsed);
-    assert.strictEqual(harness.getSwitch("sessionHudCleanupDetached"), cleanup);
-    assert.strictEqual(master.classList.contains("on"), false);
-    assert.strictEqual(labels.classList.contains("disabled"), true);
-    assert.strictEqual(labels.attributes["aria-disabled"], "true");
-    assert.strictEqual(labels.tabIndex, -1);
-    assert.strictEqual(elapsed.classList.contains("disabled"), true);
-    assert.strictEqual(elapsed.attributes["aria-disabled"], "true");
-    assert.strictEqual(elapsed.tabIndex, -1);
-    assert.strictEqual(cleanup.classList.contains("disabled"), true);
-    assert.strictEqual(cleanup.attributes["aria-disabled"], "true");
-    assert.strictEqual(cleanup.tabIndex, -1);
-
-    elapsed.eventListeners.click[0]();
-    await Promise.resolve();
-    await Promise.resolve();
-    assert.deepStrictEqual(updateCalls, []);
-  });
 
   it("moves Claude hook management out of General into the Agents claude-code group", () => {
     const generalSource = fs.readFileSync(path.join(SRC_DIR, "settings-tab-general.js"), "utf8");
@@ -4543,116 +3801,13 @@ describe("settings renderer browser environment", () => {
     assert.ok(agentsSource.includes("runDisconnectClaudeHooks"));
   });
 
-  it("patches hide-bubbles aggregate off without rebuilding General content", () => {
-    const initialSnapshot = makeGeneralSnapshot({ hideBubbles: true });
-    const harness = loadGeneralTabForTest({ snapshot: initialSnapshot });
-    harness.renderContent();
 
-    const aggregate = harness.getSwitch("hideBubbles");
-    const notificationPolicy = harness.core.state.mountedControls.bubblePolicyControls.get("notificationBubbleAutoCloseSeconds");
-    const notificationSwitch = notificationPolicy.row.querySelector(".switch");
-    const notificationSeconds = notificationPolicy.row.querySelector("input");
-    const summary = harness.core.state.mountedControls.bubblePolicySummary.element;
-    assert.ok(aggregate);
-    assert.strictEqual(aggregate.classList.contains("on"), true);
-    assert.strictEqual(notificationSwitch.classList.contains("on"), false);
-    assert.strictEqual(notificationSeconds.disabled, true);
-    assert.ok(summary.children.every((chip) => !chip.classList.contains("accent")));
 
-    const beforeRenderCount = harness.getContentRenderCount();
-    harness.core.ops.applyChanges({
-      changes: { hideBubbles: false },
-      snapshot: { ...initialSnapshot, hideBubbles: false },
-    });
 
-    assert.strictEqual(harness.getContentRenderCount(), beforeRenderCount);
-    assert.strictEqual(harness.getSwitch("hideBubbles"), aggregate);
-    assert.strictEqual(aggregate.classList.contains("on"), false);
-    assert.strictEqual(notificationSwitch.classList.contains("on"), true);
-    assert.strictEqual(notificationSeconds.disabled, false);
-    assert.strictEqual(notificationSeconds.value, "8");
-    assert.strictEqual(summary.children.length, 2);
-    assert.ok(summary.children.every((chip) => chip.classList.contains("accent")));
-  });
 
-  it("rerenders General content for mixed non-patchable broadcasts", () => {
-    const initialSnapshot = makeGeneralSnapshot({
-      lang: "en",
-      sessionHudEnabled: false,
-    });
-    const harness = loadGeneralTabForTest({ snapshot: initialSnapshot });
-    harness.renderContent();
 
-    const master = harness.getSwitch("sessionHudEnabled");
-    const beforeRenderCount = harness.getContentRenderCount();
-    harness.core.ops.applyChanges({
-      changes: { sessionHudEnabled: true, lang: "zh" },
-      snapshot: { ...initialSnapshot, sessionHudEnabled: true, lang: "zh" },
-    });
 
-    assert.strictEqual(harness.getContentRenderCount(), beforeRenderCount + 1);
-    assert.notStrictEqual(harness.getSwitch("sessionHudEnabled"), master);
-    assert.strictEqual(harness.getSwitch("sessionHudEnabled").classList.contains("on"), true);
-  });
 
-  it("patches combined bubble aggregate and seconds broadcasts in place", () => {
-    const initialSnapshot = makeGeneralSnapshot({
-      hideBubbles: false,
-      notificationBubbleAutoCloseSeconds: 8,
-    });
-    const harness = loadGeneralTabForTest({ snapshot: initialSnapshot });
-    harness.renderContent();
-
-    const aggregate = harness.getSwitch("hideBubbles");
-    const notificationPolicy = harness.core.state.mountedControls.bubblePolicyControls.get("notificationBubbleAutoCloseSeconds");
-    const notificationSwitch = notificationPolicy.row.querySelector(".switch");
-    const notificationSeconds = notificationPolicy.row.querySelector("input");
-
-    const beforeRenderCount = harness.getContentRenderCount();
-    harness.core.ops.applyChanges({
-      changes: { hideBubbles: true, notificationBubbleAutoCloseSeconds: 0 },
-      snapshot: {
-        ...initialSnapshot,
-        hideBubbles: true,
-        notificationBubbleAutoCloseSeconds: 0,
-      },
-    });
-
-    assert.strictEqual(harness.getContentRenderCount(), beforeRenderCount);
-    assert.strictEqual(harness.getSwitch("hideBubbles"), aggregate);
-    assert.strictEqual(aggregate.classList.contains("on"), true);
-    assert.strictEqual(notificationSwitch.classList.contains("on"), false);
-    assert.strictEqual(notificationSeconds.disabled, true);
-    assert.strictEqual(notificationSeconds.value, "0");
-  });
-
-  it("patches pure bubble policy seconds broadcasts in place", () => {
-    const initialSnapshot = makeGeneralSnapshot({
-      hideBubbles: false,
-      notificationBubbleAutoCloseSeconds: 0,
-    });
-    const harness = loadGeneralTabForTest({ snapshot: initialSnapshot });
-    harness.renderContent();
-
-    const notificationPolicy = harness.core.state.mountedControls.bubblePolicyControls.get("notificationBubbleAutoCloseSeconds");
-    const notificationSwitch = notificationPolicy.row.querySelector(".switch");
-    const notificationSeconds = notificationPolicy.row.querySelector("input");
-    const summary = harness.core.state.mountedControls.bubblePolicySummary.element;
-    assert.strictEqual(notificationSwitch.classList.contains("on"), false);
-    assert.strictEqual(notificationSeconds.disabled, true);
-
-    const beforeRenderCount = harness.getContentRenderCount();
-    harness.core.ops.applyChanges({
-      changes: { notificationBubbleAutoCloseSeconds: 5 },
-      snapshot: { ...initialSnapshot, notificationBubbleAutoCloseSeconds: 5 },
-    });
-
-    assert.strictEqual(harness.getContentRenderCount(), beforeRenderCount);
-    assert.strictEqual(notificationSwitch.classList.contains("on"), true);
-    assert.strictEqual(notificationSeconds.disabled, false);
-    assert.strictEqual(notificationSeconds.value, "5");
-    assert.strictEqual(summary.children[1].classList.contains("accent"), true);
-  });
 
   it("uses a roomier grid layout for Settings confirmation buttons", () => {
     const css = fs.readFileSync(SETTINGS_CSS, "utf8");
@@ -5176,23 +4331,7 @@ describe("settings renderer browser environment", () => {
     assert.ok(/@media \(prefers-reduced-motion:\s*reduce\)\s*\{[\s\S]*\.collapsible-group-body/.test(css));
   });
 
-  it("collapses only the detailed bubble policy controls while keeping primary bubble rows visible", () => {
-    const generalSource = fs.readFileSync(path.join(SRC_DIR, "settings-tab-general.js"), "utf8");
-    const i18nSource = fs.readFileSync(SETTINGS_I18N, "utf8");
-    assert.ok(generalSource.includes("buildBubblePolicySummary"));
-    assert.ok(generalSource.includes("helpers.buildCollapsibleGroup({"));
-    assert.ok(generalSource.includes('id: "general:bubble-policy"'));
-    assert.ok(generalSource.includes("defaultCollapsed: true"));
-    assert.ok(generalSource.includes('title: t("rowBubblePolicy")'));
-    assert.ok(generalSource.includes("const summaryControl = buildBubblePolicySummary();"));
-    assert.ok(generalSource.includes("summary: summaryControl.element"));
-    assert.ok(generalSource.includes("children: [buildBubblePolicyList()]"));
-    assert.ok(generalSource.includes('key: "bubbleFollowPet"'));
-    assert.ok(!generalSource.includes('key: "showSessionId"'));
-    assert.ok(generalSource.includes('key: "hideBubbles"'));
-    assert.ok(i18nSource.includes("bubblePolicySummaryPermission"));
-    assert.ok(i18nSource.includes("bubblePolicySummaryNotification"));
-  });
+
 
   it("renders Agent management as collapsed per-agent groups with master switches always visible", () => {
     const agentsSource = fs.readFileSync(path.join(SRC_DIR, "settings-tab-agents.js"), "utf8");
@@ -9190,3 +8329,14 @@ describe("macOS platform detection (Settings shortcut labels)", () => {
     assert.strictEqual(isMac(null), false);
   });
 });
+
+it('General settings does not expose retired sound controls',()=>{
+ const h=loadGeneralTabForTest({snapshot:makeGeneralSnapshot()});h.renderContent();
+ assert.ok(!h.getSwitchMeta('soundMuted'));
+});
+
+ it('General has global data controls but no mode behavior switches',()=>{
+ const h=loadGeneralTabForTest({snapshot:makeGeneralSnapshot()});h.renderContent();
+ for(const key of ['lowPowerIdleMode','keepAwakeWhileWorking','sessionHudEnabled','sessionHudShowQuota','hideBubbles','bubbleFollowPet','flashTaskbarOnComplete','soundMuted']) assert.ok(!h.getSwitchMeta(key),key);
+ assert.ok(h.getSwitchMeta('claudeQuotaCollectionEnabled'));assert.ok(h.getSwitchMeta('openAtLogin'));
+ });

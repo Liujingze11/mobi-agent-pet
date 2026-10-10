@@ -78,9 +78,9 @@ const BUBBLE_STRINGS = {
     questionLabel: "Question {index}",
     other: "Other",
     otherPlaceholder: "Type your answer…",
-    codexPermission: "Codex Permission",
+    codexPermission: "Notification",
     codexToolApproval: "Codex Tool Approval",
-    kimiPermission: "Kimi Permission",
+    kimiPermission: "Notification",
     checkKimiTerminal: "Approve or reject this request in the Kimi terminal.",
     gotIt: "Got it",
     codexNeedsInput: "Codex Needs Input",
@@ -119,9 +119,9 @@ const BUBBLE_STRINGS = {
     questionLabel: "\u95EE\u9898 {index}",
     other: "\u5176\u4ED6",
     otherPlaceholder: "\u8F93\u5165\u4F60\u7684\u56DE\u7B54\u2026",
-    codexPermission: "Codex \u6743\u9650\u8BF7\u6C42",
+    codexPermission: "通知",
     codexToolApproval: "Codex \u5DE5\u5177\u8C03\u7528\u5BA1\u6279",
-    kimiPermission: "Kimi \u6743\u9650\u8BF7\u6C42",
+    kimiPermission: "通知",
     checkKimiTerminal: "\u8BF7\u5728 Kimi \u7EC8\u7AEF\u4E2D\u6279\u51C6\u6216\u62D2\u7EDD\u8BE5\u8BF7\u6C42\u3002",
     gotIt: "\u77E5\u9053\u4E86",
     codexNeedsInput: "Codex \u9700\u8981\u4F60\u7684\u56DE\u7B54",
@@ -160,9 +160,9 @@ const BUBBLE_STRINGS = {
     questionLabel: "問題 {index}",
     other: "其他",
     otherPlaceholder: "輸入你的回答…",
-    codexPermission: "Codex 權限請求",
+    codexPermission: "通知",
     codexToolApproval: "Codex 工具呼叫審批",
-    kimiPermission: "Kimi 權限請求",
+    kimiPermission: "通知",
     checkKimiTerminal: "請在 Kimi 終端機中允許或拒絕此請求。",
     gotIt: "了解",
     codexNeedsInput: "Codex 需要你的回答",
@@ -201,9 +201,9 @@ const BUBBLE_STRINGS = {
     questionLabel: "\uC9C8\uBB38 {index}",
     other: "\uAE30\uD0C0",
     otherPlaceholder: "\uC9C1\uC811 \uC785\uB825\u2026",
-    codexPermission: "Codex \uAD8C\uD55C \uC694\uCCAD",
+    codexPermission: "알림",
     codexToolApproval: "Codex \uB3C4\uAD6C \uD638\uCD9C \uC2B9\uC778",
-    kimiPermission: "Kimi \uAD8C\uD55C \uC694\uCCAD",
+    kimiPermission: "알림",
     checkKimiTerminal: "Kimi \uD130\uBBF8\uB110\uC5D0\uC11C \uC774 \uC694\uCCAD\uC744 \uD5C8\uC6A9\uD558\uAC70\uB098 \uAC70\uBD80\uD558\uC138\uC694.",
     gotIt: "\uD655\uC778",
     codexNeedsInput: "Codex\uC5D0 \uC785\uB825\uC774 \uD544\uC694\uD569\uB2C8\uB2E4",
@@ -242,9 +242,9 @@ const BUBBLE_STRINGS = {
     questionLabel: "質問 {index}",
     other: "その他",
     otherPlaceholder: "回答を入力…",
-    codexPermission: "Codex 権限リクエスト",
+    codexPermission: "通知",
     codexToolApproval: "Codex ツール呼び出しの承認",
-    kimiPermission: "Kimi 権限リクエスト",
+    kimiPermission: "通知",
     checkKimiTerminal: "Kimi ターミナルでこのリクエストを許可または拒否してください。",
     gotIt: "了解",
     codexNeedsInput: "Codex に入力が必要",
@@ -470,10 +470,11 @@ function updateElicitationSubmitState() {
   elicitationProgress.textContent = total > 0
     ? bubbleText(currentLang, "questionProgress", { current: activeQuestionIndex + 1, total })
     : "";
-  elicitationProgress.classList.toggle("visible", total > 0);
+  elicitationProgress.classList.toggle("visible", total > 1);
 
   btnDeny.textContent = bubbleText(currentLang, "previousQuestion");
   btnDeny.disabled = activeQuestionIndex <= 0;
+  btnDeny.style.display = activeQuestionIndex > 0 ? "" : "none";
   btnAllow.textContent = isLastQuestion
     ? bubbleText(currentLang, "submitAnswer")
     : bubbleText(currentLang, "nextQuestion");
@@ -524,7 +525,7 @@ function createElicitationQuestionCard(question, questionIndex) {
   const header = document.createElement("div");
   header.className = "question-header";
   header.textContent = getQuestionLabel(question, questionIndex);
-  questionCard.appendChild(header);
+  if(elicitationQuestions.length > 1)questionCard.appendChild(header);
 
   const text = document.createElement("div");
   text.className = "question-text";
@@ -761,7 +762,7 @@ function createCodexUserInputQuestionCard(question, questionIndex) {
   const header = document.createElement("div");
   header.className = "question-header";
   header.textContent = getQuestionLabel(question, questionIndex);
-  questionCard.appendChild(header);
+  if(elicitationQuestions.length > 1)questionCard.appendChild(header);
   const text = document.createElement("div");
   text.className = "question-text";
   text.textContent = question.question || "";
@@ -861,6 +862,12 @@ function renderCodexUserInputPreview(data) {
 
 function show(data) {
   resetBubbleContent();
+  const agentId=data.agentId||data.familyAgentId||(data.isCodex||data.isCodexUserInputNotify||data.toolName==='CodexExec'?'codex':data.isKimiNotify||data.toolName==='KimiPermission'?'kimi-cli':'claude-code');
+  if (window.MobiAgentCardStyle) {
+    const agentStyle=window.MobiAgentCardStyle.applyAgentCardStyle(card,agentId);
+    const agentLabel=document.getElementById('agentLabel');
+    if(agentLabel)agentLabel.textContent=agentStyle.label;
+  }
   currentLang = data.lang || "en";
   const interaction = data.interaction && typeof data.interaction === "object"
     ? data.interaction
@@ -963,16 +970,16 @@ function show(data) {
     toolPill.style.display = "none";
     renderElicitationForm(data);
     btnAllow.style.display = "";
-    btnDeny.style.display = "";
+    btnDeny.style.display = activeQuestionIndex > 0 ? "" : "none";
     revealCard();
     return;
   }
 
   if (data.isCodexUserInputNotify) {
-    headerTitle.textContent = bubbleText(data.lang, "codexNeedsInput");
+    headerTitle.textContent = bubbleText(data.lang, "needsInput");
     toolPillText.textContent = "CODEX";
     toolPill.setAttribute("data-tool", "CodexUserInput");
-    toolPill.style.display = "";
+    toolPill.style.display = "none";
     renderCodexUserInputPreview(data);
     btnAllow.textContent = data.isRemote
       ? bubbleText(data.lang, "gotIt")
@@ -988,7 +995,7 @@ function show(data) {
     headerTitle.textContent = bubbleText(data.lang, "codexPermission");
     toolPillText.textContent = "CODEX";
     toolPill.setAttribute("data-tool", "CodexExec");
-    toolPill.style.display = "";
+    toolPill.style.display = "none";
     commandBlock.textContent = (data.toolInput && data.toolInput.command) || "(unknown)";
     btnAllow.textContent = bubbleText(data.lang, "gotIt");
     btnAllow.disabled = false;
@@ -1029,7 +1036,7 @@ function show(data) {
       toolPill.setAttribute("data-tool", "KimiPermission");
       commandBlock.textContent = (data.toolInput && data.toolInput.command) || bubbleText(data.lang, "checkKimiTerminal");
     }
-    toolPill.style.display = "";
+    toolPill.style.display = kimiTool ? "" : "none";
     btnAllow.textContent = bubbleText(data.lang, "goToTerminal");
     btnAllow.disabled = false;
     btnDeny.style.display = "none";

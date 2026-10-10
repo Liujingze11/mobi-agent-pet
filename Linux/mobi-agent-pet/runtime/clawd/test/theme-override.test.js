@@ -68,124 +68,24 @@ function disabledSet(set) {
   return (stateKey) => set.has(stateKey);
 }
 
-describe("state.js applyState() gate", () => {
-  let api;
-  let ctx;
-  afterEach(() => { if (api) api.cleanup(); api = null; });
-
-  it("non-disabled oneshot: attention 正常播放", () => {
-    ctx = makeCtx({ isOneshotDisabled: () => false });
-    api = require("../src/state")(ctx);
-    ctx._stateChanges.length = 0;
-    ctx._sounds.length = 0;
-    api.applyState("attention");
-    const played = ctx._stateChanges.map((a) => a[0]);
-    assert.ok(played.includes("attention"), "attention 应该播放");
-    assert.ok(ctx._sounds.includes("complete"), "attention 应该响 complete 音");
+describe("seven-state action slots", () => {
+  it("completion stays complete even when its action slot inherits idle", () => {
+    const ctx=makeCtx(), plan=require('../src/pet-action-plan').defaultPlan(ctx.theme);
+    plan.states.complete.actions=[];ctx.theme={...ctx.theme,_userOverrides:{actionPlan:plan}};
+    const api=require('../src/state')(ctx);
+    try { api.applyState("attention"); assert.strictEqual(api.getCurrentState(),"complete"); assert.strictEqual(api.getCurrentSvg(),"clawd-idle-follow.svg"); assert.deepStrictEqual(ctx._sounds,["complete"]); }
+    finally { api.cleanup(); }
   });
-
-  it("disabled attention: 不播 visual、不响音、回落到 idle", () => {
-    ctx = makeCtx({ isOneshotDisabled: disabledSet(new Set(["attention"])) });
-    api = require("../src/state")(ctx);
-    ctx._stateChanges.length = 0;
-    ctx._sounds.length = 0;
-    api.applyState("attention");
-    const played = ctx._stateChanges.map((a) => a[0]);
-    assert.ok(!played.includes("attention"), "不应该播 attention");
-    assert.ok(!ctx._sounds.includes("complete"), "不应该响 complete");
-  });
-
-  it("disabled notification: mini-mode 下也不播 mini-alert（gate 在 mini 映射之前）", () => {
-    ctx = makeCtx({
-      miniMode: true,
-      isOneshotDisabled: disabledSet(new Set(["notification"])),
-    });
-    api = require("../src/state")(ctx);
-    ctx._stateChanges.length = 0;
-    ctx._sounds.length = 0;
-    api.applyState("notification");
-    const played = ctx._stateChanges.map((a) => a[0]);
-    assert.ok(!played.includes("notification"), "不播 notification");
-    assert.ok(!played.includes("mini-alert"), "也不播 mini-alert");
-    assert.ok(!ctx._sounds.includes("confirm"), "不响 confirm");
-  });
-
-  it("disabled attention: mini-mode 下不映射 mini-happy", () => {
-    ctx = makeCtx({
-      miniMode: true,
-      isOneshotDisabled: disabledSet(new Set(["attention"])),
-    });
-    api = require("../src/state")(ctx);
-    ctx._stateChanges.length = 0;
-    api.applyState("attention");
-    const played = ctx._stateChanges.map((a) => a[0]);
-    assert.ok(!played.includes("mini-happy"), "不应该出现 mini-happy");
-  });
-
-  it("PermissionRequest path (updateSession) 被 gate 拦住", () => {
-    ctx = makeCtx({ isOneshotDisabled: disabledSet(new Set(["notification"])) });
-    api = require("../src/state")(ctx);
-    ctx._stateChanges.length = 0;
-    ctx._sounds.length = 0;
-    api.updateSession("s1", "any", "PermissionRequest", {
-      cwd: "/tmp",
-      agentId: "claude-code",
-    });
-    const played = ctx._stateChanges.map((a) => a[0]);
-    assert.ok(!played.includes("notification"), "PermissionRequest 路径不该播 notification");
-    assert.ok(!ctx._sounds.includes("confirm"), "不响 confirm");
-  });
-
-  it("non-oneshot state 不受 gate 影响（即便 ctx.isOneshotDisabled 错报 true）", () => {
-    // 模拟有 bug 的 ctx：对所有 state 都返回 true
-    ctx = makeCtx({ isOneshotDisabled: () => true });
-    api = require("../src/state")(ctx);
-    ctx._stateChanges.length = 0;
-    api.applyState("working");
-    const played = ctx._stateChanges.map((a) => a[0]);
-    assert.ok(played.includes("working"), "working 非 oneshot，gate 不应该消费");
-  });
-
-  it("全部 5 个 oneshot 禁用：applyState(attention) 回落到 idle（无 session）", () => {
-    ctx = makeCtx({
-      isOneshotDisabled: disabledSet(new Set([
-        "attention", "error", "sweeping", "notification", "carrying",
-      ])),
-    });
-    api = require("../src/state")(ctx);
-    ctx._stateChanges.length = 0;
-    api.applyState("attention");
-    const played = ctx._stateChanges.map((a) => a[0]);
-    // gate fallback 到 resolveDisplayState() → sessions 空 → "idle"
-    // initial state 本身也是 idle，可能 sameState 导致 0 次 emit；只要不出现 attention 就对
-    assert.ok(!played.includes("attention"));
-    assert.ok(!played.includes("error"));
-    assert.ok(!played.includes("sweeping"));
-    assert.ok(!played.includes("notification"));
-    assert.ok(!played.includes("carrying"));
-  });
-
-  it("attention disabled + working session: 回落到 working 而不是 attention", () => {
-    ctx = makeCtx({ isOneshotDisabled: disabledSet(new Set(["attention"])) });
-    api = require("../src/state")(ctx);
-    // 先触发 working session 让 resolveDisplayState 返回 working
-    api.updateSession("s1", "working", "PreToolUse", {
-      cwd: "/tmp",
-      agentId: "claude-code",
-    });
-    ctx._stateChanges.length = 0;
-    ctx._sounds.length = 0;
-    api.applyState("attention");
-    const played = ctx._stateChanges.map((a) => a[0]);
-    assert.ok(!played.includes("attention"));
-    // 回落目标是 working 或 sameState 不 emit，两者都合法
-    if (played.length > 0) {
-      assert.strictEqual(played[0], "working");
+  it("empty waiting uses idle actions in either display form without losing the waiting state", () => {
+    for(const miniMode of [false,true]) {
+      const ctx=makeCtx({miniMode}), plan=require('../src/pet-action-plan').defaultPlan(ctx.theme);
+      plan.states.waiting.actions=[];ctx.theme={...ctx.theme,_userOverrides:{actionPlan:plan}};
+      const api=require('../src/state')(ctx);
+      try { api.applyState("notification"); assert.strictEqual(api.getCurrentState(),"waiting"); assert.strictEqual(api.getCurrentSvg(),"clawd-idle-follow.svg"); }
+      finally { api.cleanup(); }
     }
   });
 });
-
-// ── settings-actions: setThemeOverrideDisabled / resetThemeOverrides ──────
 
 describe("setThemeOverrideDisabled", () => {
   const action = commandRegistry.setThemeOverrideDisabled;

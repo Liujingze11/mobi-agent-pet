@@ -20,14 +20,9 @@
     "claudeQuotaCollectionEnabled",
     "quotaMergeSources",
     "sessionHudCleanupDetached",
-    "allowEdgePinning",
-    "disableMiniMode",
-    "freeRoam",
-    "keepSizeAcrossDisplays",
     "openAtLogin",
     "petHidden",
     "hideBubbles",
-    "bubbleFollowPet",
     "permissionBubblesEnabled",
     "notificationBubbleAutoCloseSeconds",
     "sessionStaleMs",
@@ -105,93 +100,24 @@
 
     parent.appendChild(helpers.buildSection(t("sectionSystemStartup"), [
       helpers.buildSwitchRow({
-        key: "petHidden",
-        labelKey: "rowHidePet",
-        descKey: "rowHidePetDesc",
-        onToggle: ({ nextRaw }) => window.settingsAPI.setPetHidden(nextRaw),
-      }),
-      helpers.buildSwitchRow({
         key: "openAtLogin",
         labelKey: "rowOpenAtLogin",
         descKey: "rowOpenAtLoginDesc",
       }),
-      helpers.buildSwitchRow({
-        key: "lowPowerIdleMode",
-        labelKey: "rowLowPowerIdleMode",
-        descKey: "rowLowPowerIdleModeDesc",
-      }),
-      helpers.buildSwitchRow({
-        key: "keepAwakeWhileWorking",
-        labelKey: "rowKeepAwakeWhileWorking",
-        descKey: "rowKeepAwakeWhileWorkingDesc",
-      }),
     ]));
 
     parent.appendChild(helpers.buildSection(t("sectionSession"), [
-      buildSessionHudGroup(),
       buildQuotaRingGroup(),
       buildSessionCleanupGroup(),
       buildDashboardRow(),
     ]));
 
-    // Alerts & feedback: every way the pet gets your attention — sound, screen
-    // flash, and the bubble preferences (visibility, auto-close policy, follow).
-    parent.appendChild(helpers.buildSection(t("sectionAlerts"), [
-      buildSoundGroup(),
-      buildFlashGroup(),
-      helpers.buildSwitchRow({
-        key: "hideBubbles",
-        labelKey: "rowHideBubbles",
-        descKey: "rowHideBubblesDesc",
-        onToggle: ({ nextRaw }) => window.settingsAPI.command("setAllBubblesHidden", { hidden: nextRaw }),
-      }),
-      buildBubblePolicyRow(),
-      helpers.buildSwitchRow({
-        key: "bubbleFollowPet",
-        labelKey: "rowBubbleFollow",
-        descKey: "rowBubbleFollowDesc",
-      }),
-    ]));
+    parent.appendChild(helpers.buildSection(t("sidebarCustomMode"), [buildCustomModeLink()]));
+  }
 
-    // Behavior & position: how the pet moves and sits on screen. Rarely changed
-    // after first setup, so it sits below the everyday sections.
-    parent.appendChild(helpers.buildSection(t("sectionBehavior"), [
-      helpers.buildSwitchRow({
-        key: "freeRoam",
-        labelKey: "rowFreeRoam",
-        descKey: "rowFreeRoamDesc",
-      }),
-      helpers.buildSwitchRow({
-        key: "allowEdgePinning",
-        labelKey: "rowAllowEdgePinning",
-        descKey: "rowAllowEdgePinningDesc",
-      }),
-      helpers.buildSwitchRow({
-        key: "disableMiniMode",
-        labelKey: "rowDisableMiniMode",
-        descKey: "rowDisableMiniModeDesc",
-      }),
-      helpers.buildSwitchRow({
-        key: "keepSizeAcrossDisplays",
-        labelKey: "rowKeepSizeAcrossDisplays",
-        descKey: "rowKeepSizeAcrossDisplaysDesc",
-      }),
-      // #562: the fullscreenOverlay switch is intentionally NOT rendered here.
-      // For borderless-fullscreen games (the common case) "off" can't drop the
-      // pet behind the game anyway (a Windows limit), so the toggle was a
-      // non-choice. The pref + #538 stand-down logic stay (default on) as an
-      // escape hatch for exclusive-fullscreen games, whose overlay behavior is
-      // unverified. To restore the toggle: re-add a buildSwitchRow for
-      // "fullscreenOverlay" here AND add its key back into GENERAL_IN_PLACE_KEYS
-      // (dropped so patchInPlace doesn't force a full re-render for a pref that
-      // has no mounted control). The rowFullscreenOverlay[Desc] i18n keys remain.
-    ]));
-
-    // Permission automation stays last: both automatic modes carry a broad
-    // trust boundary and require an explicit confirmation.
-    parent.appendChild(helpers.buildSection(t("sectionPermissions"), [
-      buildPermissionAutomationRow(),
-    ]));
+  function buildCustomModeLink() {
+    const button = document.createElement("button"); button.type = "button"; button.className = "soft-btn";
+    button.textContent = t("sidebarCustomMode"); button.addEventListener("click", () => ops.selectTab("custom-mode")); return button;
   }
 
   function buildTutorialReplayHint() {
@@ -547,11 +473,6 @@
   // not a child of it: its switches are never gated by the HUD master, so the
   // ring can be used with the Session HUD turned off (and vice versa).
   function buildQuotaRingGroup() {
-    const enabledRow = helpers.buildSwitchRow({
-      key: "sessionHudShowQuota",
-      labelKey: "rowQuotaRingEnabled",
-      descKey: "rowQuotaRingEnabledDesc",
-    });
     const mergeRow = helpers.buildSwitchRow({
       key: "quotaMergeSources",
       labelKey: "rowQuotaMergeSources",
@@ -572,7 +493,6 @@
         .catch(() => {});
     }
     const optionList = buildOptionList("quota-ring-option-list", [
-      enabledRow,
       claudeCollectionRow,
       mergeRow,
     ]);
@@ -764,22 +684,7 @@
     });
   }
 
-  function buildSoundGroup() {
-    const summaryControl = buildSoundSummary();
-    state.mountedControls.soundSummary = summaryControl;
-    return helpers.buildCollapsibleGroup({
-      id: "general:sound",
-      title: t("rowSound"),
-      desc: t("rowSoundDesc"),
-      summary: summaryControl.element,
-      defaultCollapsed: true,
-      className: "sound-collapsible",
-      children: [buildOptionList("sound-option-list", [
-        buildSoundEnabledRow(summaryControl),
-        buildVolumeSliderRow(),
-      ])],
-    });
-  }
+
 
   function buildFlashGroup() {
     return helpers.buildCollapsibleGroup({
@@ -822,160 +727,9 @@
     });
   }
 
-  function buildSoundEnabledRow(summaryControl) {
-    const row = document.createElement("div");
-    row.className = "row";
-    row.innerHTML =
-      `<div class="row-text">` +
-        `<span class="row-label"></span>` +
-      `</div>` +
-      `<div class="row-control"><div class="switch" role="switch" tabindex="0"></div></div>`;
-    row.querySelector(".row-label").textContent = t("rowSoundEnabled");
-    const sw = row.querySelector(".switch");
-    const text = row.querySelector(".row-text");
-    const override = state.transientUiState.generalSwitches.get("soundMuted");
-    const visualOn = override ? override.visualOn : readers.readGeneralSwitchVisual("soundMuted", true);
-    helpers.setSwitchVisual(sw, visualOn, { pending: override ? override.pending : false });
-    state.mountedControls.generalSwitches.set("soundMuted", {
-      element: sw,
-      invert: true,
-      row,
-      text,
-      extraElement: null,
-    });
 
-    const run = (ev) => {
-      if (sw.classList.contains("disabled") || sw.getAttribute("aria-disabled") === "true") return;
-      if (!summaryControl || typeof summaryControl.toggleSound !== "function") return;
-      summaryControl.toggleSound(ev);
-    };
-    sw.addEventListener("click", run);
-    sw.addEventListener("keydown", (ev) => {
-      if (ev.key !== " " && ev.key !== "Enter") return;
-      run(ev);
-    });
-    return row;
-  }
 
-  function buildSoundSummary() {
-    const wrap = document.createElement("div");
-    wrap.className = "sound-summary-control";
-    const chip = document.createElement("span");
-    const sw = document.createElement("div");
-    sw.className = "switch sound-header-switch";
-    sw.setAttribute("role", "switch");
-    sw.setAttribute("aria-label", t("rowSoundEnabled"));
-    sw.setAttribute("tabindex", "0");
-    wrap.appendChild(chip);
-    wrap.appendChild(sw);
 
-    function getSnapshotVolumePct() {
-      const v = state.snapshot && typeof state.snapshot.soundVolume === "number"
-        ? state.snapshot.soundVolume : 1;
-      return Math.round(Math.max(0, Math.min(1, v)) * 100);
-    }
-
-    function getSoundTransientState() {
-      return state.transientUiState.generalSwitches.get("soundMuted") || null;
-    }
-
-    function getCommittedSoundVisual() {
-      return readers.readGeneralSwitchVisual("soundMuted", true);
-    }
-
-    function getDisplaySoundVisual() {
-      const transient = getSoundTransientState();
-      return transient ? transient.visualOn : getCommittedSoundVisual();
-    }
-
-    function getDisplaySoundPending() {
-      const transient = getSoundTransientState();
-      return transient ? transient.pending : false;
-    }
-
-    function setSoundChildSwitchVisual(visualOn, pendingVisual) {
-      const meta = getMountedGeneralSwitch("soundMuted");
-      if (!meta) return;
-      helpers.setSwitchVisual(meta.element, visualOn, { pending: pendingVisual });
-    }
-
-    function normalizeVolumePct(pct) {
-      const n = Number(pct);
-      if (!Number.isFinite(n)) return getSnapshotVolumePct();
-      return Math.round(Math.max(0, Math.min(100, n)));
-    }
-
-    function applySoundSummaryVisual(enabled, pendingVisual = false, volumePct = getSnapshotVolumePct()) {
-      const stateLabel = enabled ? t("bubblePolicySummaryOn") : t("bubblePolicySummaryOff");
-      chip.className = "collapsible-summary-chip" + (enabled ? " accent" : "");
-      chip.textContent = `${stateLabel} · ${normalizeVolumePct(volumePct)}%`;
-      helpers.setSwitchVisual(sw, enabled, { pending: pendingVisual });
-    }
-
-    function syncFromSnapshot() {
-      applySoundSummaryVisual(getDisplaySoundVisual(), getDisplaySoundPending());
-    }
-
-    function syncVolumePreview(pct) {
-      applySoundSummaryVisual(getDisplaySoundVisual(), getDisplaySoundPending(), pct);
-    }
-
-    function toggleSound(ev) {
-      if (ev) {
-        ev.preventDefault();
-        ev.stopPropagation();
-      }
-      const activeTransient = getSoundTransientState();
-      if (activeTransient && activeTransient.pending) return;
-      const currentRaw = readers.readGeneralSwitchRaw("soundMuted");
-      const currentVisual = !currentRaw;
-      const nextVisual = !currentVisual;
-      const nextMuted = !nextVisual;
-      const seq = state.nextTransientUiSeq++;
-      state.transientUiState.generalSwitches.set("soundMuted", { visualOn: nextVisual, pending: true, seq });
-      applySoundSummaryVisual(nextVisual, true);
-      setSoundChildSwitchVisual(nextVisual, true);
-      window.settingsAPI.update("soundMuted", nextMuted).then((result) => {
-        const currentTransient = getSoundTransientState();
-        if (!currentTransient || currentTransient.seq !== seq) return;
-        state.transientUiState.generalSwitches.delete("soundMuted");
-        if (!result || result.status !== "ok" || result.noop) {
-          const committedVisual = getCommittedSoundVisual();
-          applySoundSummaryVisual(committedVisual, false);
-          setSoundChildSwitchVisual(committedVisual, false);
-          if (result && result.noop) return;
-          const msg = (result && result.message) || "unknown error";
-          ops.showToast(t("toastSaveFailed") + msg, { error: true });
-          return;
-        }
-        applySoundSummaryVisual(nextVisual, false);
-        setSoundChildSwitchVisual(nextVisual, false);
-      }).catch((err) => {
-        const currentTransient = getSoundTransientState();
-        if (!currentTransient || currentTransient.seq !== seq) return;
-        state.transientUiState.generalSwitches.delete("soundMuted");
-        const committedVisual = getCommittedSoundVisual();
-        applySoundSummaryVisual(committedVisual, false);
-        setSoundChildSwitchVisual(committedVisual, false);
-        ops.showToast(t("toastSaveFailed") + (err && err.message), { error: true });
-      });
-    }
-
-    sw.addEventListener("click", toggleSound);
-    sw.addEventListener("keydown", (ev) => {
-      if (ev.key !== " " && ev.key !== "Enter") return;
-      toggleSound(ev);
-    });
-
-    syncFromSnapshot();
-    return {
-      element: wrap,
-      headerSwitch: sw,
-      syncFromSnapshot,
-      syncVolumePreview,
-      toggleSound,
-    };
-  }
 
   function buildBubblePolicyRow() {
     const summaryControl = buildBubblePolicySummary();
@@ -1276,103 +1030,7 @@
     return next;
   }
 
-  function buildVolumeSliderRow() {
-    const row = document.createElement("div");
-    row.className = "row";
-    row.innerHTML =
-      `<div class="row-text">` +
-        `<span class="row-label"></span>` +
-        `<span class="row-desc"></span>` +
-      `</div>` +
-      `<div class="row-control volume-control">` +
-        `<input type="range" class="volume-slider" min="0" max="100" step="1" />` +
-        `<span class="volume-readout" aria-hidden="true"></span>` +
-      `</div>`;
-    row.querySelector(".row-label").textContent = t("rowVolume");
-    row.querySelector(".row-desc").textContent = t("rowVolumeDesc");
 
-    const control = row.querySelector(".volume-control");
-    const slider = row.querySelector(".volume-slider");
-    const readout = row.querySelector(".volume-readout");
-
-    let previewUrl = null;
-    let previewAudio = null;
-
-    function applySliderValue(pct) {
-      slider.value = String(pct);
-      slider.style.setProperty("--volume-fill", `${pct}%`);
-      readout.textContent = `${pct}%`;
-      const summary = state.mountedControls.soundSummary;
-      if (summary && document.body.contains(summary.element) && typeof summary.syncVolumePreview === "function") {
-        summary.syncVolumePreview(pct);
-      }
-    }
-
-    function getSnapshotVolumePct() {
-      const v = state.snapshot && typeof state.snapshot.soundVolume === "number"
-        ? state.snapshot.soundVolume : 1;
-      return Math.round(v * 100);
-    }
-
-    function applyDisabledState(muted) {
-      control.classList.toggle("disabled", !!muted);
-      slider.disabled = !!muted;
-      slider.tabIndex = muted ? -1 : 0;
-    }
-
-    function playPreview(vol) {
-      if (!previewUrl) return;
-      if (!previewAudio) previewAudio = new Audio(previewUrl);
-      previewAudio.volume = Math.max(0, Math.min(1, vol));
-      previewAudio.currentTime = 0;
-      previewAudio.play().catch(() => {});
-    }
-
-    applySliderValue(getSnapshotVolumePct());
-    applyDisabledState(!!(state.snapshot && state.snapshot.soundMuted));
-
-    slider.addEventListener("input", () => {
-      applySliderValue(Number(slider.value));
-    });
-
-    slider.addEventListener("change", () => {
-      const pct = Number(slider.value);
-      const vol = pct / 100;
-      playPreview(vol);
-      window.settingsAPI.update("soundVolume", vol).then((result) => {
-        if (!result || result.status !== "ok") {
-          const msg = (result && result.message) || "unknown error";
-          ops.showToast(t("toastSaveFailed") + msg, { error: true });
-          applySliderValue(getSnapshotVolumePct());
-        }
-      }).catch((err) => {
-        ops.showToast(t("toastSaveFailed") + (err && err.message), { error: true });
-        applySliderValue(getSnapshotVolumePct());
-      });
-    });
-
-    window.settingsAPI.getPreviewSoundUrl().then((url) => {
-      if (url) previewUrl = url;
-    }).catch(() => {});
-
-    state.mountedControls.soundVolume = {
-      row,
-      syncDisabled() {
-        applyDisabledState(!!(state.snapshot && state.snapshot.soundMuted));
-      },
-      syncValueFromSnapshot() {
-        applySliderValue(getSnapshotVolumePct());
-      },
-      dispose() {
-        if (previewAudio) {
-          previewAudio.pause();
-          previewAudio = null;
-        }
-      },
-    };
-
-    return row;
-  }
 
   // Mirrors TEXT_SCALE_MIN/MAX/STEP in src/text-scale.js (×100). The renderer
   // can't require that module, so keep the two in sync by hand.

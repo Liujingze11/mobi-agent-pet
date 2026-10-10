@@ -400,6 +400,7 @@ const _settingsController = createSettingsController({
   injectedDeps: {
     installAutoStart: _installAutoStartHook,
     uninstallAutoStart: _uninstallAutoStartHook,
+    getActiveAppMode: () => getActiveAppMode(),
     resolveTextScaleDisplayKey: () => getSettingsDisplayKey(),
     syncClaudeHooksNow: () => _server.syncClawdHooks({ source: "settings", automatic: false }),
     setClaudeQuotaCollectionEnabled: (enabled) => _server.setClaudeQuotaCollectionEnabled({
@@ -466,6 +467,11 @@ const _settingsController = createSettingsController({
     activateTheme: (id, variantId, overrideMap) => themeRuntime.activateTheme(id, variantId, overrideMap),
     refreshActiveThemeHitboxOverrides: (id, overrideMap) =>
       themeRuntime.refreshActiveThemeHitboxOverrides(id, overrideMap),
+    validatePetActionFiles: (id, plan) => {
+      const theme = themeLoader.loadTheme(id, { strict: true, variant: (_settingsController.get("themeVariant") || {})[id], overrides: (_settingsController.get("themeOverrides") || {})[id] });
+      const allowed = new Set(require("./pet-action-plan").collectActionFiles(theme));
+      return Object.values(plan.states).every(slot => slot.actions.every(action => allowed.has(action.file) && require("fs").existsSync(themeLoader._resolveAssetPath(theme, action.file))));
+    },
     getThemeInfo: (id) => themeRuntime.getThemeInfo(id),
     removeThemeDir: (id) => themeRuntime.removeThemeDir(id),
     getActiveTheme: () => themeRuntime.getActiveTheme(),
@@ -486,7 +492,7 @@ const _appModeController = createAppModeController({
   dismissPermissionsForDnd: () => _perm.dismissPermissionsForDnd(),
   syncSessionHudVisibility: () => syncSessionHudVisibility(),
   cancelRoam: () => _roam.cancelRoam(),
-  enableDoNotDisturb: () => _state.enableDoNotDisturb(),
+  cancelPetHeld: () => cancelPetHold(),
   clearQuietModePermissionState: () => _state.clearQuietModePermissionState(),
   disableDoNotDisturb: () => _state.disableDoNotDisturb(),
   resolveDisplayState: () => _state.resolveDisplayState(),
@@ -495,11 +501,12 @@ const _appModeController = createAppModeController({
   hidePet: () => petWindowRuntime.setPetHidden(true),
   showPet: () => petWindowRuntime.setPetHidden(false),
   isPetHidden: () => petWindowRuntime.isPetHidden(),
+  syncModeFeatures: () => syncModeFeatureProjection(),
 });
 const _appModePermissionBridge = createAppModePermissionBridge({
   controller: _appModeController,
   getSavedPermissionAutomationMode: () =>
-    _settingsController.get("permissionAutomationMode"),
+    getEffectiveAppModePolicy().permissionAutomationMode,
 });
 
 function getActiveAppMode() {
@@ -660,6 +667,9 @@ function captureCurrentDisplaySnapshot(bounds) {
 }
 
 function safeConsoleError(...args) {
+  if (args.some((value) => typeof value === "string" && /renderer crashed/i.test(value))) {
+    agentLogApp.recordProblem("pet-window");
+  }
   try {
     console.error(...args);
   } catch (err) {
@@ -750,6 +760,7 @@ shortcutRuntime = createShortcutRuntime({
   settingsController: _settingsController,
   getSettingsWindow,
   shortcutHandlers,
+  disabledActionIds: ["togglePet"],
 });
 
 // The injected window/menu closures below are intentionally lazy. During
@@ -773,7 +784,7 @@ codexPetMain = createCodexPetMain({
 });
 const REGISTER_PROTOCOL_DEV_ARG = codexPetMain.REGISTER_PROTOCOL_DEV_ARG;
 // Lenient load so a missing/corrupt user-selected theme can't brick boot.
-// If lenient fell back to "clawd" OR the variant fell back to "default",
+// If lenient fell back to the product default OR the variant fell back to "default",
 // hydrate prefs to match so the store stays truth.
 //
 // Startup runs BEFORE the window is ready, so we call the runtime's initial
@@ -781,10 +792,6 @@ const REGISTER_PROTOCOL_DEV_ARG = codexPetMain.REGISTER_PROTOCOL_DEV_ARG;
 // setThemeSelection command (which goes through activateTheme). The runtime
 // switch path via UI goes through setThemeSelection post-window-ready.
 let _requestedThemeId = _settingsController.get("theme") || "clawd";
-const _initialVariantMap = _settingsController.get("themeVariant") || {};
-let _requestedVariantId = _initialVariantMap[_requestedThemeId] || "default";
-const _initialThemeOverrides = _settingsController.get("themeOverrides") || {};
-let _requestedThemeOverrides = _initialThemeOverrides[_requestedThemeId] || null;
 let _startupCodexPetSyncSummary = codexPetMain.syncThemes(_requestedThemeId);
 if (codexPetMain.summaryHasActiveOrphan(_startupCodexPetSyncSummary, _requestedThemeId)) {
   const orphanThemeId = _requestedThemeId;
@@ -793,9 +800,7 @@ if (codexPetMain.summaryHasActiveOrphan(_startupCodexPetSyncSummary, _requestedT
   delete nextVariantMap[orphanThemeId];
   delete nextOverrides[orphanThemeId];
 
-  _requestedThemeId = "clawd";
-  _requestedVariantId = nextVariantMap[_requestedThemeId] || "default";
-  _requestedThemeOverrides = nextOverrides[_requestedThemeId] || null;
+  _requestedThemeId = themeLoader.getDefaultThemeId();
   const result = _settingsController.hydrate({
     theme: _requestedThemeId,
     themeVariant: nextVariantMap,
@@ -810,11 +815,18 @@ if (codexPetMain.summaryHasActiveOrphan(_startupCodexPetSyncSummary, _requestedT
   );
   codexPetMain.setLastSyncSummary(_startupCodexPetSyncSummary);
 }
+// Synchronization may rebuild a selected imported theme. Resolve availability
+// afterward, then read the final character's own saved settings.
+_requestedThemeId = themeLoader.resolveThemeId(_requestedThemeId);
+const _initialVariantMap = _settingsController.get("themeVariant") || {};
+let _requestedVariantId = _initialVariantMap[_requestedThemeId] || "default";
+const _initialThemeOverrides = _settingsController.get("themeOverrides") || {};
+let _requestedThemeOverrides = _initialThemeOverrides[_requestedThemeId] || null;
 const _loadedStartupTheme = themeRuntime.loadInitialTheme(_requestedThemeId, {
   variant: _requestedVariantId,
   overrides: _requestedThemeOverrides,
 });
-if (_loadedStartupTheme._id !== _requestedThemeId || _loadedStartupTheme._variantId !== _requestedVariantId) {
+if (_loadedStartupTheme._id !== _requestedThemeId || _loadedStartupTheme._variantId !== _requestedVariantId || _settingsController.get("theme") !== _loadedStartupTheme._id) {
   const nextVariantMap = { ...(_settingsController.get("themeVariant") || {}) };
   // Self-heal: store the resolved ids so next boot doesn't fall back again.
   nextVariantMap[_loadedStartupTheme._id] = _loadedStartupTheme._variantId;
@@ -846,6 +858,7 @@ const petWindowRuntime = createPetWindowRuntime({
   getCurrentSvg: () => _state.getCurrentSvg(),
   getCurrentHitBox: () => _state.getCurrentHitBox(),
   getMiniMode: () => _mini.getMiniMode(),
+  getForcedPetHidden: () => getEffectiveAppModePolicy().hidePet,
   getMiniTransitioning: () => _mini.getMiniTransitioning(),
   getMiniContainedSeam: () => _mini.getContainedSeam(),
   getMiniPeekOffset: () => _mini.PEEK_OFFSET,
@@ -997,12 +1010,11 @@ let showDock = _settingsController.get("showDock");
 let manageClaudeHooksAutomatically = _settingsController.get("manageClaudeHooksAutomatically");
 let autoStartWithClaude = _settingsController.get("autoStartWithClaude");
 let openAtLogin = _settingsController.get("openAtLogin");
-let bubbleFollowPet = _settingsController.get("bubbleFollowPet");
-let sessionHudEnabled = _settingsController.get("sessionHudEnabled");
-let sessionHudShowStateLabels = _settingsController.get("sessionHudShowStateLabels");
-let sessionHudShowElapsed = _settingsController.get("sessionHudShowElapsed");
-let sessionHudShowContextUsage = _settingsController.get("sessionHudShowContextUsage");
-let sessionHudShowQuota = _settingsController.get("sessionHudShowQuota");
+let sessionHudEnabled = getEffectiveAppModePolicy().sessionHudEnabled;
+let sessionHudShowStateLabels = getEffectiveAppModePolicy().sessionHudShowStateLabels;
+let sessionHudShowElapsed = getEffectiveAppModePolicy().sessionHudShowElapsed;
+let sessionHudShowContextUsage = getEffectiveAppModePolicy().sessionHudShowContextUsage;
+let sessionHudShowQuota = getEffectiveAppModePolicy().sessionHudShowQuota;
 let claudeQuotaCollectionEnabled = _settingsController.get("claudeQuotaCollectionEnabled");
 let quotaMergeSources = _settingsController.get("quotaMergeSources");
 let sessionHudCleanupDetached = _settingsController.get("sessionHudCleanupDetached");
@@ -1012,14 +1024,14 @@ let workingStaleMs = _settingsController.get("workingStaleMs");
 let detachedIdleStaleMs = _settingsController.get("detachedIdleStaleMs");
 let soundMuted = _settingsController.get("soundMuted");
 let soundVolume = _settingsController.get("soundVolume");
-let lowPowerIdleMode = _settingsController.get("lowPowerIdleMode");
-let keepAwakeWhileWorking = _settingsController.get("keepAwakeWhileWorking");
+let lowPowerIdleMode = getEffectiveAppModePolicy().lowPowerIdleMode;
+let keepAwakeWhileWorking = getEffectiveAppModePolicy().keepAwakeWhileWorking;
 let petTint = _settingsController.get("petTint");
 let petAccessory = _settingsController.get("petAccessory");
-let allowEdgePinningCached = _settingsController.get("allowEdgePinning");
-let disableMiniModeCached = _settingsController.get("disableMiniMode");
-let keepSizeAcrossDisplaysCached = _settingsController.get("keepSizeAcrossDisplays");
-let fullscreenOverlayCached = _settingsController.get("fullscreenOverlay");
+let allowEdgePinningCached = getEffectiveAppModePolicy().allowEdgePinning;
+let disableMiniModeCached = getEffectiveAppModePolicy().disableMiniMode;
+let keepSizeAcrossDisplaysCached = getEffectiveAppModePolicy().keepSizeAcrossDisplays;
+let fullscreenOverlayCached = getEffectiveAppModePolicy().fullscreenOverlay;
 let textScale = _settingsController.get("textScale");
 let textScaleByDisplay = _settingsController.get("textScaleByDisplay");
 // Transient slider-drag override for ONE display — the one the settings
@@ -1123,17 +1135,37 @@ function endTextScalePreview() {
 
 function getRuntimeBubblePolicy(kind) {
   const policy = getEffectiveAppModePolicy();
-  const suppressed = kind === "permission"
-    ? policy.suppressPermissionBubbles
-    : policy.suppressNotificationBubbles;
-  return resolveEffectiveBubblePolicy(
-    getBubblePolicy(_settingsController.getSnapshot(), kind),
-    suppressed
-  );
+  return kind === "permission" ? policy.permissionBubblePolicy : policy.notificationBubblePolicy;
 }
 
 function getAllBubblesHidden() {
-  return isAllBubblesHidden(_settingsController.getSnapshot());
+  const policy = getEffectiveAppModePolicy();
+  return !policy.permissionBubblePolicy.enabled && !policy.notificationBubblePolicy.enabled;
+}
+
+function syncModeFeatureProjection() {
+  const p = getEffectiveAppModePolicy();
+  sessionHudEnabled = p.sessionHudEnabled;
+  sessionHudShowStateLabels = p.sessionHudShowStateLabels;
+  sessionHudShowElapsed = p.sessionHudShowElapsed;
+  sessionHudShowContextUsage = p.sessionHudShowContextUsage;
+  sessionHudShowQuota = p.sessionHudShowQuota;
+  lowPowerIdleMode = p.lowPowerIdleMode;
+  keepAwakeWhileWorking = p.keepAwakeWhileWorking;
+  allowEdgePinningCached = p.allowEdgePinning;
+  disableMiniModeCached = p.disableMiniMode;
+  fullscreenOverlayCached = p.fullscreenOverlay;
+  if (disableMiniModeCached && (_mini.getMiniMode() || _mini.getMiniTransitioning())) {
+    _mini.cancelMiniTransition();
+    if (_mini.getMiniMode()) _mini.exitMiniMode();
+  }
+  if (keepSizeAcrossDisplaysCached !== p.keepSizeAcrossDisplays) resetKeepSizeFrozen();
+  keepSizeAcrossDisplaysCached = p.keepSizeAcrossDisplays;
+  sendToRenderer("low-power-idle-mode-change", lowPowerIdleMode);
+  syncSessionHudVisibilityAndBubbles();
+  reconcilePowerSaveBlocker();
+  syncTrayStatus();
+  reclampPetAfterEdgePinningChange();
 }
 
 let macHideController = null; // macOS app-hidden ↔ pet visibility bridge (#416); created in whenReady
@@ -1176,15 +1208,20 @@ function getThemeSoundPreloadUrls() {
   return urls;
 }
 
-function syncSoundPreloads() {
-  const urls = getThemeSoundPreloadUrls();
-  if (urls.length) sendToRenderer("preload-sounds", { urls });
-}
+function syncSoundPreloads() {}
 
 function setViewportOffsetY(offsetY) { return petWindowRuntime.setViewportOffsetY(offsetY); }
 function getPetWindowBounds() { return petWindowRuntime.getPetWindowBounds(); }
 function applyPetWindowBounds(bounds) { return petWindowRuntime.applyPetWindowBounds(bounds); }
 function applyPetWindowPosition(x, y) { return petWindowRuntime.applyPetWindowPosition(x, y); }
+
+function cancelPetHold() {
+  petWindowRuntime.setDragLocked(false);
+  petWindowRuntime.clearDragSnapshot();
+  _state.setPetHeld(false);
+  idlePaused = false;
+  mouseOverPet = false;
+}
 
 function syncHitStateAfterLoad() {
   sendToHitWin("hit-state-sync", {
@@ -1213,14 +1250,14 @@ function syncRendererStateAfterLoad({ includeStartupRecovery = true } = {}) {
   if (doNotDisturb) {
     sendToRenderer("dnd-change", true);
     if (_mini.getMiniMode()) {
-      applyState("mini-sleep");
+      applyState("idle");
     } else {
-      applyState("sleeping");
+      applyState("idle");
     }
     return;
   }
   if (_mini.getMiniMode()) {
-    applyState("mini-idle");
+    applyState(resolveDisplayState());
     return;
   }
 
@@ -1258,16 +1295,7 @@ function syncRendererStateAfterLoad({ includeStartupRecovery = true } = {}) {
 let lastSoundTime = 0;
 const SOUND_COOLDOWN_MS = 10000;
 
-function playSound(name) {
-  if (resolveEffectiveSoundMuted(soundMuted, getEffectiveAppModePolicy())) return;
-  if (doNotDisturb) return;
-  const now = Date.now();
-  if (now - lastSoundTime < SOUND_COOLDOWN_MS) return;
-  const url = themeRuntime.getSoundUrl(name);
-  if (!url) return;
-  lastSoundTime = now;
-  sendToRenderer("play-sound", { url, volume: soundVolume });
-}
+function playSound() { return false; }
 
 function resetSoundCooldown() {
   lastSoundTime = 0;
@@ -1292,7 +1320,7 @@ function syncTrayStatus(state) {
   if (!trayStatusController) return;
   let nextState = state;
   if (!nextState && _state && typeof _state.getCurrentState === "function") {
-    nextState = _state.getCurrentState();
+    nextState = getEffectiveAppModePolicy().hidePet ? _state.resolveDisplayState() : _state.getCurrentState();
   }
   trayStatusController.setStatus(resolveTrayStatus({
     state: nextState,
@@ -1342,8 +1370,8 @@ function flashTaskbar() {
 function startTrayFlashTimer(setAttention) {
   clearTrayFlashTimers();
 
-  const intervalMs = _settingsController.get("flashIntervalMs") || 500;
-  const durationMs = _settingsController.get("flashDurationMs");
+  const intervalMs = getEffectiveAppModePolicy().flashIntervalMs;
+  const durationMs = getEffectiveAppModePolicy().flashDurationMs;
   // durationMs defaults to 5000; 0 means flash until manually stopped
 
   let useHighlight = true;
@@ -1490,7 +1518,6 @@ const _permCtx = {
   get win() { return win; },
   get lang() { return lang; },
   get sessions() { return sessions; },
-  get bubbleFollowPet() { return bubbleFollowPet; },
   get permDebugLog() { return permDebugLog; },
   get doNotDisturb() { return doNotDisturb; },
   get hideBubbles() { return getAllBubblesHidden(); },
@@ -1634,6 +1661,7 @@ const _stateCtx = {
   // Last-known account quota survives app restarts (state-account-quota.js).
   accountQuotaPersistPath: require("./state-account-quota").DEFAULT_PERSIST_PATH,
   get quotaMergeSources() { return quotaMergeSources; },
+  getProviderBalanceSnapshot: () => agentLogApp.getProviderBalanceSnapshot(),
   get doNotDisturb() { return doNotDisturb; },
   set doNotDisturb(v) { doNotDisturb = v; },
   get miniMode() { return _mini.getMiniMode(); },
@@ -1656,9 +1684,16 @@ const _stateCtx = {
   flashTaskbar,
   onStateChanged: (state) => syncTrayStatus(state),
   onTrayAgentEvent: (input) => {
-    if (!trayStatusController || !shouldPulseTrayForAgentEvent(input)) return;
+    if (!trayStatusController) return;
     if (doNotDisturb || getEffectiveAppModePolicy().suppressTrayFlash === true) return;
+    syncTrayStatus(input.state === "error" ? "error" : undefined);
     if (hasPendingPermissionForTray()) return;
+    // Hidden/disabled pet visuals must not suppress the existing completion reminder.
+    if ((input.state === "complete" || input.state === "attention") && !getEffectiveAppModePolicy().allowedPetStates.includes("complete")) {
+      flashTaskbar();
+      return;
+    }
+    if (!shouldPulseTrayForAgentEvent(input)) return;
     trayStatusController.activity("working");
   },
   t: (key) => t(key),
@@ -1666,6 +1701,8 @@ const _stateCtx = {
   resolvePermissionEntry: (...args) => resolvePermissionEntry(...args),
   dismissPermissionsForDnd: (...args) => _perm.dismissPermissionsForDnd(...args),
   allowNotificationAnimation: () => getEffectiveAppModePolicy().allowNotificationAnimation,
+  getAllowedPetStates: () => getEffectiveAppModePolicy().allowedPetStates,
+  fallbackDisabledPetStates: () => getActiveAppMode() === "custom",
   allowCompletionAnimation: () => getEffectiveAppModePolicy().allowCompletionAnimation,
   forceCompletionAnimation: () => getEffectiveAppModePolicy().forceCompletionAnimation,
   showKimiNotifyBubble: (...args) => showKimiNotifyBubble(...args),
@@ -1703,19 +1740,9 @@ const _stateCtx = {
     }
     if (_lanWss) { try { _lanWss.onSnapshot(); } catch {} }
   },
-  // Phase 3b: 读 prefs.themeOverrides 判断某个 oneshot state 是否被用户禁用。
-  // state.js gate 调这个做 early-return。不做白名单校验——settings-actions
-  // 负责写入合法性，这里只读。
-  isOneshotDisabled: (stateKey) => {
-    const theme = getActiveTheme();
-    const themeId = theme && theme._id;
-    if (!themeId || !stateKey) return false;
-    const overrides = _settingsController.get("themeOverrides");
-    const themeMap = overrides && overrides[themeId];
-    const stateMap = themeMap && themeMap.states;
-    const entry = (stateMap && stateMap[stateKey]) || (themeMap && themeMap[stateKey]);
-    return !!(entry && entry.disabled === true);
-  },
+  // Required cues stay visible even if an older theme saved a disabled flag.
+  // Context sweeping and worktree carrying are retired pet animations.
+  cancelPetHeld: () => cancelPetHold(),
   get sessionHudCleanupDetached() { return sessionHudCleanupDetached; },
   getStaleConfig: () => ({
     sessionStaleMs,
@@ -1742,6 +1769,7 @@ const _stateCtx = {
   },
 };
 const _state = require("./state")(_stateCtx);
+agentLogApp.subscribeProviderBalances(() => _state.emitSessionSnapshot({ force: true }));
 const { setState, applyState, updateSession, resolveDisplayState, getSvgOverride,
         enableDoNotDisturb, disableDoNotDisturb, startStaleCleanup, stopStaleCleanup,
         startWakePoll, stopWakePoll, detectRunningAgentProcesses,
@@ -3192,14 +3220,12 @@ const _menuCtx = {
   set autoStartWithClaude(v) { _settingsController.applyUpdate("autoStartWithClaude", v); },
   get openAtLogin() { return openAtLogin; },
   set openAtLogin(v) { _settingsController.applyUpdate("openAtLogin", v); },
-  get bubbleFollowPet() { return bubbleFollowPet; },
-  set bubbleFollowPet(v) { _settingsController.applyUpdate("bubbleFollowPet", v); },
   get hideBubbles() { return getAllBubblesHidden(); },
   set hideBubbles(v) { _settingsController.applyCommand("setAllBubblesHidden", { hidden: !!v }).catch((err) => {
     console.warn("Clawd: setAllBubblesHidden failed:", err && err.message);
   }); },
   get permissionAutomationMode() {
-    return _settingsController.get("permissionAutomationMode") || "off";
+    return getEffectiveAppModePolicy().permissionAutomationMode;
   },
   isPermissionAutomationWarningDismissed(mode) {
     const key = mode === "auto-tools"
@@ -3336,10 +3362,10 @@ const _menuCtx = {
   getNearestWorkArea,
   reapplyMacVisibility,
   discoverThemes: () => themeLoader.discoverThemes(),
-  getActiveThemeId: () => themeRuntime.getActiveThemeId("clawd"),
+  getActiveThemeId: () => themeRuntime.getActiveThemeId(themeLoader.getDefaultThemeId()),
   getActiveThemeCapabilities: () => themeRuntime.getActiveThemeCapabilities(),
   ensureUserThemesDir: () => themeLoader.ensureUserThemesDir(),
-  openSettingsWindow: () => settingsWindowRuntime.open(),
+  openSettingsWindow: (options) => settingsWindowRuntime.open(options),
   showTutorial: () => _tutorial.open(),
 };
 const trayRuntime = createTrayRuntime({
@@ -3360,10 +3386,7 @@ trayStatusController = createTrayStatusLightController({
     "Clawd: tray status update failed:",
     () => _menu.setTrayIcon(icon),
   ),
-  completionIntervalMs: _settingsController.get("flashIntervalMs") || 500,
-  completionDurationMs: Number(_settingsController.get("flashDurationMs")) > 0
-    ? Number(_settingsController.get("flashDurationMs"))
-    : 3000,
+  getCompletionPolicy: () => getEffectiveAppModePolicy(),
 });
 syncTrayStatus();
 trayRuntime.onMenuOpened(stopTrayFlash);
@@ -3380,24 +3403,24 @@ const SETTINGS_MIRROR_SETTERS = {
   lang: (v) => { lang = v; }, size: (v) => { currentSize = v; resetKeepSizeFrozen(); }, showTray: (v) => { showTray = v; },
   showDock: (v) => { showDock = v; if (macHideController) macHideController.noteManualChange(); }, manageClaudeHooksAutomatically: (v) => { manageClaudeHooksAutomatically = v; },
   autoStartWithClaude: (v) => { autoStartWithClaude = v; }, openAtLogin: (v) => { openAtLogin = v; },
-  bubbleFollowPet: (v) => { bubbleFollowPet = v; }, sessionHudEnabled: (v) => { sessionHudEnabled = v; },
-  sessionHudShowStateLabels: (v) => { sessionHudShowStateLabels = v; },
-  sessionHudShowElapsed: (v) => { sessionHudShowElapsed = v; },
-  sessionHudShowContextUsage: (v) => { sessionHudShowContextUsage = v; },
-  sessionHudShowQuota: (v) => { sessionHudShowQuota = v; },
+  sessionHudEnabled: () => { sessionHudEnabled = getEffectiveAppModePolicy().sessionHudEnabled; },
+  sessionHudShowStateLabels: () => { sessionHudShowStateLabels = getEffectiveAppModePolicy().sessionHudShowStateLabels; },
+  sessionHudShowElapsed: () => { sessionHudShowElapsed = getEffectiveAppModePolicy().sessionHudShowElapsed; },
+  sessionHudShowContextUsage: () => { sessionHudShowContextUsage = getEffectiveAppModePolicy().sessionHudShowContextUsage; },
+  sessionHudShowQuota: () => { sessionHudShowQuota = getEffectiveAppModePolicy().sessionHudShowQuota; },
   claudeQuotaCollectionEnabled: (v) => { claudeQuotaCollectionEnabled = v; },
   quotaMergeSources: (v) => { quotaMergeSources = v; },
   sessionHudCleanupDetached: (v) => { sessionHudCleanupDetached = v; },
   sessionHudPinned: (v) => { sessionHudPinned = v; },
   sessionStaleMs: (v) => { sessionStaleMs = v; }, workingStaleMs: (v) => { workingStaleMs = v; },
   detachedIdleStaleMs: (v) => { detachedIdleStaleMs = v; },
-  soundMuted: (v) => { soundMuted = v; }, soundVolume: (v) => { soundVolume = v; }, lowPowerIdleMode: (v) => { lowPowerIdleMode = v; },
-  keepAwakeWhileWorking: (v) => { keepAwakeWhileWorking = v; },
+  soundMuted: (v) => { soundMuted = v; }, soundVolume: (v) => { soundVolume = v; }, lowPowerIdleMode: () => { lowPowerIdleMode = getEffectiveAppModePolicy().lowPowerIdleMode; },
+  keepAwakeWhileWorking: () => { keepAwakeWhileWorking = getEffectiveAppModePolicy().keepAwakeWhileWorking; },
   petTint: (v) => { petTint = v; },
   petAccessory: (v) => { petAccessory = v; },
-  allowEdgePinning: (v) => { allowEdgePinningCached = v; }, disableMiniMode: (v) => { disableMiniModeCached = v; }, keepSizeAcrossDisplays: (v) => { keepSizeAcrossDisplaysCached = v; resetKeepSizeFrozen(); },
-  fullscreenOverlay: (v) => { fullscreenOverlayCached = v; },
-  freeRoam: (v) => { _roam.setEnabled(v); },
+  allowEdgePinning: (v) => { allowEdgePinningCached = getEffectiveAppModePolicy().allowEdgePinning; }, disableMiniMode: (v) => { disableMiniModeCached = getEffectiveAppModePolicy().disableMiniMode; }, keepSizeAcrossDisplays: (v) => { keepSizeAcrossDisplaysCached = getEffectiveAppModePolicy().keepSizeAcrossDisplays; resetKeepSizeFrozen(); },
+  fullscreenOverlay: (v) => { fullscreenOverlayCached = getEffectiveAppModePolicy().fullscreenOverlay; },
+  freeRoam: () => { _roam.setEnabled(true); },
   textScale: (v) => { textScale = v; textScalePreview = null; },
   textScaleByDisplay: (v) => { textScaleByDisplay = v; textScalePreview = null; },
 };
@@ -3502,6 +3525,7 @@ animationOverridesMain = createSettingsAnimationOverridesMain({
   settingsController: _settingsController,
   getActiveTheme: () => getActiveTheme(),
   getSettingsWindow,
+  getDashboardWindow: () => _dashboard && _dashboard.getWindow(),
   getLang: () => lang,
   getThemeReloadInProgress: () => themeRuntime.isReloadInProgress(),
   getStateRuntime: () => _state,
@@ -3514,6 +3538,7 @@ registerSettingsAnimationOverridesIpc({
 // ── Doctor tab IPC ──
 const { registerDoctorIpc } = require("./doctor-ipc");
 let _remoteSshRuntime = null;
+let lastConversationJumpResult = null;
 registerDoctorIpc({
   ipcMain,
   app,
@@ -3526,6 +3551,33 @@ registerDoctorIpc({
   getRemoteSshStatuses: () => _remoteSshRuntime
     ? _remoteSshRuntime.listStatuses()
     : [],
+  getLatestAgentRecords: () => agentLogApp.getServices()?.overviewQueries?.getLatestAgentRecords() || [],
+  getSessionSnapshot: () => _state.buildSessionSnapshot(),
+  focusSession: (sessionId, options) => focusDashboardSession(sessionId, options),
+  getConversationJumpResult: () => lastConversationJumpResult,
+  onConversationJumpResult: (result) => { lastConversationJumpResult = result; },
+  getAppSelfCheck: () => {
+    const health = agentLogApp.getHealth();
+    const iconPath = app.isPackaged
+      ? path.join(process.resourcesPath, "icon.png")
+      : path.join(__dirname, "..", "..", "..", "assets", "brand", "icon.png");
+    let iconLoaded = false;
+    try { iconLoaded = !nativeImage.createFromPath(iconPath).isEmpty(); } catch {}
+    const trayStatus = health.tray && health.tray.status;
+    const petAlive = !!win && !win.isDestroyed();
+    let dataReadable = false;
+    if (health.storage === "ready") {
+      try {
+        dataReadable = !!agentLogApp.getServices()?.overviewQueries?.getUsageReport({ period: "day" });
+      } catch {}
+    }
+    return {
+      icon: !iconLoaded || trayStatus === "failed" || trayStatus === "no-host" ? "issue"
+        : trayStatus === "native" || trayStatus === "electron-fallback" ? "ok" : "waiting",
+      pet: !petAlive ? "issue" : petWindowRuntime.isPetHidden() ? "hidden" : "ok",
+      data: health.storage === "starting" ? "waiting" : dataReadable ? "ok" : "issue",
+    };
+  },
 });
 
 // ── Remote SSH (Phase 2) ──
@@ -3605,6 +3657,8 @@ registerSettingsIpc({
   path,
   settingsController: _settingsController,
   getQuotaSourceCount: () => _state.getQuotaSourceCount(),
+  getActiveAppMode,
+  onCustomModeSaved: (options) => _appModeController.refreshCustomMode(options),
   themeLoader,
   codexPetMain,
   getSettingsWindow,
@@ -3648,8 +3702,20 @@ registerSettingsIpc({
 registerSessionIpc({
   ipcMain,
   getSessionSnapshot: () => _state.buildSessionSnapshot(),
+  getPetScene: () => require("./dashboard-pet-scene").describeDashboardPetScene(
+    getActiveTheme(),
+    (filename) => themeRuntime.getAssetPath(filename)
+  ),
+  getPetBehaviorSettings: () => ({
+    freeRoam: getEffectiveAppModePolicy().allowRoamAnimation,
+    allowEdgePinning: getEffectiveAppModePolicy().allowEdgePinning,
+    keepSizeAcrossDisplays: getEffectiveAppModePolicy().keepSizeAcrossDisplays,
+  }),
+  openCustomModeEditor: () => { settingsWindowRuntime.open({tab:"custom-mode"}); return {status:"ok"}; },
+  updatePetBehaviorSetting: () => ({status:"error", message:"Use Edit Custom Mode"}),
   getI18n: () => getDashboardI18nPayload(),
   focusSession: (sessionId, options) => focusDashboardSession(sessionId, options),
+  onConversationJumpResult: (result) => { lastConversationJumpResult = result; },
   hideSession: (sessionId) => hideDashboardSession(sessionId),
   openSessionFolder: (sessionId) => openDashboardSessionFolder(sessionId),
   ackSessionCompletion: (sessionId) => _state.ackSessionCompletion(sessionId),
@@ -3752,12 +3818,12 @@ function createWindow() {
     },
     onRenderProcessGone: (details, ownedHitWin) => {
       safeConsoleError("hitWin renderer crashed:", details.reason);
-      petWindowRuntime.setDragLocked(false);
-      petWindowRuntime.clearDragSnapshot();
-      idlePaused = false;
-      mouseOverPet = false;
+      cancelPetHold();
       petWindowRuntime.reloadWindowWebContents(ownedHitWin, { crashKey: "hitWin", details });
     },
+  });
+  hitWin.webContents.on("did-start-loading", () => {
+    cancelPetHold();
   });
 
   // Event-level safety net for position sync
@@ -3776,6 +3842,10 @@ function createWindow() {
     getCurrentState: () => _state.getCurrentState(),
     getCurrentSvg: () => _state.getCurrentSvg(),
     sendToRenderer,
+    updateActionVisual: (event, payload) => {
+      if (!win || win.isDestroyed() || !event || event.sender !== win.webContents) return;
+      _state.reportPetActionFrame(payload);
+    },
     recoverVisiblePetAfterRendererLoad: (event) => {
       if (!win || win.isDestroyed()) return;
       if (!event || event.sender !== win.webContents) return;
@@ -3783,6 +3853,11 @@ function createWindow() {
       petWindowRuntime.recoverVisiblePetAfterRendererLoad();
     },
     setDragLocked: (value) => { petWindowRuntime.setDragLocked(value); },
+    getDragLocked: () => petWindowRuntime.isDragLocked(),
+    cancelRoam: () => _roam.cancelRoam(),
+    setPetHeld: (value) => _state.setPetHeld(value),
+    isPetHeldAllowed: () => getEffectiveAppModePolicy().allowedPetStates.includes("held"),
+    isInputSender: (event) => !!hitWin && !hitWin.isDestroyed() && event?.sender === hitWin.webContents,
     setMouseOverPet: (value) => { mouseOverPet = !!value; },
     beginDragSnapshot: () => beginDragSnapshot(),
     clearDragSnapshot: () => clearDragSnapshot(),
@@ -3862,6 +3937,7 @@ function createWindow() {
   // If hooks arrived during startup, respect them instead of forcing idle
   // Also handles crash recovery (render-process-gone → reload)
   win.webContents.on("did-start-loading", () => {
+    cancelPetHold();
     setLowPowerIdlePaused(false);
   });
   win.webContents.on("did-finish-load", () => {
@@ -3875,9 +3951,7 @@ function createWindow() {
   win.webContents.on("render-process-gone", (_event, details) => {
     safeConsoleError("Renderer crashed:", details.reason);
     setLowPowerIdlePaused(false);
-    petWindowRuntime.setDragLocked(false);
-    idlePaused = false;
-    mouseOverPet = false;
+    cancelPetHold();
     petWindowRuntime.reloadWindowWebContents(win, { crashKey: "renderWin", details });
   });
 
@@ -3968,7 +4042,6 @@ const _miniCtx = {
   applyPetWindowBounds,
   applyPetWindowPosition,
   setViewportOffsetY,
-  get bubbleFollowPet() { return bubbleFollowPet; },
   get pendingPermissions() { return pendingPermissions; },
   repositionBubbles: () => repositionFloatingBubbles(),
   syncSessionHudVisibility: () => syncSessionHudVisibilityAndBubbles(),
@@ -4000,12 +4073,13 @@ const _roamCtx = {
   repositionSessionHud: () => repositionSessionHud(),
   repositionAnchoredSurfaces: () => repositionAnchoredFloatingSurfaces(),
   repositionBubbles: () => repositionFloatingBubbles(),
-  get bubbleFollowPet() { return bubbleFollowPet; },
   get pendingPermissions() { return pendingPermissions; },
   getNearestWorkArea,
   clampToScreenVisual,
   getMiniMode: () => _mini.getMiniMode(),
-  isModeMovementAllowed: () => !getEffectiveAppModePolicy().freezePet,
+  isModeMovementAllowed: () => getEffectiveAppModePolicy().allowRoamAnimation,
+  getIdlePlaybackDuration: () => _state.getIdlePlaybackDuration(),
+  getRoamIntervalMs: () => getEffectiveAppModePolicy().roamIntervalMs,
   getCurrentState: () => _state.getCurrentState(),
   get miniTransitioning() { return _mini.getMiniTransitioning(); },
   applyState: (state, svgOverride, opts) => _state.applyState(state, svgOverride, opts),
@@ -4018,15 +4092,8 @@ const _roamCtx = {
 };
 const _roam = require("./roam")(_roamCtx);
 
-// Free roam: initialize from prefs and react to toggle changes
-_roam.setEnabled(_settingsController.get("freeRoam") === true);
-try {
-  _settingsController.subscribeKey("freeRoam", (value) => {
-    _roam.setEnabled(value === true);
-  });
-} catch (err) {
-  console.warn("Clawd: freeRoam subscribeKey failed:", err && err.message);
-}
+// Mode owns roaming. Preserve the old preference as compatibility data only.
+_roam.setEnabled(true);
 
 // Convenience getters for mini state (used throughout main.js)
 Object.defineProperties(this || {}, {}); // no-op placeholder

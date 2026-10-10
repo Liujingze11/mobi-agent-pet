@@ -7,9 +7,8 @@ const core = globalThis.ClawdSettingsCore;
 // system fonts and didn't dark-mode well.
 const SIDEBAR_TABS = [
   { id: "general", labelKey: "sidebarGeneral", available: true },
+  { id: "custom-mode", labelKey: "sidebarCustomMode", available: true },
   { id: "agents", labelKey: "sidebarAgents", available: true },
-  { id: "theme", labelKey: "sidebarTheme", available: true },
-  { id: "animOverrides", labelKey: "sidebarAnimOverrides", available: true },
   { id: "shortcuts", labelKey: "sidebarShortcuts", available: true },
   { id: "telegram-approval", labelKey: "sidebarTelegramApproval", available: true },
   { id: "discord-presence", labelKey: "sidebarDiscordPresence", available: true },
@@ -28,12 +27,6 @@ function renderSidebar() {
   const sidebar = document.getElementById("sidebar");
   if (!sidebar) return;
   sidebar.innerHTML = "";
-  if (
-    globalThis.ClawdSettingsDoctorModal
-    && typeof globalThis.ClawdSettingsDoctorModal.renderSidebarIndicator === "function"
-  ) {
-    globalThis.ClawdSettingsDoctorModal.renderSidebarIndicator(sidebar, core);
-  }
   for (const tab of SIDEBAR_TABS) {
     const item = document.createElement("div");
     item.className = "sidebar-item";
@@ -51,6 +44,12 @@ function renderSidebar() {
       });
     }
     sidebar.appendChild(item);
+  }
+  if (
+    globalThis.ClawdSettingsDoctorModal
+    && typeof globalThis.ClawdSettingsDoctorModal.renderSidebarIndicator === "function"
+  ) {
+    globalThis.ClawdSettingsDoctorModal.renderSidebarIndicator(sidebar, core);
   }
 }
 
@@ -83,12 +82,8 @@ core.ops.installRenderHooks({
 });
 
 globalThis.ClawdSettingsTabGeneral.init(core);
+if (globalThis.ClawdSettingsTabCustomMode) globalThis.ClawdSettingsTabCustomMode.init(core);
 globalThis.ClawdSettingsTabAgents.init(core);
-globalThis.ClawdSettingsTabTheme.init(core);
-// Not a top-level tab anymore — it provides the "on / off" subtab that
-// ClawdSettingsTabAnimOverrides renders. init() just wires up the core refs.
-globalThis.ClawdSettingsTabAnimMap.init(core);
-globalThis.ClawdSettingsTabAnimOverrides.init(core);
 globalThis.ClawdSettingsTabShortcuts.init(core);
 if (globalThis.ClawdSettingsTabTelegramApproval) globalThis.ClawdSettingsTabTelegramApproval.init(core);
 if (globalThis.ClawdSettingsTabDiscordPresence) globalThis.ClawdSettingsTabDiscordPresence.init(core);

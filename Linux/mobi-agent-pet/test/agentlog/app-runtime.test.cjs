@@ -42,6 +42,7 @@ class RuntimeBrowserWindow extends EventEmitter {
   }
 
   loadFile() {}
+  setMenuBarVisibility() {}
   show() {}
   hide() {}
   focus() {}
@@ -427,7 +428,7 @@ test("manager IPC registers once and its window is destroyed during AgentLog shu
 
   assert.ok(electron.ipcMain.handlers.has("agentlog:overview:get"));
   assert.ok(electron.ipcMain.handlers.has("agentlog:host:open-settings"));
-  assert.equal(electron.ipcMain.handlers.size, 23);
+  assert.equal(electron.ipcMain.handlers.size, 46);
   assert.equal(RuntimeBrowserWindow.instances.length, 1);
 
   await runtime.shutdown();
@@ -435,6 +436,23 @@ test("manager IPC registers once and its window is destroyed during AgentLog shu
   assert.equal(electron.ipcMain.handlers.size, 0);
   assert.equal(manager.destroyCalls, 1);
   assert.equal(runtime.openManager(), null);
+});
+
+test("pet balance snapshot follows only the active provider", async (t) => {
+  const { electron, runtime } = createHarness(t);
+  runtime.install(electron);
+  await electron.app.emitReady();
+  const { providerRepository, providerBalanceStore } = runtime.getServices();
+  const first = providerRepository.create({ appId: "claude", name: "First", presetId: "claude:001",
+    settingsConfig: { env: {} } });
+  const second = providerRepository.create({ appId: "claude", name: "Second", presetId: "claude:001",
+    settingsConfig: { env: {} } });
+  providerBalanceStore.put(first.id, { kind: "money", amount: 4, currency: "USD" });
+  providerBalanceStore.put(second.id, { kind: "money", amount: 9, currency: "USD" });
+  providerRepository.setActive("claude", first.id);
+  assert.deepEqual(runtime.getProviderBalanceSnapshot().map((row) => [row.providerName, row.amount]), [["First", 4]]);
+  providerRepository.setActive("claude", second.id);
+  assert.deepEqual(runtime.getProviderBalanceSnapshot().map((row) => [row.providerName, row.amount]), [["Second", 9]]);
 });
 
 test("runtime broadcasts host language changes to an open Manager", async (t) => {
@@ -446,4 +464,34 @@ test("runtime broadcasts host language changes to an open Manager", async (t) =>
   runtime.notifyManager("language");
 
   assert.deepEqual(manager.sent, [["agentlog:data-changed", "language"]]);
+});
+
+
+test("desktop launch opens Manager after storage is ready on the first launch", async (t) => {
+  const previous = process.env.AGENTLOG_OPEN_MANAGER_ON_STARTUP;
+  process.env.AGENTLOG_OPEN_MANAGER_ON_STARTUP = "1";
+  t.after(() => {
+    if (previous === undefined) delete process.env.AGENTLOG_OPEN_MANAGER_ON_STARTUP;
+    else process.env.AGENTLOG_OPEN_MANAGER_ON_STARTUP = previous;
+  });
+  const { electron, runtime } = createHarness(t);
+  runtime.install(electron);
+  assert.equal(RuntimeBrowserWindow.instances.length, 0);
+  await electron.app.emitReady();
+  assert.equal(runtime.getHealth().storage, "ready");
+  assert.equal(RuntimeBrowserWindow.instances.length, 1);
+  assert.equal(runtime.openManager(), RuntimeBrowserWindow.instances[0]);
+});
+
+test("background launches can keep Manager closed", async (t) => {
+  const previous = process.env.AGENTLOG_OPEN_MANAGER_ON_STARTUP;
+  delete process.env.AGENTLOG_OPEN_MANAGER_ON_STARTUP;
+  t.after(() => {
+    if (previous !== undefined) process.env.AGENTLOG_OPEN_MANAGER_ON_STARTUP = previous;
+  });
+  const { electron, runtime } = createHarness(t);
+  runtime.install(electron);
+  await electron.app.emitReady();
+  assert.equal(runtime.getHealth().storage, "ready");
+  assert.equal(RuntimeBrowserWindow.instances.length, 0);
 });

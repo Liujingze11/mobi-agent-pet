@@ -96,7 +96,7 @@ function createRuntimeHarness(overrides = {}) {
     shell: { openPath: async () => "" },
     fs,
     path,
-    themeLoader: {
+    themeLoader: overrides.themeLoader || {
       _resolveAssetPath: (_theme, filename) => path.join(assetsDir, path.basename(filename)),
       getAssetPath: (filename) => path.join(assetsDir, path.basename(filename)),
       getThemeMetadata: (themeId) => ({ name: `Theme ${themeId}` }),
@@ -274,9 +274,9 @@ test("external object-channel SVG previews require posters without getting trust
     );
     assert.deepStrictEqual(
       harness.runtime.previewAnimationOverride({ stateKey: "thinking", file: "scripted.svg", durationMs: 12000 }),
-      { status: "ok" }
+      { status: "error", code: "PET_PREVIEW_MOVED", message: "Preview actions in the action manager." }
     );
-    assert.deepStrictEqual(delays, [animationOverrideTest.PREVIEW_HOLD_MAX_MS]);
+    assert.deepStrictEqual(delays, []);
   } finally {
     harness.cleanup();
     global.setTimeout = originalSetTimeout;
@@ -313,14 +313,14 @@ test("animation preview requests defer while theme reload is in progress", () =>
   try {
     assert.deepStrictEqual(
       harness.runtime.previewAnimationOverride({ stateKey: "thinking", file: "scripted.svg", durationMs: 900 }),
-      { status: "ok", deferred: true }
+      { status: "error", code: "PET_PREVIEW_MOVED", message: "Preview actions in the action manager." }
     );
     assert.deepStrictEqual(harness.stateCalls, []);
 
     harness.setThemeReloadInProgress(false);
     harness.runtime.runPendingPostReloadTasks();
 
-    assert.deepStrictEqual(harness.stateCalls[0], ["applyState", "thinking", "scripted.svg"]);
+    assert.deepStrictEqual(harness.stateCalls, []);
   } finally {
     harness.cleanup();
   }
@@ -477,4 +477,39 @@ test("idle visual payload is null when the theme has no idle variants", () => {
   } finally {
     harness.cleanup();
   }
+});
+
+
+test("real Mobi theme action data loads in the action manager without a mocked response", async () => {
+  const themeLoader = require('../src/theme-loader');
+  const { JSDOM } = require('jsdom');
+  themeLoader.init(path.join(__dirname, '..', 'src'));
+  const harness = createRuntimeHarness({ activeTheme: themeLoader.loadTheme('mobi-c'), themeLoader });
+  const dom = new JSDOM('<div id="actions"></div>', { runScripts: 'outside-only' });
+  try {
+    const w = dom.window;
+    w.settingsAPI = { getAnimationOverridesData: async () => harness.runtime.buildAnimationOverrideData() };
+    for (const file of ['pet-states.js', 'pet-action-plan.js', 'dashboard-actions.js']) {
+      w.eval(fs.readFileSync(path.join(__dirname, '..', 'src', file), 'utf8'));
+    }
+    const page = w.MobiDashboardActions.create({ container: w.document.getElementById('actions'), getLang: () => 'zh' });
+    await page.enter();
+    assert.strictEqual(w.document.querySelectorAll('[data-action-state]').length, 7);
+    assert.ok(w.document.querySelectorAll('[data-action-card]').length > 0);
+    assert.strictEqual(w.document.querySelector('.pet-actions-heading small').textContent, '比比');
+    assert.strictEqual(w.document.querySelector('[data-action-state="error"] .pet-action-title').textContent, '疯狂摔物');
+    assert.strictEqual(w.document.querySelector('.pet-action-timing'), null);
+    assert.strictEqual(w.document.querySelector('input'), null, 'native action timing is read-only');
+    const nativeData = harness.runtime.buildAnimationOverrideData().actionManagement;
+    assert.strictEqual(nativeData.durations['error.svg'], 6000);
+    assert.match(nativeData.labels['error.svg'], /[\u4e00-\u9fff]/);
+    assert.doesNotMatch(w.document.getElementById('actions').textContent, /加载失败/);
+    page.leave();
+  } finally {
+    dom.window.close();
+    harness.cleanup();
+  }
+});
+test('legacy desktop preview cannot inject an unassigned file or schedule a state reset',()=>{
+ const h=createRuntimeHarness();try{const result=h.runtime.previewAnimationOverride({stateKey:'thinking',file:'scripted.svg',durationMs:5000});assert.equal(result.code,'PET_PREVIEW_MOVED');assert.deepStrictEqual(h.stateCalls,[]);}finally{h.cleanup()}
 });

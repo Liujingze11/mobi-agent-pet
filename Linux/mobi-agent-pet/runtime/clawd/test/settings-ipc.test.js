@@ -118,7 +118,7 @@ function makeZip(entries) {
 function createHarness(overrides = {}) {
   const calls = [];
   const ipcMain = new FakeIpcMain();
-  const activeTheme = overrides.activeTheme || {
+  const activeTheme = Object.prototype.hasOwnProperty.call(overrides, "activeTheme") ? overrides.activeTheme : {
     _id: "clawd",
     sounds: { complete: "complete.mp3" },
   };
@@ -181,6 +181,8 @@ function createHarness(overrides = {}) {
     fs: overrides.fs || fs,
     path: overrides.path || path,
     settingsController,
+    getActiveAppMode: overrides.getActiveAppMode,
+    onCustomModeSaved: overrides.onCustomModeSaved,
     themeLoader,
     codexPetMain,
     getSettingsWindow: () => ({ id: "settings-window" }),
@@ -597,99 +599,9 @@ test("settings IPC imports Clawd user theme zip packages", async () => {
   }
 });
 
-test("settings IPC copies sound overrides, removes stale siblings, and invalidates renderer cache", async () => {
-  const root = makeTempDir();
-  try {
-    const overridesDir = path.join(root, "overrides");
-    const sourcePath = path.join(root, "picked.wav");
-    fs.mkdirSync(overridesDir, { recursive: true });
-    fs.writeFileSync(sourcePath, "new audio", "utf8");
-    fs.writeFileSync(path.join(overridesDir, "complete.mp3"), "old audio", "utf8");
 
-    let dialogOptions = null;
-    const { ipcMain, calls, activeTheme } = createHarness({
-      dialog: {
-        showOpenDialog: async (_parent, options) => {
-          dialogOptions = options;
-          return { canceled: false, filePaths: [sourcePath] };
-        },
-        showMessageBox: async () => ({ response: 1 }),
-      },
-      themeLoader: {
-        getPreviewSoundUrl: () => null,
-        getSoundOverridesDir: () => overridesDir,
-        getSoundUrl: (soundName) => `file:///${soundName}.wav`,
-        listThemesWithMetadata: () => [],
-        getThemeMetadata: () => null,
-      },
-    });
 
-    assert.deepStrictEqual(await ipcMain.invoke("settings:pick-sound-file", { soundName: "../nope" }), {
-      status: "error",
-      message: 'pickSoundFile.soundName "../nope" contains invalid characters',
-    });
-    assert.deepStrictEqual(await ipcMain.invoke("settings:pick-sound-file", { soundName: "complete" }), {
-      status: "ok",
-      file: "complete.wav",
-    });
 
-    assert.deepStrictEqual(dialogOptions.properties, ["openFile"]);
-    assert.deepStrictEqual(dialogOptions.filters[0].extensions.sort(), [
-      "aac",
-      "flac",
-      "m4a",
-      "mp3",
-      "ogg",
-      "wav",
-    ]);
-    assert.strictEqual(fs.readFileSync(path.join(overridesDir, "complete.wav"), "utf8"), "new audio");
-    assert.strictEqual(fs.existsSync(path.join(overridesDir, "complete.mp3")), false);
-    assert.strictEqual(activeTheme._soundOverrideFiles.complete, path.join(overridesDir, "complete.wav"));
-    assert.deepStrictEqual(calls, [
-      ["applyCommand", "setSoundOverride", {
-        themeId: "clawd",
-        soundName: "complete",
-        file: "complete.wav",
-        originalName: "picked.wav",
-      }],
-      ["sendToRenderer", "invalidate-sound-cache", "file:///complete.wav"],
-      ["sendToRenderer", "preload-sounds", { urls: ["file:///complete.wav"] }],
-    ]);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("settings IPC previews sound only when not muted or in DND", async () => {
-  const { ipcMain, calls } = createHarness({
-    themeLoader: {
-      getPreviewSoundUrl: () => null,
-      getSoundOverridesDir: () => null,
-      getSoundUrl: (soundName) => `file:///${soundName}.mp3?base=1`,
-      listThemesWithMetadata: () => [],
-      getThemeMetadata: () => null,
-    },
-    now: () => 987,
-  });
-  assert.deepStrictEqual(await ipcMain.invoke("settings:preview-sound", { soundName: "complete" }), {
-    status: "ok",
-  });
-  assert.deepStrictEqual(calls, [
-    ["sendToRenderer", "play-sound", { url: "file:///complete.mp3?base=1&_t=987", volume: 0.4 }],
-  ]);
-
-  const muted = createHarness({ getSoundMuted: () => true });
-  assert.deepStrictEqual(await muted.ipcMain.invoke("settings:preview-sound", { soundName: "complete" }), {
-    status: "skipped",
-    reason: "muted",
-  });
-
-  const dnd = createHarness({ getDoNotDisturb: () => true });
-  assert.deepStrictEqual(await dnd.ipcMain.invoke("settings:preview-sound", { soundName: "complete" }), {
-    status: "skipped",
-    reason: "dnd",
-  });
-});
 
 test("settings IPC serves agent/about/external and remove-theme dialog helpers", async () => {
   const root = makeTempDir();
@@ -750,7 +662,7 @@ test("settings IPC serves agent/about/external and remove-theme dialog helpers",
       },
     });
 
-    assert.strictEqual(await ipcMain.invoke("settings:get-preview-sound-url"), "file:///preview.mp3");
+    assert.strictEqual(await ipcMain.invoke("settings:get-preview-sound-url"), null);
     assert.deepStrictEqual(await ipcMain.invoke("settings:list-agents"), [
       { id: "codex", name: "Codex", eventSource: "hook", capabilities: { permission: true } },
       {
@@ -857,4 +769,43 @@ test("settings IPC exposes read-only agent installation detection", async () => 
   assert.strictEqual(sawPath, true);
 
   runtime.dispose();
+});
+
+test("settings:list-themes selects the product default when no theme is active", async () => {
+  const {ipcMain,runtime} = createHarness({activeTheme:null,themeLoader:{getDefaultThemeId: () => "mobi-a",listThemesWithMetadata:()=>[{id:"mobi-a"},{id:"mobi-b"}]}});
+  try {
+    const themes=await ipcMain.invoke("settings:list-themes");
+    assert.deepStrictEqual(themes.map(theme=>[theme.id,theme.active]),[["mobi-a",true],["mobi-b",false]]);
+  } finally {runtime.dispose();}
+});
+
+test("settings:list-themes keeps the legacy default with older loaders and no active theme", async () => {
+  const {ipcMain,runtime}=createHarness({activeTheme:null,themeLoader:{listThemesWithMetadata:()=>[{id:"clawd"},{id:"user-pet"}]}});
+  try {assert.deepStrictEqual((await ipcMain.invoke("settings:list-themes")).map(theme=>[theme.id,theme.active]),[["clawd",true],["user-pet",false]]);} finally {runtime.dispose();}
+});
+
+test('sound preview and file operations are retired without emitting playback or opening dialogs',async()=>{
+ let picked=0;
+ const h=createHarness({dialog:{showOpenDialog:async()=>{picked++;return {canceled:true}}},themeLoader:{getSoundUrl:()=> 'file:///complete.mp3',getPreviewSoundUrl:()=> 'file:///complete.mp3'}});
+ for(const channel of ['settings:preview-sound','settings:pick-sound-file','settings:open-sound-overrides-dir']){
+  const result=await h.ipcMain.invoke(channel,{soundName:'complete'});assert.equal(result.code,'SOUND_DISABLED');
+ }
+ assert.equal(await h.ipcMain.invoke('settings:get-preview-sound-url'),null);assert.equal(picked,0);
+ assert.ok(!h.calls.some(call=>call[0]==='sendToRenderer'&&call[1]==='play-sound'));
+});
+
+test('Custom mode saving uses its command and applies only after a successful commit',async()=>{
+ const writes=[],saved=[];
+ const profile=require('../src/custom-mode-profile').defaultCustomModeProfile();
+ const h=createHarness({settingsController:{getSnapshot:()=>({customModeProfile:profile}),applyCommand:async(action,payload)=>{writes.push(action);return {status:'ok'}}},onCustomModeSaved:async(options)=>{saved.push(options);return {status:'ok'}},getActiveAppMode:()=> 'normal'});
+ assert.deepEqual((await h.ipcMain.invoke('settings:get-mode-config')).profile,profile);
+ const result=await h.ipcMain.invoke('settings:save-custom-mode',{profile});assert.equal(result.status,'ok');assert.deepEqual(writes,['setCustomModeProfile']);assert.equal(saved.length,1);
+});
+
+test('failed Custom runtime application restores the persisted profile and legacy editor paths cannot bypass it',async()=>{
+ const model=require('../src/custom-mode-profile'),original=model.defaultCustomModeProfile();let profile=original,refreshes=0;
+ const h=createHarness({settingsController:{getSnapshot:()=>({customModeProfile:profile}),applyUpdate(){throw new Error('must not update')},applyCommand:async(_action,payload)=>{profile=payload.profile;return {status:'ok'}}},onCustomModeSaved:()=>++refreshes===1?{status:'error',message:'apply failed'}:{status:'ok'}});
+ assert.equal((await h.ipcMain.invoke('settings:save-custom-mode',{profile:{...original,petVisible:false}})).status,'error');assert.deepEqual(profile,original);assert.equal(refreshes,2);
+ for(const key of ['sessionHudEnabled','hideBubbles','soundMuted','freeRoam','customModeProfile'])assert.equal((await h.ipcMain.invoke('settings:update',{key,value:false})).status,'error');
+ for(const action of ['setPermissionAutomationMode','setAllBubblesHidden','setSoundOverride'])assert.equal((await h.ipcMain.invoke('settings:command',{action,payload:{}})).status,'error');
 });

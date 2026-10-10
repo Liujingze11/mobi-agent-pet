@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mobi A / B / C 动画预览</title>
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; color: #302f2c; background: #f5f3ed; font: 15px/1.6 system-ui, sans-serif; }
+main { max-width: 1120px; margin: 0 auto; padding: 36px 28px; }
+h1 { margin: 0; font-size: 30px; letter-spacing: -.7px; }
+.intro { color: #77746d; margin: 8px 0 26px; }
+.controls { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin-bottom: 24px; }
+select,button { color: inherit; background: #fff; border: 1px solid #d9d6ce; padding: 8px 12px; border-radius: 9px; font: inherit; }
+select:focus-visible,button:focus-visible { outline: 3px solid #8ab3e6; outline-offset: 2px; }
+label { display: flex; gap: 9px; align-items: center; }
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+article { min-width: 0; background: #fffdf9; border: 1px solid #ddd9d0; border-radius: 20px; padding: 24px; }
+article h2 { font-size: 19px; margin: 0; }
+article p { color: #8b867c; font-size: 13px; margin: 4px 0 0; }
+.stage { height: 265px; display: flex; align-items: center; justify-content: center; }
+.pet { width: 190px; height: 214px; object-fit: contain; }
+.small-row { display: flex; align-items: center; justify-content: center; gap: 18px; padding: 12px 0; border-top: 1px solid #e9e5dd; }
+.small { width: 52px; height: 59px; object-fit: contain; }
+.small-row span { color: #8b867c; font-size: 12px; }
+.dark { background: #24252a; color: #f0eee7; }
+.dark article { background: #303239; border-color: #4d5059; }
+.dark select,.dark button { background: #303239; border-color: #60636e; }
+.dark .small-row { border-color: #4d5059; }
+.dark .intro,.dark article p,.dark .small-row span { color: #b8b5ad; }
+@media(max-width: 700px) { .grid { grid-template-columns: 1fr; } .stage { height: 220px; } }
+</style>
+<main>
+<h1>Mobi 的三个新伙伴</h1>
+<p class="intro">方头、圆头、扁方头。每个角色都能思考、工作、表达情绪，供用户自由选择。</p>
+<div class="controls">
+<label>动作<select id="state">
+<option value="idle">空闲</option><option value="thinking">思考</option><option value="working">工作</option>
+<option value="attention">完成</option><option value="notification">提醒</option><option value="error">错误</option>
+<option value="juggling">子代理工作</option><option value="building">多任务</option><option value="sweeping">整理</option>
+<option value="carrying">搬运</option><option value="roam">漫步</option><option value="yawning">打哈欠</option>
+<option value="dozing">打瞌睡</option><option value="collapsing">入睡</option><option value="sleeping">睡眠</option>
+<option value="waking">醒来</option><option value="poke-left">点击左侧</option><option value="poke-right">点击右侧</option>
+<option value="double">双击</option><option value="drag">拖动</option><option value="mini-idle">迷你空闲</option>
+<option value="mini-working">迷你工作</option><option value="mini-sleep">迷你睡眠</option>
+</select></label>
+<button id="background" type="button">切换深色背景</button>
+</div>
+<div class="grid">
+<article><h2>Mobi A · 方头</h2><p>安静亲切</p><div class="stage"><img class="pet" data-theme="mobi-a" alt="Mobi A"></div><div class="small-row"><img class="small" data-theme="mobi-a" alt="小尺寸 Mobi A"><span>52px 小尺寸</span></div></article>
+<article><h2>Mobi B · 圆头</h2><p>好奇活泼</p><div class="stage"><img class="pet" data-theme="mobi-b" alt="Mobi B"></div><div class="small-row"><img class="small" data-theme="mobi-b" alt="小尺寸 Mobi B"><span>52px 小尺寸</span></div></article>
+<article><h2>Mobi C · 扁方头</h2><p>呆萌淡定</p><div class="stage"><img class="pet" data-theme="mobi-c" alt="Mobi C"></div><div class="small-row"><img class="small" data-theme="mobi-c" alt="小尺寸 Mobi C"><span>52px 小尺寸</span></div></article>
+</div>
+</main>
+<script>
+const state = document.getElementById('state');
+function render() { for (const image of document.querySelectorAll('[data-theme]')) image.src = `../../runtime/clawd/themes/${image.dataset.theme}/assets/${state.value}.svg?preview=${Date.now()}`; }
+state.addEventListener('change', render);
+document.getElementById('background').addEventListener('click', () => document.body.classList.toggle('dark'));
+render();
+</script>
+</html>

@@ -45,8 +45,8 @@ function createDurableIngestor({ db, projectResolver, sessionTracker, onChange }
     const resolved = projectResolver.resolve({ cwd: event.cwd });
     const projectId = resolved.project && resolved.project.id;
     const session = sessionTracker.applyEvent(event, projectId);
-    attachProjection.run(projectId || null, session.id, event.id);
-    return { inserted: true, eventId: event.id, projectId: projectId || null, sessionId: session.id };
+    attachProjection.run(session.project_id, session.id, event.id);
+    return { inserted: true, eventId: event.id, projectId: session.project_id, sessionId: session.id };
   });
 
   function isEventIdPrimaryKeyConflict(error) {

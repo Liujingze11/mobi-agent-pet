@@ -76,21 +76,21 @@ module.exports = function initMenu(ctx) {
       let result = await ctx.setAppMode(mode);
       if (result && result.status === "confirmation-required") {
         if (automaticAlreadyAuthorized) {
-          return reportAppModeFailure(t("appModeAutomaticConfirmTitle"));
+          return reportAppModeFailure(t(mode === "custom" ? "appModeCustomConfirmTitle" : "appModeAutomaticConfirmTitle"));
         }
         const confirmation = await dialog.showMessageBox({
           type: "warning",
-          buttons: [t("appModeAutomaticConfirm"), t("permissionAutomationCancel")],
+          buttons: [t(mode === "custom" ? "appModeCustomConfirm" : "appModeAutomaticConfirm"), t("permissionAutomationCancel")],
           defaultId: 1,
           cancelId: 1,
-          title: t("appModeAutomaticConfirmTitle"),
-          message: t("appModeAutomaticConfirmTitle"),
-          detail: t("appModeAutomaticConfirmDetail"),
+          title: t(mode === "custom" ? "appModeCustomConfirmTitle" : "appModeAutomaticConfirmTitle"),
+          message: t(mode === "custom" ? "appModeCustomConfirmTitle" : "appModeAutomaticConfirmTitle"),
+          detail: t(mode === "custom" ? "appModeCustomConfirmDetail" : "appModeAutomaticConfirmDetail"),
         });
         if (!confirmation || confirmation.response !== 0) return undefined;
-        result = await ctx.setAppMode(mode, { confirmed: true });
+        result = await ctx.setAppMode(mode, { confirmed: true, ...(result.confirmationToken ? {confirmationToken:result.confirmationToken} : {}) });
       }
-      if (result && result.status === "error") {
+      if (result && ["error", "confirmation-required"].includes(result.status)) {
         return reportAppModeFailure(result);
       }
       return result;
@@ -144,13 +144,13 @@ module.exports = function initMenu(ctx) {
         {
           label: t("appModeCustom"),
           type: "radio",
-          checked: false,
-          enabled: false,
+          checked: current === "custom",
+          click: () => requestAppMode("custom"),
         },
         { type: "separator" },
         {
           label: t("appModeEditCustom"),
-          enabled: false,
+          click: () => ctx.openSettingsWindow({tab:"custom-mode"}),
         },
       ],
     };
@@ -195,7 +195,7 @@ module.exports = function initMenu(ctx) {
         openDashboard: () => {
           if (typeof ctx.openDashboard === "function") ctx.openDashboard();
         },
-        openSettingsWindow: () => ctx.openSettingsWindow(),
+        openSettingsWindow: (options) => ctx.openSettingsWindow(options),
         requestAppQuit,
     };
     return createTrayMenuModel(modelContext, t);
@@ -422,10 +422,6 @@ module.exports = function initMenu(ctx) {
         click: () => ctx.openSettingsWindow(),
       },
     ];
-    appGroup.push({
-      label: ctx.petHidden ? t("showPet") : t("hidePet"),
-      click: () => ctx.togglePetVisibility(),
-    });
 
     // Quit stands alone as the final group so it is always set off by a
     // separator (native-menu convention), which also keeps Hide/Show Pet

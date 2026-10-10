@@ -29,6 +29,25 @@ development launch builds and caches an Electron-compatible `better-sqlite3`
 binding under `.electron-native/`; Node-based tests continue using the normal
 Node binding.
 
+Built-in characters are **莫比**, **莫莫**, and **比比**. New installations
+start with 莫比, and user-installed themes remain supported.
+
+The pet uses seven states: idle, roam, working, waiting, complete, error, and
+held. Each state plays the actions assigned in the action manager; mini mode
+uses the same states and action plan. See the [state mapping](runtime/clawd/docs/guides/state-mapping.md).
+
+Modes are **Normal**, **Background**, **Automatic**, and **Custom**. The first
+three use fixed behavior; only **Edit Custom Mode** changes mode settings.
+Custom saves do not change the active mode or the three presets. The app has no
+sound settings or playback. Each launch starts in Normal.
+
+For a background development launch, run `npm run shortcut:dev` once, then use
+**Mobi Agent Pet (Dev)** from the application menu or desktop. The shortcut opens
+no terminal and opens the main window on the first launch;
+`scripts/launch-dev.sh` returns immediately when invoked manually; desktop
+entries use `--desktop` to keep an invisible launcher alive until the app quits. Output is saved to `${XDG_STATE_HOME:-$HOME/.local/state}/mobi-agent-pet/dev.log`.
+Choosing **Quit** from the application ends its launcher and owned runtime helpers.
+
 Application data continues to use the former Electron user-data directory
 (`AgentLog Pet/data/agentlog.db`) so existing settings and history are preserved.
 Project history survives Manager closure and application restart.
@@ -53,8 +72,8 @@ Generated AppImage, deb, and unpacked files are written to `Linux/` and are not
 tracked by Git. On hosts without `libfuse.so.2`, test the AppImage with:
 
 ```bash
-APPIMAGE_EXTRACT_AND_RUN=1 npm run smoke:linux -- Linux/Mobi-Agent-Pet-0.1.0-x64.AppImage
-APPIMAGE_EXTRACT_AND_RUN=1 npm run smoke:manager -- Linux/Mobi-Agent-Pet-0.1.0-x64.AppImage
+APPIMAGE_EXTRACT_AND_RUN=1 npm run smoke:linux -- Linux/Mobi-Agent-Pet-0.1.7-x64.AppImage
+APPIMAGE_EXTRACT_AND_RUN=1 npm run smoke:manager -- Linux/Mobi-Agent-Pet-0.1.7-x64.AppImage
 ```
 
 On Linux, Mobi Agent Pet uses the desktop's StatusNotifier/AppIndicator tray host
@@ -62,8 +81,10 @@ when one is available. If a desktop intentionally has no compatible tray host,
 the launcher and second-instance activation remain available for opening the
 Manager; the normal tray menu needs no GNOME settings change.
 
-Use **Settings → General → System & startup** to hide or show the pet and to
-control launch at login.
+Use the pet or tray menu to choose **Normal**, **Background**, or **Automatic**
+mode. Normal displays all seven states; Background hides the pet; Automatic
+displays all except roam. Visibility and roaming follow the mode.
+Use **Settings → General → System & startup** to control launch at login.
 
 Local tray recovery and package-menu verification are recorded in
 [the Linux development handoff](docs/verification/2026-09-14-linux-tray-local-handoff.md).

@@ -45,17 +45,9 @@ function getEffectiveSavedSurfaces(controller, snapshot) {
       snapshot.flashTaskbarOnComplete,
       policy
     ),
-    permissionBubble: resolveEffectiveBubblePolicy(
-      getBubblePolicy(snapshot, "permission"),
-      policy.suppressPermissionBubbles
-    ),
-    notificationBubble: resolveEffectiveBubblePolicy(
-      getBubblePolicy(snapshot, "notification"),
-      policy.suppressNotificationBubbles
-    ),
-    sessionHudEnabled: policy.suppressSessionHud
-      ? false
-      : snapshot.sessionHudEnabled,
+    permissionBubble: policy.permissionBubblePolicy,
+    notificationBubble: policy.notificationBubblePolicy,
+    sessionHudEnabled: policy.sessionHudEnabled,
     permissionAutomationMode: policy.permissionAutomationMode,
   };
 }
@@ -69,8 +61,8 @@ describe("effective app mode boundaries", () => {
       { enabled: false, autoCloseMs: 0 }
     );
 
-    assert.equal(resolveEffectiveSoundMuted(false, { muteSound: false }), false);
-    assert.equal(resolveEffectiveTrayFlashEnabled(true, { suppressTrayFlash: false }), true);
+    assert.equal(resolveEffectiveSoundMuted(false, { muteSound: false }), true);
+    assert.equal(resolveEffectiveTrayFlashEnabled(false, { trayAlerts: true }), true);
     assert.deepStrictEqual(
       resolveEffectiveBubblePolicy({ enabled: true, autoCloseMs: 6000 }, false),
       { enabled: true, autoCloseMs: 6000 }
@@ -125,7 +117,7 @@ describe("app mode controller lifecycle", () => {
 
     assert.equal(
       controller.resolvePermissionAutomationMode(normalRequest, "auto-tools"),
-      "auto-tools"
+      "off"
     );
     assert.equal(
       controller.resolvePermissionAutomationMode(automaticRequest, "auto-tools"),
@@ -164,14 +156,14 @@ describe("app mode controller lifecycle", () => {
     const savedEffectiveValues = {
       soundMuted: true,
       trayFlashEnabled: true,
-      permissionBubble: { enabled: true, autoCloseMs: 6000 },
+      permissionBubble: { enabled: true, autoCloseMs: 0 },
       notificationBubble: { enabled: true, autoCloseMs: 6000 },
       sessionHudEnabled: true,
-      permissionAutomationMode: "auto-tools",
+      permissionAutomationMode: "off",
     };
     const quietEffectiveValues = {
       soundMuted: true,
-      trayFlashEnabled: false,
+      trayFlashEnabled: true,
       permissionBubble: { enabled: false, autoCloseMs: 0 },
       notificationBubble: { enabled: false, autoCloseMs: 0 },
       sessionHudEnabled: false,
@@ -179,7 +171,8 @@ describe("app mode controller lifecycle", () => {
 
     await controller.setActiveAppMode(APP_MODE.BACKGROUND);
     assert.deepStrictEqual(getEffectiveSavedSurfaces(controller, snapshot), {
-      ...quietEffectiveValues,
+      ...savedEffectiveValues,
+      sessionHudEnabled: false,
       permissionAutomationMode: "off",
     });
     await controller.setActiveAppMode(APP_MODE.NORMAL);

@@ -111,6 +111,7 @@ function createRuntime(options = {}) {
       getSnapshot: () => snapshot,
     },
     getSettingsWindow: () => settingsWindow,
+    disabledActionIds: options.disabledActionIds,
     shortcutHandlers: {
       togglePet: () => togglePetCalls.push("togglePet"),
     },
@@ -289,4 +290,12 @@ test("shortcut runtime preserves validation and unavailable-window errors", asyn
     status: "error",
     message: "settings window unavailable",
   });
+});
+
+test("mode-owned pet shortcut is neither registered nor recordable",async()=>{
+ const h=createRuntime({disabledActionIds:['togglePet']});
+ h.runtime.registerPersistentShortcutsFromSettings();
+ assert.equal(h.globalShortcut.registered.size,0);
+ assert.equal((await h.ipcMain.invoke('settings:enterShortcutRecording','togglePet')).status,'error');
+ h.runtime.dispose();
 });

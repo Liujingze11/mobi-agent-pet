@@ -5,6 +5,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const { createHash } = require("crypto");
 const {
   sanitizeSvg,
   collectSafeRasterRefs,
@@ -198,20 +199,16 @@ function resolveExternalAssetsDir(themeId, themeDir, opts = {}) {
         const cachedSvgPath = path.join(cacheDir, file);
         const cached = cacheMeta.svgs[file];
         let sanitized = null;
-        if (!forceSvgRefresh && cached && cached.mtime === stat.mtimeMs && cached.size === stat.size && fs.existsSync(cachedSvgPath)) {
-          try {
-            sanitized = fs.readFileSync(cachedSvgPath, "utf8");
-          } catch {
-            sanitized = null;
-          }
-        }
-
         try {
+          const svgContent = fs.readFileSync(srcFile, "utf8");
+          const sourceHash = createHash("sha256").update(svgContent).digest("hex");
+          if (!forceSvgRefresh && cached && cached.sourceHash === sourceHash && fs.existsSync(cachedSvgPath)) {
+            sanitized = fs.readFileSync(cachedSvgPath, "utf8");
+          }
           if (sanitized == null) {
-            const svgContent = fs.readFileSync(srcFile, "utf8");
             sanitized = sanitizeSvg(svgContent);
             fs.writeFileSync(cachedSvgPath, sanitized, "utf8");
-            cacheMeta.svgs[file] = { mtime: stat.mtimeMs, size: stat.size };
+            cacheMeta.svgs[file] = { mtime: stat.mtimeMs, size: stat.size, sourceHash };
             metaChanged = true;
           }
           for (const ref of collectSafeRasterRefs(sanitized, sourceAssetsDir).values()) {

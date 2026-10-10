@@ -10,7 +10,6 @@ const {
 const MENU_AFFECTING_KEYS = new Set([
   "lang",
   "soundMuted",
-  "bubbleFollowPet",
   "hideBubbles",
   "permissionBubblesEnabled",
   "permissionAutomationMode",
@@ -200,9 +199,6 @@ function createSettingsEffectRouter(options = {}) {
         "Clawd: refresh permission bubble timer failed:",
         refreshPermissionAutoCloseForPolicy
       );
-    }
-    if ("bubbleFollowPet" in changes) {
-      safeCall(logWarn, "Clawd: repositionFloatingBubbles failed:", repositionFloatingBubbles);
     }
     if ("textScale" in changes || "textScaleByDisplay" in changes) {
       // applyTextScale owns the whole cascade: per-display zoom on live text

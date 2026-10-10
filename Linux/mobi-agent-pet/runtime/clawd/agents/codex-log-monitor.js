@@ -18,7 +18,11 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const CodexSubagentClassifier = require("./codex-subagent-classifier");
-const { readCodexThreadName } = require("../hooks/codex-session-index");
+const {
+  readCodexThreadName,
+  extractCodexSessionIdFromTranscriptPath,
+  normalizeCodexSessionId,
+} = require("../hooks/codex-session-index");
 const {
   clampAssistantOutputText,
   extractAssistantTextFromRecord,
@@ -355,8 +359,8 @@ class CodexLogMonitor {
       return null;
     }
     if (stat.size === 0 || Date.now() - stat.mtimeMs > RECOVERY_MAX_AGE_MS) return null;
-    const sessionId = this._extractSessionId(fileName);
-    if (!sessionId) return null;
+    const filenameSessionId = this._extractSessionId(fileName);
+    if (!filenameSessionId) return null;
 
     // Head: session_meta (cwd + subagent role) is always Codex's first
     // record. Fail closed (skip this file entirely) if we can't read a
@@ -375,6 +379,7 @@ class CodexLogMonitor {
       return null;
     }
     const cwd = sessionMeta.payload.cwd || "";
+    const sessionId = normalizeCodexSessionId(filenameSessionId, filePath, sessionMeta.payload);
     // classifySessionMeta legitimately returns "unknown" for a normal root
     // session — most session_meta records carry no explicit "I am root"
     // marker; being root IS the absence of subagent markers. That's not a
@@ -382,7 +387,7 @@ class CodexLogMonitor {
     // fail-closed protection above), so it must not be rejected here too —
     // only "subagent" flips isSubagent, exactly like the live _applySessionMeta
     // path treats an unclassifiable role as unchanged-from-default (false).
-    const role = this._classifier.registerSession("codex:" + sessionId, { sessionMeta: sessionMeta.payload });
+    const role = this._classifier.registerSession(sessionId, { sessionMeta: sessionMeta.payload });
     const isSubagent = role === "subagent";
 
     // Tail: an unresolved request_user_input, if any, is near the end —
@@ -461,7 +466,7 @@ class CodexLogMonitor {
       // simply left on disk and reread whole by the next normal poll,
       // instead of needing a separately tracked `partial` fragment here.
       offset: tailStart + committedTailBytes,
-      sessionId: "codex:" + sessionId,
+      sessionId,
       filePath,
       // _pollFile's reattach path compares tracked.fileIdentity against a
       // freshly computed value on every poll; leaving this unset here would
@@ -471,6 +476,7 @@ class CodexLogMonitor {
       fileIdentity: this._getFileIdentity(stat),
       cwd,
       sessionTitle: null,
+      model: null,
       codexOriginator: null,
       codexSource: null,
       lastEventTime: Date.now(),
@@ -689,11 +695,12 @@ class CodexLogMonitor {
       if (retiredEntry) this._retiredTracked.delete(filePath);
       tracked = {
         offset: resumeOffset,
-        sessionId: "codex:" + sessionId,
+        sessionId: retired && retired.sessionId ? retired.sessionId : "codex:" + sessionId,
         filePath,
         fileIdentity,
         cwd: retired ? retired.cwd : "",
         sessionTitle: retired ? retired.sessionTitle : null,
+        model: retired ? retired.model || null : null,
         codexOriginator: retired ? retired.codexOriginator : null,
         codexSource: retired ? retired.codexSource : null,
         lastEventTime: Date.now(),
@@ -723,6 +730,16 @@ class CodexLogMonitor {
           stat.size > 0 &&
           stat.mtimeMs < this._startedAtMs - BACKFILL_GRACE_MS,
       };
+      // A retained read position can outlive the metadata cache. Reattach
+      // from the bounded header so a child does not become a root session,
+      // and Desktop rollout-copy suffixes do not change its identity.
+      if (resumeOffset > 0) {
+        const firstLine = this._readCompleteFirstLine(filePath, stat.size, RECOVERY_HEAD_LINE_MAX_BYTES);
+        try {
+          const first = firstLine ? JSON.parse(firstLine) : null;
+          if (first && first.type === "session_meta") this._applySessionMeta(first.payload, tracked);
+        } catch {}
+      }
       this._tracked.set(filePath, tracked);
       this._readPositions.set(filePath, { offset: resumeOffset, identity: fileIdentity });
     }
@@ -891,6 +908,13 @@ class CodexLogMonitor {
       return;
     }
 
+    // A turn_context names the model selected for this turn. Carry it on the
+    // next state emission, just like the Codex-authored session summary.
+    if (type === "turn_context" && payload && typeof payload.model === "string") {
+      const model = payload.model.trim();
+      if (model && model.length <= 120 && model !== "auto" && model !== "none") tracked.model = model;
+    }
+
     // Extract Codex-authored session summary (turn_context.summary).
     // Updates tracked.sessionTitle in place; gets picked up by the next
     // _onStateChange call. Intentionally no metaOnly side-channel —
@@ -961,6 +985,7 @@ class CodexLogMonitor {
 
   _applySessionMeta(payload, tracked) {
     if (!payload || typeof payload !== "object") return;
+    tracked.sessionId = normalizeCodexSessionId(tracked.sessionId, tracked.filePath, payload);
     tracked.cwd = payload.cwd || "";
     tracked.codexOriginator = typeof payload.originator === "string" && payload.originator.trim()
       ? payload.originator.trim()
@@ -990,12 +1015,7 @@ class CodexLogMonitor {
   // Extract UUID from rollout filename
   // rollout-2026-03-25T15-10-51-019d23d4-f1a9-7633-b9c7-758327137228.jsonl
   _extractSessionId(fileName) {
-    // UUID v7 is the last 5 segments of the filename (before .jsonl)
-    const base = fileName.replace(".jsonl", "");
-    const parts = base.split("-");
-    // UUID: last 5 parts (8-4-4-4-12 hex)
-    if (parts.length < 10) return null;
-    return parts.slice(-5).join("-");
+    return extractCodexSessionIdFromTranscriptPath(fileName);
   }
 
   _resolveTrackedAgentPid(tracked) {
@@ -1069,8 +1089,10 @@ class CodexLogMonitor {
     this._retiredTracked.delete(filePath);
     this._retiredTracked.set(filePath, {
       offset: Number.isFinite(tracked.offset) ? tracked.offset : 0,
+      sessionId: tracked.sessionId,
       cwd: tracked.cwd || "",
       sessionTitle: tracked.sessionTitle || null,
+      model: tracked.model || null,
       codexOriginator: tracked.codexOriginator || null,
       codexSource: tracked.codexSource || null,
       lastState: tracked.lastState || null,
@@ -1251,6 +1273,7 @@ class CodexLogMonitor {
         ? extra.agentPid
         : agentPid,
       sessionTitle: tracked.sessionTitle,
+      model: tracked.model,
       codexOriginator: tracked.codexOriginator || null,
       codexSource: tracked.codexSource || null,
       ...this._withTrackedContextUsage(tracked, extra),

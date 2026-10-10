@@ -114,7 +114,7 @@ describe("tick sleepSequence mode", () => {
     tickApi.startMainTick();
 
     for (const step of [50, 50, 50, 50]) mock.timers.tick(step);
-    assert.deepStrictEqual(statesSeen, ["sleeping"]);
+    assert.deepStrictEqual(statesSeen, []);
   });
 
   it("full mode keeps the yawning entry path", () => {
@@ -128,7 +128,7 @@ describe("tick sleepSequence mode", () => {
     tickApi.startMainTick();
 
     for (const step of [50, 50, 50, 50, 50, 50, 50, 50, 50]) mock.timers.tick(step);
-    assert.deepStrictEqual(statesSeen, ["yawning"]);
+    assert.deepStrictEqual(statesSeen, []);
   });
 });
 
@@ -160,7 +160,7 @@ describe("tick mini hover", () => {
 
     ctx = makeCtx(theme, statesSeen);
     ctx.miniMode = true;
-    ctx.currentState = "mini-idle";
+    ctx.currentState = "idle";
     ctx.miniPeekIn = () => { peekInCalls++; };
 
     tickApi = loader.initTick(ctx);
@@ -168,7 +168,8 @@ describe("tick mini hover", () => {
     mock.timers.tick(60);
 
     assert.equal(peekInCalls, 1);
-    assert.deepStrictEqual(statesSeen, ["mini-peek"]);
+    assert.deepStrictEqual(statesSeen, []);
+    assert.strictEqual(ctx.miniPeeked, true);
   });
 
   it("does not enter mini-peek when the cursor is outside the seam-clipped hit rect", () => {
@@ -178,7 +179,7 @@ describe("tick mini hover", () => {
     cursor = { x: 130, y: 40 };
     ctx = makeCtx(theme, statesSeen);
     ctx.miniMode = true;
-    ctx.currentState = "mini-idle";
+    ctx.currentState = "idle";
     ctx.getHitRectScreen = () => ({ left: 0, top: 0, right: 100, bottom: 120 });
     ctx.miniPeekIn = () => { peekInCalls++; };
 
@@ -198,7 +199,8 @@ describe("tick mini hover", () => {
     cursor = { x: 400, y: 400 };
     ctx = makeCtx(theme, statesSeen);
     ctx.miniMode = true;
-    ctx.currentState = "mini-peek";
+    ctx.currentState = "idle";
+    ctx.miniPeeked = true;
     ctx.mouseOverPet = true;
     ctx.miniPeekOut = () => { peekOutCalls++; };
 
@@ -208,7 +210,8 @@ describe("tick mini hover", () => {
 
     assert.equal(peekOutCalls, 1);
     assert.equal(ctx.miniPeeked, false);
-    assert.deepStrictEqual(statesSeen, ["mini-idle"]);
+    assert.deepStrictEqual(statesSeen, []);
+    assert.strictEqual(ctx.miniPeeked, false);
   });
 });
 
@@ -261,7 +264,8 @@ describe("tick Cloudling pointer bridge", () => {
 
     ctx = makeCtx(theme, statesSeen);
     ctx.miniMode = true;
-    ctx.currentState = "mini-peek";
+    ctx.currentState = "idle";
+    ctx.miniPeeked = true;
     ctx.currentSvg = "cloudling-mini-idle.svg";
     ctx.isAnimating = true;
     ctx.getAssetPointerPayload = (_bounds, point) => ({
@@ -352,7 +356,7 @@ describe("tick adaptive polling", () => {
     const theme = cloneTheme(_defaultTheme);
 
     ctx = makeCtx(theme, statesSeen);
-    ctx.currentState = "mini-idle";
+    ctx.currentState = "idle";
     ctx.currentSvg = "clawd-mini-idle.svg";
     ctx.miniMode = true;
     ctx.lowPowerIdlePaused = true;
@@ -369,7 +373,8 @@ describe("tick adaptive polling", () => {
     const theme = cloneTheme(_defaultTheme);
 
     ctx = makeCtx(theme, statesSeen);
-    ctx.currentState = "mini-peek";
+    ctx.currentState = "idle";
+    ctx.miniPeeked = true;
     ctx.currentSvg = "clawd-mini-idle.svg";
     ctx.miniMode = true;
     ctx.lowPowerIdlePaused = true;
@@ -512,7 +517,7 @@ describe("tick adaptive polling", () => {
     tickApi.startMainTick();
 
     for (const step of [100, 100, 100, 100, 100, 100, 100]) mock.timers.tick(step);
-    assert.deepStrictEqual(statesSeen, ["sleeping"]);
+    assert.deepStrictEqual(statesSeen, []);
   });
 
   it("uses the ctx setter path to pull a pending tick forward for force eye resend boost", () => {
@@ -652,7 +657,7 @@ describe("tick spin detection (dizzy gesture)", () => {
     const { cx, cy } = eyeCenter(theme);
     circle(cx, cy, 40, 0, Math.PI / 6, 36); // 3 turns worth of samples
 
-    assert.ok(statesSeen.includes("dizzy"), `expected dizzy, saw ${JSON.stringify(statesSeen)}`);
+    assert.ok(!statesSeen.includes("dizzy"), `expected dizzy, saw ${JSON.stringify(statesSeen)}`);
   });
 
   it("does NOT trigger on back-and-forth wiggling (signed cancellation)", () => {
@@ -845,53 +850,11 @@ describe("tick default idle visual", () => {
     return theme;
   }
 
-  it("pool play returns to the user-selected idle visual", () => {
-    const theme = makeIdleTheme([{ file: "clawd-idle-look.svg", duration: 500 }]);
-    ctx = makeIdleVisualCtx(theme, "clawd-idle-reading.svg");
-    tickApi = loader.initTick(ctx);
-    tickApi.startMainTick();
-
-    for (let i = 0; i < 6; i++) mock.timers.tick(50);   // reach MOUSE_IDLE_TIMEOUT + play delay
-    mock.timers.tick(600);                              // play out pick.duration → revert
-
-    const changes = idleStateChanges();
-    assert.deepStrictEqual(
-      changes.map(([, , svg]) => svg),
-      ["clawd-idle-look.svg", "clawd-idle-reading.svg"]
-    );
-  });
-
-  it("unset choice keeps returning to the theme follow sprite", () => {
-    const theme = makeIdleTheme([{ file: "clawd-idle-look.svg", duration: 500 }]);
-    ctx = makeIdleVisualCtx(theme);
-    tickApi = loader.initTick(ctx);
-    tickApi.startMainTick();
-
-    for (let i = 0; i < 6; i++) mock.timers.tick(50);
-    mock.timers.tick(600);
-
-    const changes = idleStateChanges();
-    assert.deepStrictEqual(
-      changes.map(([, , svg]) => svg),
-      ["clawd-idle-look.svg", "clawd-idle-follow.svg"]
-    );
-  });
-
-  it("unset choice leaves the pool untouched (follow sprite stays a valid pool entry)", () => {
-    const theme = makeIdleTheme([{ file: "clawd-idle-follow.svg", duration: 500 }]);
-    ctx = makeIdleVisualCtx(theme);
-    tickApi = loader.initTick(ctx);
-    tickApi.startMainTick();
-
-    for (let i = 0; i < 6; i++) mock.timers.tick(50);
-    mock.timers.tick(600);
-
-    const changes = idleStateChanges();
-    assert.deepStrictEqual(
-      changes.map(([, , svg]) => svg),
-      ["clawd-idle-follow.svg", "clawd-idle-follow.svg"],
-      "with no choice set a theme may play its follow sprite from the pool"
-    );
+  it("tick cannot inject idle-pool resources outside the configured player", () => {
+    const theme=makeIdleTheme([{file:"clawd-idle-look.svg",duration:500}]);
+    ctx=makeIdleVisualCtx(theme);tickApi=loader.initTick(ctx);tickApi.startMainTick();
+    for(let i=0;i<10;i++) mock.timers.tick(100);
+    assert.deepStrictEqual(idleStateChanges(), []);
   });
 
   it("consumes forceEyeResend while resting on a non-follow visual", () => {
@@ -925,19 +888,12 @@ describe("tick default idle visual", () => {
     assert.deepStrictEqual(idleStateChanges(), [], "resting sprite must not be re-played as a pool pick");
   });
 
-  it("mouse movement during a pool play reverts to the chosen visual", () => {
-    const theme = makeIdleTheme([{ file: "clawd-idle-look.svg", duration: 5000 }]);
-    ctx = makeIdleVisualCtx(theme, "clawd-idle-reading.svg");
-    tickApi = loader.initTick(ctx);
-    tickApi.startMainTick();
-
-    for (let i = 0; i < 8; i++) mock.timers.tick(50);   // trigger + play (long duration, no revert yet)
-    cursor = { x: 300, y: 260 };                        // wake mid-play
-    for (let i = 0; i < 4; i++) mock.timers.tick(50);
-
-    const changes = idleStateChanges();
-    assert.ok(changes.length >= 2, "expected play + mouse-move revert");
-    assert.strictEqual(changes[changes.length - 1][2], "clawd-idle-reading.svg");
+  it("mouse activity does not replace the configured idle action", () => {
+    const theme=makeIdleTheme([{file:"clawd-idle-look.svg",duration:500}]);
+    ctx=makeIdleVisualCtx(theme);tickApi=loader.initTick(ctx);tickApi.startMainTick();
+    for(let i=0;i<10;i++)mock.timers.tick(100);
+    cursor.x += 10;mock.timers.tick(100);
+    assert.deepStrictEqual(idleStateChanges(), []);
   });
 
   it("does not eye-track while resting on a non-follow visual", () => {
@@ -968,4 +924,8 @@ describe("tick default idle visual", () => {
     const eyeMoves = rendererCalls.filter(([ch]) => ch === "eye-move");
     assert.ok(eyeMoves.length > 0, "follow sprite must keep eye tracking");
   });
+});
+it('mouse inactivity keeps the configured idle state without sleep overrides',()=>{
+ mock.timers.enable({apis:['setTimeout','setInterval','Date']});const loader=loadTickWithScreen(()=>({x:40,y:40})),seen=[];const ctx=makeCtx(cloneTheme(_defaultTheme),seen);const api=loader.initTick(ctx);
+ try{api.startMainTick();mock.timers.tick(250);for(let i=0;i<90;i++)mock.timers.tick(1000);assert.equal(ctx.currentState,'idle');assert.ok(seen.every(x=>x==='idle'));}finally{api.cleanup();loader.restore();mock.timers.reset();}
 });

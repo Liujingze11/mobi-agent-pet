@@ -7,7 +7,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const { postStateToRunningServer, readHostPrefix, resolveWslDistro } = require("./server-config");
 const { fitStateBodyToByteBudget } = require("./state-payload-size");
-const { extractClaudeContextUsageFromEntries } = require("./context-usage");
+const { extractClaudeContextUsageFromEntries, extractClaudeModelFromEntries } = require("./context-usage");
 const { createPidResolver, readStdinJsonDetailed, getPlatformConfig } = require("./shared-process");
 const { updateRecoveryLeaseFromStateBody } = require("./session-recovery-lease");
 // #634: the pid cache + lifecycle orchestration is owned by the shared resolver
@@ -486,6 +486,8 @@ function buildStateBody(event, payload, resolve) {
     payload.session_id || null,
   );
   if (contextUsage) body.context_usage = contextUsage;
+  const model = extractClaudeModelFromEntries(transcriptEntries, payload.session_id || null);
+  if (model) body.model = model;
   const sessionTitle =
     normalizeTitle(payload.session_title) ||
     extractSessionTitleFromEntries(transcriptEntries);

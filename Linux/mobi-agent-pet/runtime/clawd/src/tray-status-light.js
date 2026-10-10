@@ -43,6 +43,7 @@ function createTrayStatusLightController({
   activityTimeoutMs = 12000,
   completionIntervalMs = 500,
   completionDurationMs = 3000,
+  getCompletionPolicy = () => ({flashIntervalMs:completionIntervalMs, flashDurationMs:completionDurationMs}),
 } = {}) {
   if (typeof setIcon !== "function") throw new TypeError("setIcon must be a function");
 
@@ -137,17 +138,18 @@ function createTrayStatusLightController({
     const sequence = ["working", "question", "error"];
     let index = 0;
     render(sequence[index]);
-    completionTimeout = timers.setTimeout(() => {
+    const timing = getCompletionPolicy();
+    if (timing.flashDurationMs !== 0) completionTimeout = timers.setTimeout(() => {
       clearTimers();
       status = "idle";
       phase = "quiet";
       render("idle");
-    }, completionDurationMs);
+    }, timing.flashDurationMs);
     completionInterval = timers.setInterval(() => {
       index += 1;
       if (index >= sequence.length) index = 0;
       render(sequence[index]);
-    }, completionIntervalMs);
+    }, timing.flashIntervalMs);
   }
 
   function stop() {

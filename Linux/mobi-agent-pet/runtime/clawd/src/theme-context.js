@@ -65,6 +65,7 @@ function createThemeContext(theme, options = {}) {
       ? (theme.trustedRuntime.scriptedSvgFiles || [])
       : [];
     return {
+      actionPlan: require("./pet-action-plan").resolveEffectivePlan(theme),
       viewBox: theme.viewBox,
       miniModeViewBox: theme.miniMode ? theme.miniMode.viewBox : null,
       fileViewBoxes: { ...(theme.fileViewBoxes || {}) },
@@ -81,6 +82,7 @@ function createThemeContext(theme, options = {}) {
         right: theme.reactions.drag.fileRight || null,
       } : null,
       idleFollowSvg: theme.states.idle[0],
+      idleDefaultVisual: require("./pet-action-plan").resolveEffectivePlan(theme).states.idle.actions.find(a => a.enabled)?.file,
       // Free roam: true when the theme binds a dedicated roam visual. The
       // visual resolver injects exactly states.roam = [idle[0]] as a synthetic
       // fallback, so only that precise shape (single entry, same file as
@@ -110,6 +112,7 @@ function createThemeContext(theme, options = {}) {
     return {
       reactions: theme.reactions || {},
       idleFollowSvg: theme.states.idle[0],
+      idleDefaultVisual: require("./pet-action-plan").resolveEffectivePlan(theme).states.idle.actions.find(a => a.enabled)?.file,
     };
   }
 

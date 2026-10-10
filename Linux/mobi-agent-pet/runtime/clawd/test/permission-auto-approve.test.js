@@ -79,6 +79,15 @@ function makePermEntry(overrides = {}) {
   });
   return entry;
 }
+it('a disabled Agent bubble falls back without rendering or approving an unsupported request',()=>{
+ const response={destroyed:false,removeListener(){},destroy(){this.destroyed=true}};
+ const api=initPermission(makeCtx({getPetWindowBounds:()=>({x:100,y:100,width:120,height:120}),getPermissionAutomationMode:()=> 'off',getBubblePolicy:()=>({enabled:false,autoCloseMs:0})}));
+ const entry=makePermEntry({res:response,toolName:'UnknownTool'});
+ api.addPendingPermission(entry);
+ assert.doesNotThrow(()=>api.showPermissionBubble(entry));
+ assert.equal(response.destroyed,true);
+ assert.equal(api.pendingPermissions.includes(entry),false);
+});
 
 describe("permission automation: showPermissionBubble chokepoint", () => {
   it("resolves a real tool request as allow without building a bubble", () => {

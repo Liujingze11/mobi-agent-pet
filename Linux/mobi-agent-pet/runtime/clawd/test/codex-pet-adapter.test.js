@@ -390,7 +390,7 @@ describe("codex-pet-adapter wrapper generation and materialization", () => {
     const loaded = themeLoader.loadTheme(materialized.themeId, { strict: true });
     assert.strictEqual(loaded._id, materialized.themeId);
     assert.strictEqual(loaded.rendering.svgChannel, "object");
-    assert.strictEqual(loaded.states.sleeping[0], "codex-pet-idle-static.svg");
+    assert.strictEqual(loaded._sourcePetBindings.sleeping[0], "codex-pet-idle-static.svg");
   });
 
   it("does not overwrite unmanaged theme IDs and keeps managed suffixes stable", () => {
