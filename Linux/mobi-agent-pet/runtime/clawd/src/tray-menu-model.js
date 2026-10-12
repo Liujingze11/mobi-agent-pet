@@ -87,7 +87,7 @@ function createTrayMenuModel(ctx, t) {
     ["mode.background", () => ctx.requestAppMode("background")],
     ["mode.automatic", () => ctx.requestAppMode("automatic")],
     ["mode.custom", () => ctx.requestAppMode("custom")],
-    ["mode.custom.edit", () => ctx.openSettingsWindow({tab:"custom-mode"})],
+    ["mode.custom.edit", () => ctx.openCustomModeEditor()],
     ["agentlog.open", () => ctx.openAgentLogManager()],
     ["dashboard.open", () => ctx.openDashboard()],
     ["tray.visibility", () => { ctx.showTray = !ctx.showTray; }],

@@ -168,6 +168,25 @@ function createRuntime(options = {}) {
   return { runtime, listeners, timers: fakeTimers.timers };
 }
 
+test("a standalone editor uses its own page, preload and compact bounds", () => {
+  const { runtime } = createRuntime({ runtime: {
+    settingsHtmlPath: "C:\\app\\src\\custom-mode.html",
+    preloadPath: "C:\\app\\src\\preload-custom-mode.js",
+    windowSize: { width: 620, height: 720, minWidth: 480, minHeight: 480 },
+    getTitle: () => "Edit Custom Mode",
+  } });
+  runtime.open();
+  const win = runtime.getWindow();
+  assert.strictEqual(win.options.width, 620);
+  assert.strictEqual(win.options.height, 720);
+  assert.strictEqual(win.options.minWidth, 480);
+  assert.strictEqual(win.loadedFile, "C:\\app\\src\\custom-mode.html");
+  assert.strictEqual(win.options.webPreferences.preload, "C:\\app\\src\\preload-custom-mode.js");
+  runtime.open();
+  assert.strictEqual(runtime.getWindow(), win);
+  assert.strictEqual(FakeBrowserWindow.instances.length, 1);
+});
+
 test("settings window runtime creates the Settings BrowserWindow with taskbar identity", () => {
   const events = [];
   let runtime;

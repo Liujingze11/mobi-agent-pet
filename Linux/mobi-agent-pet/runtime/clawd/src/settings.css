@@ -3903,10 +3903,3 @@ html, body {
 .mobile-action-btn:hover { background: var(--accent); color: #fff; }
 .mobile-action-danger { border-color: var(--red); color: var(--red); }
 .mobile-action-danger:hover { background: var(--red); color: #fff; }
-
-.custom-mode-form { max-width: 720px; }
-.custom-mode-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--border); }
-.custom-mode-row input[type="number"] { width: 100px; }
-.custom-mode-form fieldset { margin: 18px 0; padding: 12px; }
-.custom-mode-state { display: inline-flex; align-items: center; gap: 6px; margin: 8px 12px 8px 0; }
-.custom-mode-form > button { margin: 16px 10px 0 0; }

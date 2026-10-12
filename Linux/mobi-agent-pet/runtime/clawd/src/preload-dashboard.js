@@ -41,9 +41,6 @@ ipcRenderer.on("settings:animation-preview-poster-ready", (_event, payload) => {
 contextBridge.exposeInMainWorld("dashboardAPI", {
   getSnapshot: () => ipcRenderer.invoke("dashboard:get-snapshot"),
   getPetScene: () => ipcRenderer.invoke("dashboard:get-pet-scene"),
-  openCustomModeEditor: () => ipcRenderer.invoke("dashboard:edit-custom-mode"),
-  getPetBehavior: () => ipcRenderer.invoke("dashboard:get-pet-behavior"),
-  updatePetBehavior: (key, value) => ipcRenderer.invoke("dashboard:update-pet-behavior", { key, value }),
   getI18n: () => ipcRenderer.invoke("dashboard:get-i18n"),
   focusSession: (sessionId) => ipcRenderer.invoke("dashboard:focus-session", sessionId),
   hideSession: (sessionId) => ipcRenderer.invoke("dashboard:hide-session", sessionId),

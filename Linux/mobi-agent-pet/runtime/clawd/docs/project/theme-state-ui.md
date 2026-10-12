@@ -22,7 +22,7 @@ This document holds the state machine, theme system, UI runtime, and platform ca
 - 睡眠序列：20s 鼠标静止 → idle-look → 60s → yawning(3s) → dozing → 10min → collapsing(0.8s) → sleeping；鼠标移动触发 waking(1.5s) → 恢复
 - 逻辑 `idle` 与静置视觉分离：Settings 可为当前主题选择一个常驻 idle 变体，但不改变状态优先级；thinking / working / permission / completion / sleep / reaction / roam 仍会覆盖它，结束后再回到所选视觉
 - DND 模式：跳过 dozing，直接 yawning → collapsing → sleeping；同时屏蔽 hook 事件
-- 隐藏桌宠（petHidden，入口：托盘 / 右键菜单 / 快捷键）：语义是「看不见宠物」而非免打扰——隐藏时收起宠物、Session HUD 和当时 pending 的权限气泡（恢复显示时回来），但隐藏期间新到的权限请求仍照常弹气泡，这是有意设计、不要当 bug 修；要连权限气泡都静默是 DND 的职责（它有回终端确认的 fallback）。Allow/Deny 全局快捷键跟随「可见气泡」：隐藏期间只要有可见气泡就保持注册，但只作用于可见的请求，收起的旧气泡不会被盲操作（#601）。petHidden 不持久化，重启恢复显示
+- 隐藏桌宠（petHidden，由模式规则或快捷键控制）：语义是「看不见宠物」而非免打扰——隐藏时收起宠物、Session HUD 和当时 pending 的权限气泡（恢复显示时回来），但隐藏期间新到的权限请求仍照常弹气泡，这是有意设计、不要当 bug 修；要连权限气泡都静默是 DND 的职责（它有回终端确认的 fallback）。Allow/Deny 全局快捷键跟随「可见气泡」：隐藏期间只要有可见气泡就保持注册，但只作用于可见的请求，收起的旧气泡不会被盲操作（#601）。petHidden 不持久化，重启恢复显示
 - working 子动画：Clawd 主题为 1 个会话 → typing，2 个 → headphones groove，3+ → building；Calico / Cloudling 仍为 typing / juggling / building
 - juggling 子动画：1 个 subagent → juggling，2+ → conducting
 
@@ -67,37 +67,12 @@ Settings 是独立 `BrowserWindow`，采用 4 层结构：
 - `idleVisual` 是 per-theme 文件映射；缺失键表示使用主题默认，主题升级删除已选文件或删除主题时会安静回退，不改变逻辑状态
 - About tab 使用 inline SVG，而不是 `<object>`，因为 `settings.html` CSP 是 `default-src 'none'`
 
-## Mini Mode
+## Window Behavior
 
-角色藏在屏幕右边缘，窗口一半推到屏幕外，由屏幕边缘自然遮挡。
-
-进入方式：
-
-- 拖拽到右边缘（`SNAP_TOLERANCE=30px`）→ 快速滑入 + `mini-enter`
-- 右键菜单 “Mini Mode” → 螃蟹步走到边缘 → 抛物线跳入 → 探头入场
-
-核心机制：
-
-- `miniMode` 拦截常规状态，把 notification / attention 映射为 mini 对应状态
-- `miniTransitioning` 在入场期间屏蔽 hook 事件和 peek
-- `checkMiniModeSnap()` 检查所有显示器右边缘
-- `miniIdleNow` 独立于 `idleNow`，只走眼球追踪，不走睡眠序列
-- `animateWindowX()` + `animateWindowParabola()` 负责滑动与抛物线动画
-- `savePrefs()` 会持久化 `miniMode/preMiniX/preMiniY`
-
-Mini 状态映射：
-
-| 状态 | SVG | 用途 |
-|------|-----|------|
-| `mini-idle` | `clawd-mini-idle.svg` | 待机：呼吸、眨眼、手臂晃动、眼球追踪 |
-| `mini-enter` | `clawd-mini-enter.svg` | 一次性滑入弹跳 |
-| `mini-peek` | `clawd-mini-peek.svg` | Hover 探头 |
-| `mini-alert` | `clawd-mini-alert.svg` | 通知 |
-| `mini-happy` | `clawd-mini-happy.svg` | 完成 |
-| `mini-crabwalk` | `clawd-mini-crabwalk.svg` | 右键进入时的螃蟹步 |
-| `mini-enter-sleep` | `clawd-mini-enter-sleep.svg` | DND 下入场 |
-| `mini-sleep` | `clawd-mini-sleep.svg` | DND 休眠 |
-| `mini-working` | 主题可选 | 1 会话 mini typing；缺失则静默跳过 |
+- 允许贴边与迷你显示功能已移除：没有边缘吸附、迷你入场/退出、边缘裁剪或恢复迷你状态的应用入口；普通拖拽和安全边界回弹保留。
+- 旧自定义 `allowEdgePinning` / `miniModeEnabled` 和顶层迷你偏好忽略。旧 `miniMode=true` 的文件有有效 `preMiniX/preMiniY` 时恢复为普通位置，再按普通屏幕范围校正。
+- 常规、后台、自动模式固定跨屏保持大小，启动像素恢复也使用有效模式规则；自定义模式保留独立开关。旧主题迷你素材及布局元数据只作兼容数据，不激活运行时。
+- 全屏规则保持原样：主要是 Windows 全屏窗口下继续尝试置顶及维持可拖动，关闭置顶处理并不保证隐藏桌宠。
 
 ## State To Animation Mapping
 
@@ -105,7 +80,6 @@ Mini 状态映射：
 
 - working 子动画：Clawd 主题为 1 会话 → typing，2 → headphones groove，3+ → building；Calico / Cloudling 仍为 typing / juggling / building
 - juggling 子动画：1 subagent → juggling，2+ → conducting
-- mini 状态有独立动画槽；`mini-working` 是可选能力
 - 睡眠序列和 DND 行为见上面的 State Machine
 - `attention / error / sweeping / notification / carrying` 是一次性状态，显示后按 `autoReturn` 回退
 
@@ -143,12 +117,28 @@ Mini 状态映射：
 - 原因不是 HTTP 缓存，而是 Chromium 会复用同 URL SVG 的文档与 CSS 动画时间线；`forwards` 的一次性动画第二次加载时会直接停在末帧
 - 相关 dedup 逻辑必须比较规范化后的文件名，而不是带 query 的最终 URL
 
-### Click Reactions
+### Idle Playback And System Wake
 
-- 双击 → 左/右戳反应
-- 4 连击 → 双手拍反应
-- 拖拽 → 持续拖拽反应
-- 反应动画期间会暂时 detach 眼球追踪
+- 空闲省电功能已移除：不因停留空闲而暂停播放器、SVG/RAF、眼睛跟踪或降低鼠标采样频率，也不因该选项延迟销毁隐藏 HUD/额度环。
+- 旧 `lowPowerIdle` / `lowPowerIdleMode` 配置忽略，其他自定义模式选项保留。「工作时保持唤醒」是独立功能，继续保留。
+- 常规、后台、自动模式固定开启「工作时保持唤醒」，忽略旧偏好和自定义模式开关；只有自定义模式按 `keepAwake` 配置。沿用已有会话进行中判断（含等待审批），有任务时使用 `prevent-app-suspension`，全部任务结束后释放；不要求屏幕常亮。
+- 系统睡眠后的 SVG 时间轴恢复、眼睛 OBJECT 重载/重绑定及重试保留，不依赖省电开关。Cloudling 运行时与源副本移除省电暂停 API；原始素材保留。
+
+### Pet Input And Task Cards
+
+- 双击展开任务卡片；普通单击与右键不弹出桌宠菜单，系统托盘菜单保留。
+- 任务卡片保留任务状态和上下文用量，账号额度继续由额度环显示；运行时间及其编辑开关已移除。旧 `hudElapsed` 配置在读取时丢弃，其他自定义选项继续保留。
+- 普通按下仍进入 held；屏幕坐标位移超过共享的 8px 门槛后才移动窗口、收起未固定卡片。轻微晃动不会移动桌宠。
+- 双击点击对独立于 held 状态和旧反馈计数，兼容原生双击事件。实际拖动结果按手势编号同步，迟到结果不会影响下一次点击。
+- 未固定的卡片在实际显示后 5 秒自动收起；点击外部、实际拖动或失去显示资格时立即收起。再次双击重新计时，数据更新不会续期；固定卡片保持原有显示规则。
+- 会话跳转、额度环及 Ctrl/Cmd 打开概览保持原有规则；卡片仍受模式开关限制。
+
+### Automatic Approval
+
+- 自动模式沿用已授权的 `unattended` 策略：支持的工具确认和计划审批自动确认，不修改 Agent 的权限模式。
+- 可接管的问题优先选择明确推荐项：单选必须只有一个推荐项，多选选择全部推荐项；没有推荐或单选推荐不唯一时，回复 `You choose whatever is best.`，交给 Agent 自行决定。推荐只认明确布尔标记或选项末尾完整括号中的推荐标记，不默认选第一项。
+- 问题及选项保持原始文本，长问题不能按界面截断后的文字回传。非法输入不发送部分答案；不支持的原生交互继续原生回退。
+- 原有确认授权、请求代际、退出失效、禁用 Agent、headless 和免打扰门禁不变。
 
 ## Electron And Platform Notes
 

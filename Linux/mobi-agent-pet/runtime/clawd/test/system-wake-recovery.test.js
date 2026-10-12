@@ -87,7 +87,7 @@ describe("system wake recovery", () => {
     assert.match(main, /systemWakeRecovery = createSystemWakeRecovery\(\{/);
     assert.match(main, /systemWakeRecovery\.start\(\)/);
     assert.match(main, /if \(systemWakeRecovery\) systemWakeRecovery\.dispose\(\)/);
-    assert.match(main, /setLowPowerIdlePaused\(false\);[\s\S]*setForceEyeResend\(true\);/);
+    assert.match(main, /onRecovered:[\s\S]*setForceEyeResend\(true\);/);
   });
 
   it("deduplicates resume/unlock, accepts the matching receipt, and cancels retries", () => {
@@ -103,8 +103,6 @@ describe("system wake recovery", () => {
     harness.ipcMain.emit("system-wake-status", {}, {
       id,
       result: "resumed",
-      lowPowerWasPaused: true,
-      pauseStyleRemoved: true,
       eyeTrackingReady: true,
       eyeTargetWasCurrentDocument: false,
       objectReloaded: true,
@@ -120,8 +118,6 @@ describe("system wake recovery", () => {
     assert.deepEqual(harness.recovered[0].status, {
       id,
       result: "resumed",
-      lowPowerWasPaused: true,
-      pauseStyleRemoved: true,
       eyeTrackingReady: true,
       eyeTargetWasCurrentDocument: false,
       objectReloaded: true,
@@ -156,8 +152,6 @@ describe("system wake recovery", () => {
     harness.ipcMain.emit("system-wake-status", {}, {
       id,
       result: "resumed",
-      lowPowerWasPaused: true,
-      pauseStyleRemoved: true,
       eyeTrackingReady: true,
       eyeTargetWasCurrentDocument: false,
       objectReloaded: true,
@@ -204,8 +198,6 @@ describe("system wake recovery", () => {
     assert.deepEqual(normalizeWakeStatus({
       id: "wake-abc-1",
       result: "no-svg",
-      lowPowerWasPaused: 1,
-      pauseStyleRemoved: true,
       eyeTrackingReady: false,
       eyeTargetWasCurrentDocument: true,
       objectReloaded: true,
@@ -214,8 +206,6 @@ describe("system wake recovery", () => {
     }), {
       id: "wake-abc-1",
       result: "no-svg",
-      lowPowerWasPaused: false,
-      pauseStyleRemoved: true,
       eyeTrackingReady: false,
       eyeTargetWasCurrentDocument: true,
       objectReloaded: true,

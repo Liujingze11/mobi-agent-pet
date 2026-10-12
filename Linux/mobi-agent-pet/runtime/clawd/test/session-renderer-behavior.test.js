@@ -415,11 +415,12 @@ test("Dashboard jump button shows pending and confirmed feedback", async () => {
   assert.strictEqual(button.textContent, "Jumped");
 });
 
-async function loadHud(sessions, openResult = { status: "ok" }) {
+async function loadHud(sessions, openResult = { status: "ok" }, snapshotOptions = {}) {
   const document = createDocument(["hud"]);
   const openCalls = [];
   let snapshotListener = null;
   let feedbackTimeout = null;
+  let intervalCount = 0;
   const api = {
     onLangChange: () => {},
     onSessionSnapshot: (listener) => { snapshotListener = listener; },
@@ -435,16 +436,17 @@ async function loadHud(sessions, openResult = { status: "ok" }) {
   };
   const context = vm.createContext({
     window: { sessionHudAPI: api }, document, console, Date,
-    setInterval: () => 0,
+    setInterval: () => { intervalCount++; return 0; },
     setTimeout: (callback) => { feedbackTimeout = callback; return 1; },
     clearTimeout: () => { feedbackTimeout = null; },
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "src", "session-focus-unavailable.js"), "utf8"), context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, "..", "src", "session-hud-renderer.js"), "utf8"), context);
   await flush();
-  snapshotListener({ sessions, orderedIds: sessions.map((entry) => entry.id) });
+  snapshotListener({ ...snapshotOptions, sessions, orderedIds: sessions.map((entry) => entry.id) });
   return {
     root: document.elements.get("hud"),
+    intervalCount,
     openCalls,
     pushSnapshot: (nextSessions = sessions) => snapshotListener({
       sessions: nextSessions,
@@ -611,4 +613,12 @@ test("unfocusable and folder feedback copy exists in all supported languages", (
   for (const lang of SUPPORTED_LANGS) {
     for (const key of keys) assert.ok(i18n[lang][key], `${lang}.${key} is required`);
   }
+});
+
+test('HUD ignores legacy elapsed flag while keeping task state and context usage without a time ticker',async()=>{
+ const h=await loadHud([session('working',{state:'working',badge:'running',contextUsage:{used:80000,limit:100000,percent:80}})],undefined,{hudShowElapsed:true,hudShowStateLabels:true,hudShowContextUsage:true});
+ assert.equal(byClass(h.root,'elapsed').length,0);
+ assert.equal(byClass(h.root,'state-chip').length,1);
+ const usage=byClass(h.root,'usage-chip');assert.equal(usage.length,1);assert.equal(usage[0].textContent,'80%');
+ assert.equal(h.intervalCount,0);
 });

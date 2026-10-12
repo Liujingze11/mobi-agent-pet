@@ -10,11 +10,9 @@
     "flashIntervalMs",
     "flashDurationMs",
     "soundVolume",
-    "lowPowerIdleMode",
     "keepAwakeWhileWorking",
     "sessionHudEnabled",
     "sessionHudShowStateLabels",
-    "sessionHudShowElapsed",
     "sessionHudShowContextUsage",
     "sessionHudShowQuota",
     "claudeQuotaCollectionEnabled",
@@ -50,14 +48,12 @@
   };
   const SESSION_HUD_CHILD_SWITCH_KEYS = [
     "sessionHudShowStateLabels",
-    "sessionHudShowElapsed",
     "sessionHudShowContextUsage",
     "sessionHudCleanupDetached",
   ];
   const SESSION_HUD_SUMMARY_KEYS = new Set([
     "sessionHudEnabled",
     "sessionHudShowStateLabels",
-    "sessionHudShowElapsed",
     "sessionHudShowContextUsage",
     "sessionHudCleanupDetached",
   ]);
@@ -112,12 +108,6 @@
       buildDashboardRow(),
     ]));
 
-    parent.appendChild(helpers.buildSection(t("sidebarCustomMode"), [buildCustomModeLink()]));
-  }
-
-  function buildCustomModeLink() {
-    const button = document.createElement("button"); button.type = "button"; button.className = "soft-btn";
-    button.textContent = t("sidebarCustomMode"); button.addEventListener("click", () => ops.selectTab("custom-mode")); return button;
   }
 
   function buildTutorialReplayHint() {
@@ -529,12 +519,6 @@
         disabled: !sessionHudControlsEnabled,
       }),
       helpers.buildSwitchRow({
-        key: "sessionHudShowElapsed",
-        labelKey: "rowSessionHudElapsed",
-        descKey: "rowSessionHudElapsedDesc",
-        disabled: !sessionHudControlsEnabled,
-      }),
-      helpers.buildSwitchRow({
         key: "sessionHudShowContextUsage",
         labelKey: "rowSessionHudContextUsage",
         descKey: "rowSessionHudContextUsageDesc",
@@ -574,13 +558,6 @@
             snapshot.sessionHudShowStateLabels !== false ? onLabel : offLabel
           ),
           accent: snapshot.sessionHudShowStateLabels !== false,
-        });
-        items.push({
-          text: t("sessionHudSummaryElapsed").replace(
-            "{state}",
-            snapshot.sessionHudShowElapsed !== false ? onLabel : offLabel
-          ),
-          accent: snapshot.sessionHudShowElapsed !== false,
         });
         items.push({
           text: t("sessionHudSummaryContextUsage").replace(

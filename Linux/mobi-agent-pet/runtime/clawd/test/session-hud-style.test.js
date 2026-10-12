@@ -136,24 +136,18 @@ describe("session HUD visual shell", () => {
     assert.match(sessionHudRenderer, /title\.title = fullTitle/);
   });
 
-  it("updates elapsed labels without rebuilding animated rows every second", () => {
-    assert.match(sessionHudRenderer, /function updateElapsedLabels\(\)/);
-    assert.match(sessionHudRenderer, /elapsed\.className = "elapsed"/);
-    assert.match(sessionHudRenderer, /setInterval\(updateElapsedLabels, 1000\)/);
-    assert.doesNotMatch(sessionHudRenderer, /setInterval\(render, 1000\)/);
+  it("removes elapsed labels and their per-second update", () => {
+    assert.doesNotMatch(sessionHudRenderer, /updateElapsedLabels|hudShowElapsed|className = "elapsed"/);
+    assert.doesNotMatch(sessionHudRenderer, /setInterval\(/);
+    assert.doesNotMatch(sessionHudHtml, /\.elapsed\s*\{/);
   });
 
-  it("keeps context usage chips visible before truncating elapsed text", () => {
-    // Flexbox quirk regression guard: overflow:hidden gives a flex item an
-    // AUTOMATIC minimum size of 0, so without an explicit min-content floor
-    // .right shrinks below its chips under squeeze and its own overflow
-    // clipping cuts them mid-glyph. The elapsed span keeps min-width: 0 so it
-    // contributes nothing to that floor and truncates first.
+  it("keeps context usage chips visible before truncating titles", () => {
+    // Preserve the minimum content width for status and context chips.
     assert.match(sessionHudHtml, /\.right\s*\{[\s\S]*?flex:\s*0 1 auto;[\s\S]*?max-width:\s*58%;[\s\S]*?min-width:\s*min-content;[\s\S]*?overflow:\s*hidden;[\s\S]*?\}/);
     const rightBlock = sessionHudHtml.match(/\.right\s*\{[\s\S]*?\}/);
     assert.ok(rightBlock, "session-hud.html should define a .right rule");
     assert.doesNotMatch(rightBlock[0], /min-width:\s*0\b/, ".right must not zero its width floor");
-    assert.match(sessionHudHtml, /\.elapsed\s*\{[\s\S]*min-width:\s*0;[\s\S]*text-overflow:\s*ellipsis;[\s\S]*\}/);
     assert.match(sessionHudHtml, /\.usage-chip\s*\{[\s\S]*flex:\s*0 0 auto;[\s\S]*white-space:\s*nowrap;[\s\S]*\}/);
   });
 

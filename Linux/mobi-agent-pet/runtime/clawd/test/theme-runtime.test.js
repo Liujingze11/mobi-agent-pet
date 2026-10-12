@@ -261,8 +261,6 @@ describe("theme-runtime active ownership", () => {
       "bumpPoster",
       "state.cleanup",
       "tick.cleanup",
-      "mini.cleanup",
-      "mini.refreshTheme",
       "state.refreshTheme",
       "tick.refreshTheme",
       "sequencer.run",
@@ -317,35 +315,7 @@ describe("theme-runtime active ownership", () => {
     );
   });
 
-  it("exits mini mode and skips preserved bounds when the new theme lacks mini support", () => {
-    makeFixture();
-    const { runtime, calls } = createRuntime({
-      miniRuntime: {
-        getMiniMode: () => true,
-      },
-    });
-    runtime.loadInitialTheme("clawd");
 
-    runtime.activateTheme("calico");
-
-    assert.ok(calls.includes("mini.exitMiniMode"));
-    assert.ok(!calls.some((call) => Array.isArray(call) && call[0] === "applyBounds"));
-  });
-
-  it("skips preserved bounds while a mini transition owns movement", () => {
-    makeFixture();
-    const { runtime, calls } = createRuntime({
-      miniRuntime: {
-        getMiniTransitioning: () => true,
-      },
-    });
-    runtime.loadInitialTheme("clawd");
-
-    runtime.activateTheme("calico");
-
-    assert.ok(!calls.some((call) => Array.isArray(call) && call[0] === "applyBounds"));
-    assert.ok(calls.includes("syncRendererState"));
-  });
 
   it("cleanup tears down the sequencer and resets reload state", () => {
     makeFixture();

@@ -7,6 +7,7 @@ const { keepOutOfTaskbar } = require("./taskbar");
 const { clampTextScale, scaleWidth, scaleHeight, applyZoomToWindow } = require("./text-scale");
 const { createTranslator } = require("./i18n");
 const { firstStringValue } = require("./bubble-format");
+const { buildAutomaticQuestionAnswers } = require("./automatic-question-answers");
 const { MAC_TOPMOST_LEVEL } = require("./topmost-runtime");
 const { redactSecrets } = require("./secret-redact");
 const path = require("path");
@@ -278,7 +279,7 @@ function computeBubbleStackLayout({bubbleHeights,bubbleWidth,margin,gap,workArea
 function buildElicitationUpdatedInput(toolInput, answers) {
   const input = toolInput && typeof toolInput === "object" ? toolInput : {};
   const questions = Array.isArray(input.questions) ? input.questions : [];
-  const normalizedAnswers = {};
+  const normalizedAnswers = [];
 
   for (const question of questions) {
     if (!question || typeof question.question !== "string" || !question.question) continue;
@@ -286,14 +287,14 @@ function buildElicitationUpdatedInput(toolInput, answers) {
       ? answers[question.question]
       : undefined;
     if (typeof answer === "string" && answer.trim()) {
-      normalizedAnswers[question.question] = answer.trim();
+      normalizedAnswers.push([question.question, answer.trim()]);
     }
   }
 
   return {
     ...input,
     questions,
-    answers: normalizedAnswers,
+    answers: Object.fromEntries(normalizedAnswers),
   };
 }
 
@@ -643,26 +644,6 @@ function repositionBubbles() {
 // to satisfy. Returns true when it consumed the entry (caller must NOT build a
 // bubble), false otherwise.
 
-// Default reply used to answer AskUserQuestion / clarify prompts while
-// auto-pilot is on. The user isn't present to type, so we explicitly defer the
-// choice back to the agent rather than sending blank answers.
-const AUTO_APPROVE_ELICITATION_ANSWER = "You choose whatever is best.";
-
-// Build an answers map that assigns the deferral reply to every question in the
-// elicitation toolInput. Mirrors the question-key shape buildElicitationUpdatedInput
-// expects (keyed by the question text), so each prompt gets a real answer rather
-// than being dropped as empty.
-function buildAutoApproveElicitationAnswers(toolInput) {
-  const input = toolInput && typeof toolInput === "object" ? toolInput : {};
-  const questions = Array.isArray(input.questions) ? input.questions : [];
-  const answers = {};
-  for (const question of questions) {
-    if (!question || typeof question.question !== "string" || !question.question) continue;
-    answers[question.question] = AUTO_APPROVE_ELICITATION_ANSWER;
-  }
-  return answers;
-}
-
 function maybeAutoApprovePermission(permEntry) {
   if (!permEntry) return false;
   if (isPassiveNotifyEntry(permEntry)) return false;
@@ -688,10 +669,9 @@ function maybeAutoApprovePermission(permEntry) {
 
   if (action === AUTOMATION_ACTION.AUTO_ANSWER) {
     const wireInput = permEntry.elicitationWireInput || permEntry.toolInput;
-    permEntry.resolvedUpdatedInput = buildElicitationUpdatedInput(
-      wireInput,
-      buildAutoApproveElicitationAnswers(wireInput)
-    );
+    const answers = buildAutomaticQuestionAnswers(wireInput);
+    if (!answers) return false;
+    permEntry.resolvedUpdatedInput = buildElicitationUpdatedInput(wireInput, answers);
   }
 
   permLog(`permission automation: mode=${mode} action=${action} intent=${permEntry.interaction.intent} tool=${permEntry.toolName} session=${permEntry.sessionId} agent=${permEntry.agentId || "claude-code"}`);

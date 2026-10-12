@@ -8,7 +8,7 @@ const HUD_TITLE_MAX_UNITS = 15;
 const RECENT_DONE_UNREAD_MS = 60 * 1000;
 const SESSION_ACTION_FEEDBACK_MS = 4000;
 
-let snapshot = { sessions: [], orderedIds: [], hudTotalNonIdle: 0, hudLastTitle: null, hudShowStateLabels: true, hudShowElapsed: true, hudShowContextUsage: true, hudShowQuota: true, hudPinned: false, accountQuota: [] };
+let snapshot = { sessions: [], orderedIds: [], hudTotalNonIdle: 0, hudLastTitle: null, hudShowStateLabels: true, hudShowContextUsage: true, hudShowQuota: true, hudPinned: false, accountQuota: [] };
 let i18nPayload = { lang: "en", translations: {} };
 
 const unreadSessions = new Set();
@@ -26,22 +26,6 @@ function isHudSession(session) {
 function t(key) {
   const dict = i18nPayload && i18nPayload.translations ? i18nPayload.translations : {};
   return dict[key] || key;
-}
-
-function formatElapsed(ms) {
-  const sec = Math.max(0, Math.floor(ms / 1000));
-  if (sec < 5) return t("sessionJustNow");
-  if (sec < 60) return t("sessionHudElapsedSec").replace("{n}", sec);
-  const min = Math.floor(sec / 60);
-  if (min < 5) {
-    const secRem = sec % 60;
-    return t("sessionHudElapsedMinSec")
-      .replace("{m}", min)
-      .replace("{s}", secRem);
-  }
-  if (min < 60) return t("sessionMinAgo").replace("{n}", min);
-  const hr = Math.floor(min / 60);
-  return t("sessionHrAgo").replace("{n}", hr);
 }
 
 function formatTokenCount(value) {
@@ -298,7 +282,6 @@ function createRowForSession(session, now) {
   }
   left.appendChild(title);
 
-  const showElapsed = snapshot.hudShowElapsed !== false;
   const right = document.createElement("span");
   right.className = "right";
   let hasRightContent = false;
@@ -373,16 +356,6 @@ function createRowForSession(session, now) {
     chip.textContent = usageInfo.label;
     chip.title = usageInfo.title;
     right.appendChild(chip);
-    hasRightContent = true;
-  }
-
-  if (showElapsed && !feedbackText) {
-    const updatedAt = Number(session.updatedAt) || now;
-    const elapsed = document.createElement("span");
-    elapsed.className = "elapsed";
-    elapsed.dataset.updatedAt = String(updatedAt);
-    elapsed.textContent = formatElapsed(now - updatedAt);
-    right.appendChild(elapsed);
     hasRightContent = true;
   }
 
@@ -481,15 +454,6 @@ function render() {
   hudEl.appendChild(createPinButton(snapshot.hudPinned === true));
 }
 
-function updateElapsedLabels() {
-  const now = Date.now();
-  for (const elapsed of document.querySelectorAll(".elapsed[data-updated-at]")) {
-    const updatedAt = Number(elapsed.dataset.updatedAt);
-    if (!Number.isFinite(updatedAt)) continue;
-    elapsed.textContent = formatElapsed(now - updatedAt);
-  }
-}
-
 async function init() {
   window.sessionHudAPI.onLangChange((payload) => {
     i18nPayload = payload || i18nPayload;
@@ -502,7 +466,6 @@ async function init() {
 
   i18nPayload = await window.sessionHudAPI.getI18n() || i18nPayload;
   render();
-  setInterval(updateElapsedLabels, 1000);
 }
 
 init().catch((err) => {

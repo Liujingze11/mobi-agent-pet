@@ -62,7 +62,6 @@ const petMoodEl = document.getElementById("petMood");
 const petNameEl = document.getElementById("petName");
 const petImageEl = document.getElementById("petImage");
 const statusTabEl = document.getElementById("statusTab");
-const behaviorTabEl = document.getElementById("behaviorTab");
 const actionsTabEl = document.getElementById("actionsTab");
 const actionsPageEl = document.getElementById("actionsPage");
 const actionsPage = globalThis.MobiDashboardActions ? globalThis.MobiDashboardActions.create({
@@ -70,15 +69,11 @@ const actionsPage = globalThis.MobiDashboardActions ? globalThis.MobiDashboardAc
 }) : null;
 const themeTabEl = document.getElementById("themeTab");
 const statusPageEl = document.getElementById("statusPage");
-const behaviorPageEl = document.getElementById("behaviorPage");
 const themePageEl = document.getElementById("themePage");
 const themePage = globalThis.ClawdDashboardTheme.create({
   container: document.getElementById("themeContent"),
   getLang: () => i18nPayload.lang || "en",
 });
-const behaviorRowsEl = document.getElementById("behaviorRows");
-const behaviorErrorEl = document.getElementById("behaviorError");
-let petBehavior = null;
 
 const FALLBACK_PET_IMAGE = "../assets/svg/clawd-idle-follow.svg";
 let failedPetImageUrl = null;
@@ -118,9 +113,8 @@ function t(key) {
   return dict[key] || key;
 }
 
-function renderPetBehavior() {
+function renderNavigation() {
   document.getElementById("statusTabLabel").textContent = t("dashboardStatusTab");
-  document.getElementById("behaviorTabLabel").textContent = t("dashboardBehaviorTab");
   document.getElementById("actionsTabLabel").textContent = i18nPayload.lang === "zh" ? "动作管理" : "Actions";
   document.getElementById("themeTabLabel").textContent = themePage.t("sidebarTheme");
   document.getElementById("dashboardSidebar").setAttribute("aria-label", t("openDashboard"));
@@ -128,63 +122,31 @@ function renderPetBehavior() {
   const icons = globalThis.ClawdSettingsIcons;
   if (icons && typeof icons.getIcon === "function") {
     document.getElementById("statusTabIcon").innerHTML = icons.getIcon("about");
-    document.getElementById("behaviorTabIcon").innerHTML = icons.getIcon("general");
     document.getElementById("actionsTabIcon").innerHTML = icons.getIcon("animOverrides");
     document.getElementById("themeTabIcon").innerHTML = icons.getIcon("theme");
   }
-  document.getElementById("behaviorTitle").textContent = t("dashboardBehaviorTitle");
-  document.getElementById("behaviorIntro").textContent = t("dashboardBehaviorIntro");
-  behaviorRowsEl.replaceChildren();
-  const button = document.createElement("button");
-  button.type = "button"; button.className = "soft-btn"; button.dataset.editCustomMode = "";
-  button.textContent = t("appModeEditCustom");
-  button.addEventListener("click", async () => {
-    try { await window.dashboardAPI.openCustomModeEditor(); }
-    catch { behaviorErrorEl.textContent = t("dashboardBehaviorLoadFailed"); }
-  });
-  behaviorRowsEl.appendChild(button);
-}
-
-async function refreshPetBehavior() {
-  try {
-    petBehavior = await window.dashboardAPI.getPetBehavior();
-    behaviorErrorEl.textContent = "";
-  } catch {
-    behaviorErrorEl.textContent = t("dashboardBehaviorLoadFailed");
-  }
-  renderPetBehavior();
 }
 
 function selectDashboardPage(page) {
-  const showBehavior = page === "behavior";
   const showTheme = page === "theme";
   const showActions = page === "actions";
   if (actionsPage && !actionsPageEl.hidden && !showActions) actionsPage.leave();
   actionsPageEl.hidden = !showActions;
   actionsTabEl.setAttribute("aria-selected", String(showActions));
-  const wasBehaviorVisible = !behaviorPageEl.hidden;
   if (!themePageEl.hidden && !showTheme) themePage.leave();
-  statusPageEl.hidden = showBehavior || showTheme || showActions;
-  behaviorPageEl.hidden = !showBehavior;
+  statusPageEl.hidden = showTheme || showActions;
   themePageEl.hidden = !showTheme;
-  statusTabEl.setAttribute("aria-selected", String(!showBehavior && !showTheme && !showActions));
-  behaviorTabEl.setAttribute("aria-selected", String(showBehavior));
+  statusTabEl.setAttribute("aria-selected", String(!showTheme && !showActions));
   themeTabEl.setAttribute("aria-selected", String(showTheme));
-  if (showBehavior) {
-    void refreshPetBehavior();
-
-  }
   if (showTheme) void themePage.enter();
   if (showActions && actionsPage) void actionsPage.enter();
 }
 
 
 statusTabEl.addEventListener("click", () => selectDashboardPage("status"));
-behaviorTabEl.addEventListener("click", () => selectDashboardPage("behavior"));
 actionsTabEl.addEventListener("click", () => selectDashboardPage("actions"));
 themeTabEl.addEventListener("click", () => selectDashboardPage("theme"));
 window.addEventListener("focus", () => {
-  if (!behaviorPageEl.hidden) void refreshPetBehavior();
   if (!themePageEl.hidden) void themePage.refresh().catch(() => {});
 });
 
@@ -993,7 +955,7 @@ async function init() {
   }
   window.dashboardAPI.onLangChange((payload) => {
     i18nPayload = payload || i18nPayload;
-    renderPetBehavior();
+    renderNavigation();
     themePage.render();
     if (actionsPage) actionsPage.render();
     render();
@@ -1014,7 +976,7 @@ async function init() {
   ]);
   i18nPayload = nextI18n || i18nPayload;
   snapshot = nextSnapshot || snapshot;
-  renderPetBehavior();
+  renderNavigation();
   render();
   refreshPetScene();
 

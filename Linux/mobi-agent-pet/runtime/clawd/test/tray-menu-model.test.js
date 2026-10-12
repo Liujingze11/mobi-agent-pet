@@ -40,6 +40,16 @@ function flatten(items) {
 }
 
 describe("tray menu model", () => {
+  it("opens the independent Custom editor without opening Settings or switching modes", () => {
+    const calls = [];
+    const { commands } = createTrayMenuModel(createContext({
+      openCustomModeEditor: () => calls.push("custom-editor"),
+      openSettingsWindow: () => calls.push("settings"),
+      requestAppMode: () => calls.push("switch-mode"),
+    }), (key) => key);
+    commands.execute("mode.custom.edit");
+    assert.deepStrictEqual(calls, ["custom-editor"]);
+  });
   it("builds the serializable quick menu with stable commands", () => {
     const labels = {
       appMode: "Mode",

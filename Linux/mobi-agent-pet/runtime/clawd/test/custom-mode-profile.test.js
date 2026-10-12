@@ -115,3 +115,37 @@ test('roaming defaults to a quiet fixed interval and Custom alone can configure 
  const oldProfile={...profile};delete oldProfile.roamIntervalSeconds;oldProfile.trayAlerts=false;
  const restored=model.normalizeCustomModeProfile(oldProfile);assert.equal(restored.roamIntervalSeconds,120);assert.equal(restored.trayAlerts,false);
 });
+
+test('retired HUD elapsed setting is removed without resetting saved custom choices',()=>{
+ const model=require('../src/custom-mode-profile');
+ const previous={...model.defaultCustomModeProfile(),hudElapsed:true,hudStateLabels:true,hudContext:true,hudQuota:false,roamIntervalSeconds:300,permissionAutomationMode:'auto-tools'};
+ const restored=model.normalizeCustomModeProfile(previous);
+ assert.equal(Object.hasOwn(restored,'hudElapsed'),false);
+ assert.equal(restored.hudStateLabels,true);assert.equal(restored.hudContext,true);assert.equal(restored.hudQuota,false);
+ assert.equal(restored.roamIntervalSeconds,300);assert.equal(restored.permissionAutomationMode,'auto-tools');
+ assert.equal(Object.hasOwn(resolveAppModePolicy('custom',{customModeProfile:previous}),'sessionHudShowElapsed'),false);
+ assert.deepEqual(prefs.validate({customModeProfile:previous}).customModeProfile,restored);
+});
+
+test('retired idle power settings are ignored while keep-awake and custom choices survive',()=>{
+ const model=require('../src/custom-mode-profile');const saved={...model.defaultCustomModeProfile(),lowPowerIdle:true,keepAwake:true,roamIntervalSeconds:300,states:['idle','working'],permissionAutomationMode:'auto-tools'};
+ const current=model.normalizeCustomModeProfile(saved);
+ assert.equal(Object.hasOwn(current,'lowPowerIdle'),false);assert.equal(current.keepAwake,true);
+ assert.equal(current.roamIntervalSeconds,300);assert.deepEqual(current.states,['idle','working']);assert.equal(current.permissionAutomationMode,'auto-tools');
+ const migrated=prefs.validate({lowPowerIdleMode:true,customModeProfile:saved});assert.equal(Object.hasOwn(migrated,'lowPowerIdleMode'),false);assert.deepEqual(migrated.customModeProfile,current);
+ for(const mode of ['normal','background','automatic','custom']){
+  const policy=resolveAppModePolicy(mode,{customModeProfile:saved});assert.equal(Object.hasOwn(policy,'lowPowerIdleMode'),false);
+  assert.equal(policy.keepAwakeWhileWorking,true);
+ }
+});
+
+test('retired edge and mini settings are ignored while cross-display size is fixed only in built-ins',()=>{
+ const model=require('../src/custom-mode-profile');const previous={...model.defaultCustomModeProfile(),allowEdgePinning:true,miniModeEnabled:true,keepSizeAcrossDisplays:false,roamIntervalSeconds:300,permissionAutomationMode:'auto-tools'};
+ const current=model.normalizeCustomModeProfile(previous);assert.equal(Object.hasOwn(current,'allowEdgePinning'),false);assert.equal(Object.hasOwn(current,'miniModeEnabled'),false);assert.equal(current.roamIntervalSeconds,300);assert.equal(current.permissionAutomationMode,'auto-tools');
+ for(const mode of ['normal','background','automatic','custom']){
+  const policy=resolveAppModePolicy(mode,{allowEdgePinning:true,disableMiniMode:false,keepSizeAcrossDisplays:false,customModeProfile:previous});
+  assert.equal(Object.hasOwn(policy,'allowEdgePinning'),false);assert.equal(Object.hasOwn(policy,'disableMiniMode'),false);
+  assert.equal(policy.keepSizeAcrossDisplays,mode!=='custom');assert.equal(policy.fullscreenOverlay,true);
+ }
+ assert.equal(resolveAppModePolicy('custom',{customModeProfile:{...current,keepSizeAcrossDisplays:true}}).keepSizeAcrossDisplays,true);
+});

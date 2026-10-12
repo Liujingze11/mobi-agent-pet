@@ -210,15 +210,6 @@ describe("settings-effect-router", () => {
     ]);
   });
 
-  it("re-syncs hidden HUD windows when low-power mode changes", () => {
-    const { calls, emit } = createHarness();
-    emit({ lowPowerIdleMode: true });
-    assert.deepStrictEqual(calls, [
-      ["updateMirrors", { lowPowerIdleMode: true }],
-      ["sendToRenderer", "low-power-idle-mode-change", true],
-      ["syncSessionHudVisibility"],
-    ]);
-  });
 
   it("routes language, session alias, and session HUD effects", () => {
     const { calls, emit } = createHarness();
@@ -315,51 +306,9 @@ describe("settings-effect-router", () => {
     ]);
   });
 
-  it("delegates edge pinning changes to one injected reclamp helper", () => {
-    const { calls, emit } = createHarness();
 
-    emit({ allowEdgePinning: false });
 
-    assert.deepStrictEqual(calls, [
-      ["updateMirrors", { allowEdgePinning: false }],
-      ["reclampPetAfterEdgePinningChange"],
-    ]);
-  });
 
-  it("exits current mini mode when mini mode is disabled", () => {
-    const { calls, emit } = createHarness({
-      routerOptions: {
-        getMiniMode: () => true,
-        exitMiniMode: () => calls.push(["exitMiniMode"]),
-      },
-    });
-
-    emit({ disableMiniMode: true });
-
-    assert.deepStrictEqual(calls, [
-      ["updateMirrors", { disableMiniMode: true }],
-      ["exitMiniMode"],
-      ["rebuildAllMenus"],
-    ]);
-  });
-
-  it("does not enter mini mode when mini mode is re-enabled", () => {
-    const { calls, emit } = createHarness({
-      routerOptions: {
-        getMiniMode: () => false,
-        exitMiniMode: () => calls.push(["exitMiniMode"]),
-      },
-    });
-
-    emit({ disableMiniMode: false });
-
-    assert.deepStrictEqual(calls, [
-      ["updateMirrors", { disableMiniMode: false }],
-      ["rebuildAllMenus"],
-    ]);
-  });
-
-  // #509: idleVisual changes re-rest the pet without rebuilding menus.
   it("refreshes the idle visual on idleVisual changes, without a menu rebuild", () => {
     const { calls, emit } = createHarness({
       routerOptions: {

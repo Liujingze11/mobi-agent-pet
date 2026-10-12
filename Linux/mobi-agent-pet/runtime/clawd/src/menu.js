@@ -150,7 +150,7 @@ module.exports = function initMenu(ctx) {
         { type: "separator" },
         {
           label: t("appModeEditCustom"),
-          click: () => ctx.openSettingsWindow({tab:"custom-mode"}),
+          click: () => ctx.openCustomModeEditor(),
         },
       ],
     };
@@ -196,6 +196,7 @@ module.exports = function initMenu(ctx) {
           if (typeof ctx.openDashboard === "function") ctx.openDashboard();
         },
         openSettingsWindow: (options) => ctx.openSettingsWindow(options),
+        openCustomModeEditor: () => ctx.openCustomModeEditor(),
         requestAppQuit,
     };
     return createTrayMenuModel(modelContext, t);
@@ -348,7 +349,6 @@ module.exports = function initMenu(ctx) {
 
   function sendToDisplay(display) {
     if (!ctx.win || ctx.win.isDestroyed()) return;
-    if (ctx.getMiniMode()) return;
     const wa = display.workArea;
     const size = typeof ctx.getEffectiveCurrentPixelSize === "function"
       ? ctx.getEffectiveCurrentPixelSize(wa)
@@ -409,7 +409,7 @@ module.exports = function initMenu(ctx) {
     // instead. On a single display this group is empty and joinGroups drops it.
     const displayGroup = [];
     const displays = screen.getAllDisplays();
-    if (displays.length > 1 && !ctx.getMiniMode()) {
+    if (displays.length > 1) {
       displayGroup.push({
         label: t("sendToDisplay"),
         submenu: buildDisplaySubmenu(displays),
@@ -434,12 +434,6 @@ module.exports = function initMenu(ctx) {
     ctx.contextMenu = Menu.buildFromTemplate(template);
   }
 
-  function showPetContextMenu() {
-    if (!ctx.win || ctx.win.isDestroyed()) return;
-    buildContextMenu();
-    popupMenuAt(ctx.contextMenu);
-  }
-
   function resizeWindow(sizeKey, options = {}) {
     const mode = options.mode || (options.persist === false ? "preview" : "commit");
     const persist = mode !== "preview";
@@ -450,7 +444,7 @@ module.exports = function initMenu(ctx) {
     const size = (typeof ctx.getPixelSizeFor === "function")
       ? ctx.getPixelSizeFor(sizeKey)
       : (SIZES[sizeKey] || ctx.getCurrentPixelSize());
-    if (!ctx.miniHandleResize(sizeKey)) {
+    {
       if (ctx.win && !ctx.win.isDestroyed()) {
         const { x, y } = ctx.getPetWindowBounds();
         const clamped = ctx.clampToScreenVisual(x, y, size.width, size.height);
@@ -477,7 +471,6 @@ module.exports = function initMenu(ctx) {
     applyDockVisibility,
     ensureContextMenuOwner,
     popupMenuAt,
-    showPetContextMenu,
     resizeWindow,
     requestAppQuit,
   };

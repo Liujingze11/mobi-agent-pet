@@ -212,20 +212,13 @@ body { padding: 2px 3px 8px; }
   /* Flexbox quirk: overflow:hidden makes a flex item's AUTOMATIC minimum
      size 0, so under squeeze .right shrinks below its chips and its own
      overflow clipping cuts them mid-glyph. min-content restores a real
-     floor: it equals bell+chips+gaps exactly, because the elapsed span
-     carries its own zero floor and contributes nothing. Squeeze order:
-     title first, then elapsed, chips never clip. */
+     floor: it equals bell+chips+gaps exactly. The title truncates
+     before the chips, so the status and context values remain visible. */
   min-width: min-content;
   overflow: hidden;
   white-space: nowrap;
 }
 
-.elapsed {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .state-chip {
   flex: 0 0 auto;

@@ -113,6 +113,7 @@ function createRuntime(overrides = {}) {
     buildTrayMenu: () => calls.push(["buildTrayMenu"]),
     buildContextMenu: () => calls.push(["buildContextMenu"]),
     onPetHiddenChanged: overrides.onPetHiddenChanged,
+    onPetDragStart: overrides.onPetDragStart,
     reapplyMacVisibility: () => calls.push(["reapplyMacVisibility"]),
     ...(overrides.syncImeEditingPetDodge
       ? { syncImeEditingPetDodge: overrides.syncImeEditingPetDodge }
@@ -919,4 +920,28 @@ it('Linux close recovery cannot show a pet hidden by Background mode',()=>{
  assert.equal(count(),before);assert.equal(h.runtime.isPetHidden(),true);
  forced=false;h.runtime.setPetHidden(false);h.renderWin.visible=false;
  const normalBefore=count();h.renderWin.emit('close',{preventDefault(){}});assert.equal(count(),normalBefore+1);
+});
+
+
+it("notifies drag dismissal only after actual movement, once per drag", () => {
+  let point={x:100,y:100},dismissals=0;
+  const h=createRuntime({cursor:()=>point,onPetDragStart:()=>dismissals++});
+  h.runtime.setDragLocked(true);h.runtime.beginDragSnapshot();
+  h.runtime.moveWindowForDrag();point={x:103,y:102};h.runtime.moveWindowForDrag();assert.equal(dismissals,0,'press/click jitter must retain the card');
+  point={x:120,y:100};h.runtime.moveWindowForDrag();assert.equal(dismissals,1);assert.equal(h.renderWin.bounds.x,30);
+  point={x:150,y:110};h.runtime.moveWindowForDrag();assert.equal(dismissals,1);
+  h.runtime.setDragLocked(false);h.runtime.clearDragSnapshot();h.runtime.setDragLocked(true);h.runtime.beginDragSnapshot();point={x:160,y:110};h.runtime.moveWindowForDrag();assert.equal(dismissals,2);
+});
+
+it("does not move the pet for click jitter before the shared drag threshold", () => {
+ let point={x:100,y:100},dismissals=0;
+ const h=createRuntime({cursor:()=>point,onPetDragStart:()=>dismissals++});h.runtime.setDragLocked(true);h.runtime.beginDragSnapshot();
+ point={x:105,y:104};h.runtime.moveWindowForDrag();assert.equal(h.renderWin.bounds.x,10);assert.equal(h.renderWin.bounds.y,20);assert.equal(dismissals,0);
+ point={x:120,y:100};h.runtime.moveWindowForDrag();assert.equal(h.renderWin.bounds.x,30);assert.equal(dismissals,1);
+});
+
+it("retains the actual drag result after release until a new gesture begins",()=>{
+ let point={x:100,y:100},ids=[];const h=createRuntime({cursor:()=>point,onPetDragStart:id=>ids.push(id)});
+ h.runtime.setDragLocked(true);h.runtime.beginDragSnapshot(7);point={x:130,y:100};h.runtime.moveWindowForDrag();point={x:100,y:100};h.runtime.moveWindowForDrag();h.runtime.setDragLocked(false);h.runtime.clearDragSnapshot();
+ assert.equal(h.runtime.hasDragMoved(),true);assert.deepEqual(ids,[7]);h.runtime.beginDragSnapshot(8);assert.equal(h.runtime.hasDragMoved(),false);
 });

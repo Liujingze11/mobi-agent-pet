@@ -108,8 +108,6 @@ contextBridge.exposeInMainWorld("settingsAPI", {
   // Capability flag: true when a default Discord App ID is hardcoded (maintainer-
   // shipped), so the presence enable switch can be ready without a user-saved App ID.
   discordDefaultAppIdPresent,
-  getModeConfig: () => ipcRenderer.invoke("settings:get-mode-config"),
-  saveCustomMode: (profile, options = {}) => ipcRenderer.invoke("settings:save-custom-mode", {profile, confirmed: options.confirmed === true}),
   getSnapshot: () => ipcRenderer.invoke("settings:get-snapshot"),
   getPetHidden: () => ipcRenderer.invoke("settings:get-pet-hidden"),
   setPetHidden: (hidden) => ipcRenderer.invoke("settings:set-pet-hidden", hidden),

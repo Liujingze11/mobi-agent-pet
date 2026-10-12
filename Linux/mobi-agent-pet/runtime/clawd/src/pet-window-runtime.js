@@ -3,7 +3,6 @@
 const createPetGeometryMain = require("./pet-geometry-main");
 const {
   computeLooseClamp,
-  getDisplayInsets,
   findMatchingDisplay,
   isPointInAnyWorkArea,
   SYNTHETIC_WORK_AREA,
@@ -24,6 +23,7 @@ const {
 const { classifyCloakState } = require("./win-cloak-recovery");
 
 const noop = () => {};
+const { dragThreshold: DRAG_THRESHOLD } = require("./pet-input-policy");
 const DEFAULT_CRASH_RELOAD_LIMIT = 5;
 const DEFAULT_CRASH_RELOAD_WINDOW_MS = 30_000;
 const NON_RELOADABLE_RENDER_GONE_REASONS = new Set([
@@ -115,11 +115,11 @@ function createPetWindowRuntime(options = {}) {
   const getCurrentPixelSize = options.getCurrentPixelSize || (() => null);
   const getEffectiveCurrentPixelSize = options.getEffectiveCurrentPixelSize || getCurrentPixelSize;
   const getKeepSizeAcrossDisplays = options.getKeepSizeAcrossDisplays || (() => false);
-  const getAllowEdgePinning = options.getAllowEdgePinning || (() => false);
   const isProportionalMode = options.isProportionalMode || (() => false);
   const sendToRenderer = options.sendToRenderer || noop;
   const keepOutOfTaskbar = options.keepOutOfTaskbar || noop;
   const repositionSessionHud = options.repositionSessionHud || noop;
+  const onPetDragStart = options.onPetDragStart || noop;
   const repositionAnchoredSurfaces = options.repositionAnchoredSurfaces || noop;
   const repositionFloatingBubbles = options.repositionFloatingBubbles || noop;
   const showFloatingSurfacesForPet = options.showFloatingSurfacesForPet || noop;
@@ -171,6 +171,8 @@ function createPetWindowRuntime(options = {}) {
   let petHidden = false;
   let dragLocked = false;
   let dragSnapshot = null;
+  let dragDidMove = false;
+  let dragGestureId = null;
   let hitShapeWidth = 0;
   let hitShapeHeight = 0;
   let settingsSizePreviewSyncFrozen = false;
@@ -188,22 +190,6 @@ function createPetWindowRuntime(options = {}) {
     return typeof screen.getCursorScreenPoint === "function"
       ? screen.getCursorScreenPoint()
       : null;
-  }
-
-  function getNearestDisplayBottomInset(cx, cy) {
-    const point = { x: Math.round(cx), y: Math.round(cy) };
-    let display = null;
-    try {
-      if (typeof screen.getDisplayNearestPoint === "function") {
-        display = screen.getDisplayNearestPoint(point);
-      }
-    } catch {}
-    if (!display || !display.bounds || !display.workArea) {
-      try {
-        if (typeof screen.getPrimaryDisplay === "function") display = screen.getPrimaryDisplay();
-      } catch {}
-    }
-    return getDisplayInsets(display).bottom;
   }
 
   function setViewportOffsetY(offsetY) {
@@ -477,7 +463,6 @@ function createPetWindowRuntime(options = {}) {
 
   function looseClampPetToDisplays(x, y, w, h) {
     const margins = getVisibleContentMargins({ x, y, width: w, height: h });
-    const bottomInset = getNearestDisplayBottomInset(x + w / 2, y + h / 2);
     return computeLooseClamp(
       getAllDisplays(),
       getPrimaryWorkAreaSafe(),
@@ -489,8 +474,6 @@ function createPetWindowRuntime(options = {}) {
         width: w,
         height: h,
         visibleMargins: margins,
-        allowEdgePinning: getAllowEdgePinning(),
-        bottomInset,
       })
     );
   }
@@ -516,18 +499,11 @@ function createPetWindowRuntime(options = {}) {
       ? optionsArg.workArea
       : null;
     const nearest = forcedWorkArea || getNearestWorkArea(x + w / 2, y + h / 2);
-    const insetProbeX = forcedWorkArea ? nearest.x + nearest.width / 2 : x + w / 2;
-    const insetProbeY = forcedWorkArea ? nearest.y + nearest.height / 2 : y + h / 2;
-    const bottomInset = getNearestDisplayBottomInset(insetProbeX, insetProbeY);
     const mLeft = Math.round(w * 0.25);
     const mRight = Math.round(w * 0.25);
     const clampMargins = getRestClampMargins({
       height: h,
       visibleMargins: margins,
-      allowEdgePinning: "allowEdgePinning" in optionsArg
-        ? optionsArg.allowEdgePinning
-        : getAllowEdgePinning(),
-      bottomInset,
     });
     return {
       x: Math.max(nearest.x - mLeft, Math.min(x, nearest.x + nearest.width - w + mRight)),
@@ -773,7 +749,13 @@ function createPetWindowRuntime(options = {}) {
     return dragLocked;
   }
 
-  function beginDragSnapshot() {
+  function resetDragResult(gestureId) {
+    dragDidMove = false;
+    dragGestureId = Number.isSafeInteger(gestureId) && gestureId > 0 ? gestureId : null;
+  }
+
+  function beginDragSnapshot(gestureId) {
+    resetDragResult(gestureId);
     const win = getRenderWindow();
     if (!isLiveWindow(win)) {
       dragSnapshot = null;
@@ -797,6 +779,8 @@ function createPetWindowRuntime(options = {}) {
 
   function clearDragSnapshot() {
     dragSnapshot = null;
+    // Keep the result through release: a delayed renderer double-click must
+    // not reopen the card. The next accepted press starts a fresh result.
   }
 
   function moveWindowForDrag() {
@@ -805,12 +789,22 @@ function createPetWindowRuntime(options = {}) {
     if (!isLiveWindow(getRenderWindow())) return;
     if (!dragSnapshot) return;
 
+    const cursor = getCursorScreenPoint();
     const bounds = computeAnchoredDragBounds(
       dragSnapshot,
-      getCursorScreenPoint(),
+      cursor,
       looseClampPetToDisplays
     );
     if (!bounds) return;
+
+    // Match the input renderer's drag threshold, including main-process
+    // polling when a transparent window coalesces pointermove until release.
+    if (!dragDidMove) {
+      if (Math.abs(cursor.x - dragSnapshot.cursor.x) <= DRAG_THRESHOLD
+        && Math.abs(cursor.y - dragSnapshot.cursor.y) <= DRAG_THRESHOLD) return;
+      dragDidMove = true;
+      onPetDragStart(dragGestureId);
+    }
 
     applyPetWindowBounds(bounds);
     if (isWin && isNearWorkAreaEdge(bounds)) reassertWinTopmost();
@@ -826,11 +820,8 @@ function createPetWindowRuntime(options = {}) {
   }
 
   function resolveStartupPlacement(prefs, size, optionsArg = {}) {
-    const restoreMiniFromPrefs = optionsArg.restoreMiniFromPrefs || (() => null);
     let startBounds;
-    if (prefs.miniMode) {
-      startBounds = restoreMiniFromPrefs(prefs, size);
-    } else if (prefs.positionSaved) {
+    if (prefs.positionSaved) {
       startBounds = { x: prefs.x, y: prefs.y, width: size.width, height: size.height };
     } else {
       const workArea = getPrimaryWorkAreaFallback();
@@ -853,7 +844,6 @@ function createPetWindowRuntime(options = {}) {
       allDisplays
     );
     const startupNeedsRegularize = prefs.positionSaved
-      && !prefs.miniMode
       && (
         hasStoredPositionThemeMismatch(prefs)
         || (
@@ -1004,6 +994,8 @@ function createPetWindowRuntime(options = {}) {
     isDragLocked,
     beginDragSnapshot,
     clearDragSnapshot,
+    hasDragMoved: () => dragDidMove,
+    resetDragResult,
     moveWindowForDrag,
     resolveStartupPlacement,
     beginSettingsSizePreviewProtection,

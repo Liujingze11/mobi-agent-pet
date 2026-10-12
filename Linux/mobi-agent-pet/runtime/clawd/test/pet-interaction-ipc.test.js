@@ -49,9 +49,11 @@ function createHarness(overrides = {}) {
   const runtime = registerPetInteractionIpc({
     ipcMain,
     getDragLocked: overrides.getDragLocked,
+    hasDragMoved: overrides.hasDragMoved,
+    resetDragResult: overrides.resetDragResult,
+    isPetHeldAllowed: overrides.isPetHeldAllowed,
     cancelRoam: overrides.cancelRoam,
     timers: overrides.timers,
-    showContextMenu: (event) => calls.push(["showContextMenu", event.sender]),
     moveWindowForDrag: () => calls.push(["moveWindowForDrag"]),
     setIdlePaused: (value) => calls.push(["setIdlePaused", value]),
     isMiniTransitioning: () => state.miniTransitioning,
@@ -92,7 +94,6 @@ function createHarness(overrides = {}) {
     focusLog: (message) => calls.push(["focusLog", message]),
     showDashboard: () => calls.push(["showDashboard"]),
     focusSession: (sessionId, options) => calls.push(["focusSession", sessionId, options]),
-    setLowPowerIdlePaused: (value) => calls.push(["setLowPowerIdlePaused", value]),
     revealSessionHud: () => calls.push(["revealSessionHud"]),
     statPath: async (p) => {
       calls.push(["statPath", p]);
@@ -130,9 +131,7 @@ test("pet interaction IPC registers owned channels and disposes them", () => {
     "drag-lock",
     "drag-move",
     "end-drag-reaction",
-    "exit-mini-mode",
     "focus-terminal",
-    "low-power-idle-paused",
     "pause-cursor-polling",
     "pet-action-frame",
     "pet-drop-paths",
@@ -140,7 +139,6 @@ test("pet interaction IPC registers owned channels and disposes them", () => {
     "pet-visual-ready",
     "play-click-reaction",
     "resume-from-reaction",
-    "show-context-menu",
     "start-drag-reaction",
   ]);
 
@@ -167,15 +165,12 @@ test("pet interaction IPC delegates pet-interaction:reveal-session-hud to reveal
   ]);
 });
 
-test("pet interaction IPC delegates menu, drag move, reaction pause, and renderer relays", () => {
+test("pet interaction IPC delegates drag move, reaction pause, and renderer relays", () => {
   const { ipcMain, calls, state } = createHarness();
 
-  ipcMain.send("show-context-menu");
   ipcMain.send("drag-move");
   ipcMain.send("pause-cursor-polling");
   ipcMain.send("resume-from-reaction");
-  ipcMain.send("low-power-idle-paused", true);
-  ipcMain.send("low-power-idle-paused", false);
   state.miniTransitioning = true;
   ipcMain.send("resume-from-reaction");
   ipcMain.send("start-drag-reaction");
@@ -183,13 +178,10 @@ test("pet interaction IPC delegates menu, drag move, reaction pause, and rendere
   ipcMain.send("play-click-reaction", "click.svg", 900);
 
   assert.deepStrictEqual(calls, [
-    ["showContextMenu", "sender-web-contents"],
     ["moveWindowForDrag"],
     ["setIdlePaused", true],
     ["setIdlePaused", false],
     ["sendToRenderer", "state-change", "idle", "idle.svg"],
-    ["setLowPowerIdlePaused", true],
-    ["setLowPowerIdlePaused", false],
     ["setIdlePaused", false],
   ]);
 });
@@ -232,7 +224,6 @@ test("pet interaction IPC finalizes drag end and always clears drag state", () =
   ipcMain.send("drag-end");
 
   assert.deepStrictEqual(calls, [
-    ["checkMiniModeSnap"],
     ["computeDragEndBounds", state.petWindowBounds, state.currentPixelSize],
     ["applyPetWindowBounds", state.clampedBounds],
     ["flushRuntimeStateToPrefs"],
@@ -243,7 +234,6 @@ test("pet interaction IPC finalizes drag end and always clears drag state", () =
     ["setDragLocked", false],
     ["clearDragSnapshot"],
     ["syncImeEditingPetDodge"],
-    ["checkMiniModeSnap"],
     ["computeDragEndBounds", state.petWindowBounds, state.effectivePixelSize],
     ["applyPetWindowBounds", state.clampedBounds],
     ["flushRuntimeStateToPrefs"],
@@ -257,23 +247,6 @@ test("pet interaction IPC finalizes drag end and always clears drag state", () =
   ]);
 });
 
-test("pet interaction IPC skips drag-end clamp when mini snap starts", () => {
-  const { ipcMain, calls } = createHarness({
-    checkMiniModeSnap: ({ calls, state }) => {
-      calls.push(["checkMiniModeSnap"]);
-      state.miniMode = true;
-    },
-  });
-
-  ipcMain.send("drag-end");
-
-  assert.deepStrictEqual(calls, [
-    ["checkMiniModeSnap"],
-    ["setDragLocked", false],
-    ["clearDragSnapshot"],
-    ["syncImeEditingPetDodge"],
-  ]);
-});
 
 test("pet interaction IPC does not persist when drag-end has no clamped bounds", () => {
   const { ipcMain, calls } = createHarness({
@@ -283,7 +256,6 @@ test("pet interaction IPC does not persist when drag-end has no clamped bounds",
   ipcMain.send("drag-end");
 
   assert.deepStrictEqual(calls, [
-    ["checkMiniModeSnap"],
     ["computeDragEndBounds", { x: 10, y: 20, width: 120, height: 80 }, { width: 90, height: 60 }],
     ["reassertWinTopmost"],
     ["scheduleHwndRecovery"],
@@ -324,23 +296,18 @@ test("pet interaction IPC still clears drag state when drag end has no live pet 
   ipcMain.send("drag-end");
 
   assert.deepStrictEqual(calls, [
-    ["checkMiniModeSnap"],
     ["setDragLocked", false],
     ["clearDragSnapshot"],
     ["syncImeEditingPetDodge"],
   ]);
 });
 
-test("pet interaction IPC gates exit-mini-mode on current mini state", () => {
+test("retired exit-mini-mode IPC is inert", () => {
   const { ipcMain, calls, state } = createHarness();
 
-  ipcMain.send("exit-mini-mode");
-  state.miniMode = true;
-  ipcMain.send("exit-mini-mode");
+  assert.equal(ipcMain.listeners.has("exit-mini-mode"),false);
 
-  assert.deepStrictEqual(calls, [
-    ["exitMiniMode"],
-  ]);
+  assert.deepStrictEqual(calls, []);
 });
 
 test("pet interaction IPC preserves pet-body focus behavior", () => {
@@ -520,4 +487,16 @@ test('release samples the final cursor position even when a short drag had no po
   assert.equal(h.calls.filter(call=>call[0]==='moveWindowForDrag').length,1,'final movement must be sampled before the drag lock is released');
   assert.equal(h.jobs.size,0);
  }finally{h.runtime.dispose()}
+});
+
+test('a main-confirmed drag cannot reopen the HUD even if pointermove or its result was delayed',()=>{
+ let dragged=true;const h=createHarness({hasDragMoved:()=>dragged});
+ h.ipcMain.send('pet-interaction:reveal-session-hud');assert.ok(!h.calls.some(call=>call[0]==='revealSessionHud'));
+ dragged=false;h.ipcMain.send('pet-interaction:reveal-session-hud');assert.equal(h.calls.filter(call=>call[0]==='revealSessionHud').length,1);h.runtime.dispose();
+});
+
+test('new clicks clear an old drag result even when Custom forbids held',()=>{
+ let dragged=true,resets=0;const h=createHarness({hasDragMoved:()=>dragged,isPetHeldAllowed:()=>false,resetDragResult:()=>{dragged=false;resets++}});
+ h.ipcMain.send('drag-lock',true,12);h.ipcMain.send('pet-interaction:reveal-session-hud');
+ assert.equal(resets,1);assert.equal(h.calls.filter(call=>call[0]==='revealSessionHud').length,1);assert.ok(!h.calls.some(call=>call[0]==='beginDragSnapshot'||call[0]==='setDragLocked'));h.runtime.dispose();
 });

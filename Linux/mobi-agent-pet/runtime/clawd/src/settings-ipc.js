@@ -318,7 +318,7 @@ function registerSettingsIpc(options = {}) {
     });
     customSaveQueue = operation.catch(() => {}); return operation;
   }
-  handle("settings:get-mode-config", () => ({mode:options.getActiveAppMode?.() || "normal", profile:normalizeCustomModeProfile(settingsController.getSnapshot().customModeProfile)}));
+  handle("settings:get-mode-config", () => ({mode:options.getActiveAppMode?.() || "normal", lang:settingsController.getSnapshot().lang || "en", profile:normalizeCustomModeProfile(settingsController.getSnapshot().customModeProfile)}));
   handle("settings:save-custom-mode", (_event, payload) => saveCustomMode(payload));
   handle("settings:command", async (_event, payload) => {
     if (!payload || typeof payload !== "object") {

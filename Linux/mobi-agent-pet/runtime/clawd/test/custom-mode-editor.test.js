@@ -2,13 +2,13 @@
 const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const {JSDOM}=require('jsdom');
 const model=require('../src/custom-mode-profile');
-const source=path.join(__dirname,'../src/settings-tab-custom-mode.js');
+const source=path.join(__dirname,'../src/custom-mode-editor.js');
 async function fixture(){
  const dom=new JSDOM('<main id="content"></main>',{runScripts:'outside-only'}),window=dom.window,writes=[];
  window.MobiCustomModeProfile=model;
  window.settingsAPI={getModeConfig:async()=>({mode:'normal',profile:model.defaultCustomModeProfile()}),saveCustomMode:async(profile,options)=>{writes.push({profile,options});return {status:'ok',profile}}};
  const core={state:{activeTab:'custom-mode',snapshot:{lang:'en'}},tabs:{},helpers:{t:key=>key,showSettingsConfirmModal:async()=>'confirm'}};
- window.eval(fs.readFileSync(source,'utf8'));window.ClawdSettingsTabCustomMode.init(core);core.tabs['custom-mode'].render(window.document.getElementById('content'));
+ window.eval(fs.readFileSync(source,'utf8'));window.MobiCustomModeEditor.init(core);core.tabs['custom-mode'].render(window.document.getElementById('content'));
  await new Promise(resolve=>setImmediate(resolve));return{dom,window,core,writes};
 }
 test('Custom editor exposes one Agent bubble switch, removes following, and saves both kinds together',async()=>{
@@ -25,6 +25,9 @@ test('custom editor is the only mode behavior editor, requires idle, and has no 
  const h=await fixture();try{
   const field=id=>h.window.document.querySelector('[data-custom-mode-field="'+id+'"]');
   assert.ok(field('petVisible'));assert.ok(field('trayAlerts'));assert.ok(field('permissionAutomationMode'));
+  for (const [key, value] of Object.entries(model.defaultCustomModeProfile())) {
+    if (typeof value === 'boolean') assert.equal(field(key).getAttribute('role'), 'switch', key);
+  }
   const idle=h.window.document.querySelector('[data-custom-mode-state="idle"]');assert.equal(idle.disabled,true);assert.equal(idle.checked,true);
   assert.equal(h.window.document.querySelector('[data-custom-mode-field*="sound"]'),null);
   const working=h.window.document.querySelector('[data-custom-mode-state="working"]');working.click();
@@ -70,5 +73,32 @@ test('Custom editor saves the roaming interval explicitly without changing the a
   input.value='300';input.dispatchEvent(new h.window.Event('input'));assert.equal(h.writes.length,0);
   h.window.document.querySelector('[data-custom-mode-save]').click();await new Promise(resolve=>setImmediate(resolve));
   assert.equal(h.writes.length,1);assert.equal(h.writes[0].profile.roamIntervalSeconds,300);
+ }finally{h.dom.window.close()}
+});
+
+test('task card editor keeps state, context and quota switches with no elapsed field',async()=>{
+ const h=await fixture();try{
+  const field=id=>h.window.document.querySelector('[data-custom-mode-field="'+id+'"]');
+  assert.equal(field('hudElapsed'),null);
+  for(const id of ['hudStateLabels','hudContext','hudQuota'])assert.equal(field(id).getAttribute('role'),'switch');
+  h.window.document.querySelector('[data-custom-mode-save]').click();await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(Object.hasOwn(h.writes[0].profile,'hudElapsed'),false);
+ }finally{h.dom.window.close()}
+});
+
+test('Custom editor removes idle power saving and keeps the separate working keep-awake switch',async()=>{
+ const h=await fixture();try{
+  assert.equal(h.window.document.querySelector('[data-custom-mode-field="lowPowerIdle"]'),null);
+  const wake=h.window.document.querySelector('[data-custom-mode-field="keepAwake"]');assert.equal(wake.getAttribute('role'),'switch');wake.click();
+  h.window.document.querySelector('[data-custom-mode-save]').click();await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(h.writes[0].profile.keepAwake,true);assert.equal(Object.hasOwn(h.writes[0].profile,'lowPowerIdle'),false);
+ }finally{h.dom.window.close()}
+});
+
+test('Custom window controls retain cross-display size and fullscreen but retire edge pinning and mini',async()=>{
+ const h=await fixture();try{
+  const field=id=>h.window.document.querySelector('[data-custom-mode-field="'+id+'"]');
+  assert.equal(field('allowEdgePinning'),null);assert.equal(field('miniModeEnabled'),null);
+  assert.equal(field('keepSizeAcrossDisplays').getAttribute('role'),'switch');assert.equal(field('fullscreenOverlay').getAttribute('role'),'switch');
  }finally{h.dom.window.close()}
 });

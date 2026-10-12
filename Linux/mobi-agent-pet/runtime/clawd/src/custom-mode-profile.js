@@ -1,7 +1,7 @@
 'use strict';
 (function(root){
  const {PET_STATE_IDS}=typeof module!=='undefined'&&module.exports?require('./pet-states'):root.MobiPetStates;
- const DEFAULTS=Object.freeze({version:1,petVisible:true,states:PET_STATE_IDS,trayAlerts:true,agentBubbles:true,notificationSeconds:6,permissionSeconds:0,roamIntervalSeconds:120,sessionHud:true,hudStateLabels:true,hudElapsed:false,hudContext:true,hudQuota:true,lowPowerIdle:false,keepAwake:false,allowEdgePinning:false,keepSizeAcrossDisplays:false,miniModeEnabled:true,fullscreenOverlay:true,permissionAutomationMode:'off',flashIntervalMs:500,flashDurationMs:5000});
+ const DEFAULTS=Object.freeze({version:1,petVisible:true,states:PET_STATE_IDS,trayAlerts:true,agentBubbles:true,notificationSeconds:6,permissionSeconds:0,roamIntervalSeconds:120,sessionHud:true,hudStateLabels:true,hudContext:true,hudQuota:true,keepAwake:false,keepSizeAcrossDisplays:false,fullscreenOverlay:true,permissionAutomationMode:'off',flashIntervalMs:500,flashDurationMs:5000});
  const NUMBER_RANGES={roamIntervalSeconds:[10,3600],notificationSeconds:[1,3600],permissionSeconds:[0,3600],flashIntervalMs:[200,2000],flashDurationMs:[0,60000]};
  function defaultCustomModeProfile(){return {...DEFAULTS,states:[...PET_STATE_IDS]};}
  function validateCustomModeProfile(value){
@@ -17,7 +17,7 @@
  }
  function normalizeCustomModeProfile(value){
   const input=value&&typeof value==='object'&&!Array.isArray(value)?value:{};
-  const {permissionBubbles,notificationBubbles,bubbleFollow,...current}=input;
+  const {permissionBubbles,notificationBubbles,bubbleFollow,hudElapsed,lowPowerIdle,allowEdgePinning,miniModeEnabled,...current}=input;
   if(!Object.hasOwn(current,'agentBubbles')&&(Object.hasOwn(input,'permissionBubbles')||Object.hasOwn(input,'notificationBubbles'))){
    current.agentBubbles=permissionBubbles!==false||notificationBubbles!==false;
   }

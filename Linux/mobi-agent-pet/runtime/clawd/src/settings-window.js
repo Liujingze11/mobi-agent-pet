@@ -19,7 +19,6 @@ const SETTINGS_FRONT_LIFT_MS = 200;
 const FALLBACK_WORK_AREA = { x: 0, y: 0, width: 1280, height: 800 };
 const SETTINGS_TABS = new Set([
   "general",
-  "custom-mode",
   "agents",
   "shortcuts",
   "telegram-approval",
@@ -75,6 +74,7 @@ function createSettingsWindowRuntime(options = {}) {
   const appDir = options.appDir || path.join(__dirname, "..");
   const settingsHtmlPath = options.settingsHtmlPath || path.join(__dirname, "settings.html");
   const preloadPath = options.preloadPath || path.join(__dirname, "preload-settings.js");
+  const windowSize = { width: DEFAULT_WIDTH, height: DEFAULT_HEIGHT, minWidth: MIN_WIDTH, minHeight: MIN_HEIGHT, ...options.windowSize };
   const discordDefaultAppIdPresent = !!options.discordDefaultAppIdPresent;
   const scheduleLater = typeof options.setTimeout === "function" ? options.setTimeout : setTimeout;
   const clearScheduled = typeof options.clearTimeout === "function" ? options.clearTimeout : clearTimeout;
@@ -173,8 +173,8 @@ function createSettingsWindowRuntime(options = {}) {
     }
 
     const scale = getTextScale();
-    const width = Math.min(scaleWidth(DEFAULT_WIDTH, scale), Math.max(1, workArea.width));
-    const height = Math.min(scaleHeight(DEFAULT_HEIGHT, scale), Math.max(1, workArea.height));
+    const width = Math.min(scaleWidth(windowSize.width, scale), Math.max(1, workArea.width));
+    const height = Math.min(scaleHeight(windowSize.height, scale), Math.max(1, workArea.height));
     return clampBoundsToWorkArea({
       x: workArea.x + (workArea.width - width) / 2,
       y: workArea.y + (workArea.height - height) / 2,
@@ -224,8 +224,8 @@ function createSettingsWindowRuntime(options = {}) {
     const scale = getTextScale();
     applyZoomToWindow(win, scale);
     notifyTextScaleContextChanged(win);
-    const minW = scaleWidth(MIN_WIDTH, scale);
-    const minH = scaleHeight(MIN_HEIGHT, scale);
+    const minW = scaleWidth(windowSize.minWidth, scale);
+    const minH = scaleHeight(windowSize.minHeight, scale);
     if (typeof win.setMinimumSize === "function") win.setMinimumSize(minW, minH);
     const bounds = typeof win.getBounds === "function" ? win.getBounds() : null;
     if (bounds && (bounds.width < minW || bounds.height < minH)) {
@@ -293,8 +293,8 @@ function createSettingsWindowRuntime(options = {}) {
     const createScale = getTextScale();
     const opts = {
       ...bounds,
-      minWidth: scaleWidth(MIN_WIDTH, createScale),
-      minHeight: scaleHeight(MIN_HEIGHT, createScale),
+      minWidth: scaleWidth(windowSize.minWidth, createScale),
+      minHeight: scaleHeight(windowSize.minHeight, createScale),
       show: false,
       frame: true,
       transparent: false,

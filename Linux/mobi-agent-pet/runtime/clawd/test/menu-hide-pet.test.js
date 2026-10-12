@@ -107,6 +107,22 @@ function toTrayTemplate(snapshot) {
 }
 
 describe("context menu hide pet action (#460)", () => {
+  it("routes the actual tray Custom editor command through the menu context", () => {
+    const initMenu = loadMenuWithElectron(fakeElectron());
+    const calls = [];
+    const ctx = buildBaseCtx({
+      openCustomModeEditor: () => calls.push("custom-editor"),
+      openSettingsWindow: () => calls.push("settings"),
+      setAppMode: () => calls.push("switch-mode"),
+    });
+    const menu = initMenu(ctx);
+    for (let rebuild = 0; rebuild < 2; rebuild++) {
+      const snapshot = menu.buildTrayMenu();
+      assert.strictEqual(snapshot.commands.execute("mode.custom.edit"), true);
+    }
+    assert.deepStrictEqual(calls, ["custom-editor", "custom-editor"]);
+  });
+
   it("offers mode selection without independent Hide or Show controls",()=>{
     const initMenu=loadMenuWithElectron(fakeElectron());
     for(const petHidden of [false,true]){

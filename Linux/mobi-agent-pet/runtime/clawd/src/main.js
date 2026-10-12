@@ -610,9 +610,8 @@ function hydrateFreshInstallLanguage() {
   }
 }
 
-// Capture window/mini runtime state into the controller and write to disk.
+// Capture window placement into the controller and write to disk.
 // Replaces the legacy `savePrefs()` callsites — they used to read fresh
-// `win.getBounds()` and `_mini.*` at save time, so we mirror that here.
 function flushRuntimeStateToPrefs() {
   if (!win || win.isDestroyed()) return;
   const bounds = getPetWindowBounds();
@@ -643,10 +642,6 @@ function flushRuntimeStateToPrefs() {
     savedPixelHeight: persistPx.height,
     savedPixelWorkArea: persistOriginWa,
     size: currentSize,
-    miniMode: _mini.getMiniMode(),
-    miniEdge: _mini.getMiniEdge(),
-    preMiniX: _mini.getPreMiniX(),
-    preMiniY: _mini.getPreMiniY(),
   });
 }
 
@@ -693,7 +688,6 @@ themeRuntime = createThemeRuntime({
   getHitWindow: () => hitWin,
   getStateRuntime: () => _state,
   getTickRuntime: () => _tick,
-  getMiniRuntime: () => _mini,
   getAnimationOverridesRuntime: () => animationOverridesMain,
   getFadeSequencer: () => themeFadeSequencer,
   getPetWindowBounds,
@@ -753,6 +747,17 @@ const settingsWindowRuntime = createSettingsWindowRuntime({
 function getSettingsWindow() {
   return settingsWindowRuntime.getWindow();
 }
+
+const customModeWindowRuntime = createSettingsWindowRuntime({
+  app, BrowserWindow, fs, isWin, nativeTheme, path,
+  settingsHtmlPath: path.join(__dirname, "custom-mode.html"),
+  preloadPath: path.join(__dirname, "preload-custom-mode.js"),
+  windowSize: { width: 620, height: 720, minWidth: 480, minHeight: 480 },
+  getPetWindowBounds: () => getPetWindowBounds(),
+  getNearestWorkArea: (cx, cy) => getNearestWorkArea(cx, cy),
+  getTextScale: () => effectiveTextScaleForKey(getWindowDisplayKey(customModeWindowRuntime.getWindow()) || getPetDisplayKey()),
+  getTitle: () => translate("appModeEditCustom").replace(/…$/, ""),
+});
 
 shortcutRuntime = createShortcutRuntime({
   ipcMain,
@@ -857,21 +862,20 @@ const petWindowRuntime = createPetWindowRuntime({
   getCurrentState: () => _state.getCurrentState(),
   getCurrentSvg: () => _state.getCurrentSvg(),
   getCurrentHitBox: () => _state.getCurrentHitBox(),
-  getMiniMode: () => _mini.getMiniMode(),
   getForcedPetHidden: () => getEffectiveAppModePolicy().hidePet,
-  getMiniTransitioning: () => _mini.getMiniTransitioning(),
-  getMiniContainedSeam: () => _mini.getContainedSeam(),
-  getMiniPeekOffset: () => _mini.PEEK_OFFSET,
   getCurrentPixelSize: () => getCurrentPixelSize(),
   getEffectiveCurrentPixelSize: (workArea) => getEffectiveCurrentPixelSize(workArea),
   getKeepSizeAcrossDisplays: () => keepSizeAcrossDisplaysCached,
-  getAllowEdgePinning: () => allowEdgePinningCached,
   isProportionalMode: () => isProportionalMode(),
   getPrimaryWorkAreaSafe: () => getPrimaryWorkAreaSafe(),
   getNearestWorkArea,
   sendToRenderer,
   keepOutOfTaskbar,
   repositionSessionHud: () => repositionSessionHud(),
+  onPetDragStart: (gestureId) => {
+    _sessionHud.dismissFromInteraction();
+    sendToHitWin("hit-drag-started", { gestureId });
+  },
   repositionAnchoredSurfaces: () => repositionAnchoredFloatingSurfaces(),
   // #640: hitbox changes without a window move (state switch, theme reload)
   // must re-answer the editing-overlap question. (Lazy — defined below.)
@@ -888,11 +892,8 @@ const petWindowRuntime = createPetWindowRuntime({
   reassertWinTopmost: () => reassertWinTopmost(),
   scheduleHwndRecovery: () => scheduleHwndRecovery(),
   cloakInspector: _cloakInspector,
-  isMiniAnimating: () => _mini.getIsAnimating(),
   isNearWorkAreaEdge: (bounds) => isNearWorkAreaEdge(bounds),
   flushRuntimeStateToPrefs: () => flushRuntimeStateToPrefs(),
-  handleMiniDisplayChange: () => _mini.handleDisplayChange(),
-  exitMiniMode: () => exitMiniMode(),
 });
 
 function getObjRect(bounds) {
@@ -1012,7 +1013,6 @@ let autoStartWithClaude = _settingsController.get("autoStartWithClaude");
 let openAtLogin = _settingsController.get("openAtLogin");
 let sessionHudEnabled = getEffectiveAppModePolicy().sessionHudEnabled;
 let sessionHudShowStateLabels = getEffectiveAppModePolicy().sessionHudShowStateLabels;
-let sessionHudShowElapsed = getEffectiveAppModePolicy().sessionHudShowElapsed;
 let sessionHudShowContextUsage = getEffectiveAppModePolicy().sessionHudShowContextUsage;
 let sessionHudShowQuota = getEffectiveAppModePolicy().sessionHudShowQuota;
 let claudeQuotaCollectionEnabled = _settingsController.get("claudeQuotaCollectionEnabled");
@@ -1024,12 +1024,9 @@ let workingStaleMs = _settingsController.get("workingStaleMs");
 let detachedIdleStaleMs = _settingsController.get("detachedIdleStaleMs");
 let soundMuted = _settingsController.get("soundMuted");
 let soundVolume = _settingsController.get("soundVolume");
-let lowPowerIdleMode = getEffectiveAppModePolicy().lowPowerIdleMode;
 let keepAwakeWhileWorking = getEffectiveAppModePolicy().keepAwakeWhileWorking;
 let petTint = _settingsController.get("petTint");
 let petAccessory = _settingsController.get("petAccessory");
-let allowEdgePinningCached = getEffectiveAppModePolicy().allowEdgePinning;
-let disableMiniModeCached = getEffectiveAppModePolicy().disableMiniMode;
 let keepSizeAcrossDisplaysCached = getEffectiveAppModePolicy().keepSizeAcrossDisplays;
 let fullscreenOverlayCached = getEffectiveAppModePolicy().fullscreenOverlay;
 let textScale = _settingsController.get("textScale");
@@ -1100,6 +1097,7 @@ function applyTextScaleNow() {
   try {
     if (settingsWindowRuntime && typeof settingsWindowRuntime.applyTextScaleToWindow === "function") {
       settingsWindowRuntime.applyTextScaleToWindow();
+      customModeWindowRuntime.applyTextScaleToWindow();
     }
   } catch (err) {
     console.warn("Clawd: settings window text scale failed:", err && err.message);
@@ -1147,25 +1145,15 @@ function syncModeFeatureProjection() {
   const p = getEffectiveAppModePolicy();
   sessionHudEnabled = p.sessionHudEnabled;
   sessionHudShowStateLabels = p.sessionHudShowStateLabels;
-  sessionHudShowElapsed = p.sessionHudShowElapsed;
   sessionHudShowContextUsage = p.sessionHudShowContextUsage;
   sessionHudShowQuota = p.sessionHudShowQuota;
-  lowPowerIdleMode = p.lowPowerIdleMode;
   keepAwakeWhileWorking = p.keepAwakeWhileWorking;
-  allowEdgePinningCached = p.allowEdgePinning;
-  disableMiniModeCached = p.disableMiniMode;
   fullscreenOverlayCached = p.fullscreenOverlay;
-  if (disableMiniModeCached && (_mini.getMiniMode() || _mini.getMiniTransitioning())) {
-    _mini.cancelMiniTransition();
-    if (_mini.getMiniMode()) _mini.exitMiniMode();
-  }
   if (keepSizeAcrossDisplaysCached !== p.keepSizeAcrossDisplays) resetKeepSizeFrozen();
   keepSizeAcrossDisplaysCached = p.keepSizeAcrossDisplays;
-  sendToRenderer("low-power-idle-mode-change", lowPowerIdleMode);
   syncSessionHudVisibilityAndBubbles();
   reconcilePowerSaveBlocker();
   syncTrayStatus();
-  reclampPetAfterEdgePinningChange();
 }
 
 let macHideController = null; // macOS app-hidden ↔ pet visibility bridge (#416); created in whenReady
@@ -1227,7 +1215,6 @@ function syncHitStateAfterLoad() {
   sendToHitWin("hit-state-sync", {
     currentSvg: _state.getCurrentSvg(),
     currentState: _state.getCurrentState(),
-    miniMode: _mini.getMiniMode(),
     dndEnabled: doNotDisturb,
   });
 }
@@ -1239,25 +1226,9 @@ function syncRendererStateAfterLoad({ includeStartupRecovery = true } = {}) {
   sendToRenderer("pet-tint-change", resolvePetTintPayload(tintId, activeTheme));
   const accessoryId = getPetAccessoryIdForTheme(petAccessory, activeTheme && activeTheme._id);
   sendToRenderer("pet-accessory-change", resolvePetAccessoryPayload(accessoryId, activeTheme));
-  sendToRenderer("low-power-idle-mode-change", lowPowerIdleMode);
-  if (_mini.getMiniMode()) {
-    sendToRenderer("mini-mode-change", true, _mini.getMiniEdge());
-    // mini-clip is a renderer inline style — a renderer/theme reload (and
-    // startup recovery) drops it. Re-send the current seam clip so a
-    // contained mini stays clipped instead of bleeding onto the neighbour.
-    _mini.syncContainedClip();
-  }
   if (doNotDisturb) {
     sendToRenderer("dnd-change", true);
-    if (_mini.getMiniMode()) {
-      applyState("idle");
-    } else {
-      applyState("idle");
-    }
-    return;
-  }
-  if (_mini.getMiniMode()) {
-    applyState(resolveDisplayState());
+    applyState("idle");
     return;
   }
 
@@ -1394,7 +1365,6 @@ function syncHitWin() { return petWindowRuntime.syncHitWin(); }
 let mouseOverPet = false;
 let menuOpen = false;
 let idlePaused = false;
-let lowPowerIdlePaused = false;
 let forceEyeResend = false;
 let forceEyeResendBoostUntil = 0;
 let requestFastTick = () => {};
@@ -1425,14 +1395,7 @@ function setForceEyeResend(value) {
   }
 }
 
-function setLowPowerIdlePaused(value) {
-  const next = !!value;
-  if (lowPowerIdlePaused === next) return;
-  lowPowerIdlePaused = next;
-  if (!next) setForceEyeResend(true);
-}
-
-function beginDragSnapshot() { return petWindowRuntime.beginDragSnapshot(); }
+function beginDragSnapshot(gestureId) { return petWindowRuntime.beginDragSnapshot(gestureId); }
 function clearDragSnapshot() { return petWindowRuntime.clearDragSnapshot(); }
 function moveWindowForDrag() { return petWindowRuntime.moveWindowForDrag(); }
 
@@ -1462,10 +1425,6 @@ function setHitWinFocusable(focusable) {
   if (next) keepOutOfTaskbar(hitWin);
 }
 
-// ── Mini Mode — delegated to src/mini.js ──
-// Initialized after state module (needs applyState, resolveDisplayState, etc.)
-// See _mini initialization below
-
 // ── alwaysOnTop recovery — delegated to src/topmost-runtime.js ──
 const topmostRuntime = createTopmostRuntime({
   isWin,
@@ -1483,8 +1442,6 @@ const topmostRuntime = createTopmostRuntime({
   getHitRectScreen: (bounds) => getHitRectScreen(bounds),
   getShowDock: () => showDock,
   isDragLocked: () => petWindowRuntime.isDragLocked(),
-  isMiniAnimating: () => _mini.getIsAnimating(),
-  isMiniTransitioning: () => _mini.getMiniTransitioning(),
   isForegroundFullscreen: () => _isForegroundFullscreen(),
   getFullscreenOverlay: () => fullscreenOverlayCached,
   setHitWinFocusable,
@@ -1664,13 +1621,7 @@ const _stateCtx = {
   getProviderBalanceSnapshot: () => agentLogApp.getProviderBalanceSnapshot(),
   get doNotDisturb() { return doNotDisturb; },
   set doNotDisturb(v) { doNotDisturb = v; },
-  get miniMode() { return _mini.getMiniMode(); },
-  get miniTransitioning() { return _mini.getMiniTransitioning(); },
   get mouseOverPet() { return mouseOverPet; },
-  get miniSleepPeeked() { return _mini.getMiniSleepPeeked(); },
-  set miniSleepPeeked(v) { _mini.setMiniSleepPeeked(v); },
-  get miniPeeked() { return _mini.getMiniPeeked(); },
-  set miniPeeked(v) { _mini.setMiniPeeked(v); },
   get idlePaused() { return idlePaused; },
   set idlePaused(v) { idlePaused = v; },
   get forceEyeResend() { return forceEyeResend; },
@@ -1720,8 +1671,6 @@ const _stateCtx = {
     _isAgentNotificationHookEnabled({ agents: _settingsController.get("agents") }, agentId),
   onAgentEvent: (input) => agentLogRuntime.publishUpstreamEvent(input),
   resolveAgentDisplayName: _resolveAgentDisplayName,
-  miniPeekIn: () => miniPeekIn(),
-  miniPeekOut: () => miniPeekOut(),
   buildContextMenu: () => buildContextMenu(),
   buildTrayMenu: () => buildTrayMenu(),
   debugLog: (msg) => sessionLog(msg),
@@ -1820,18 +1769,9 @@ const _tickCtx = {
   getPetWindowBounds,
   get currentState() { return _state.getCurrentState(); },
   get currentSvg() { return _state.getCurrentSvg(); },
-  get miniMode() { return _mini.getMiniMode(); },
-  get miniTransitioning() { return _mini.getMiniTransitioning(); },
   get dragLocked() { return petWindowRuntime.isDragLocked(); },
   get menuOpen() { return menuOpen; },
   get idlePaused() { return idlePaused; },
-  get lowPowerIdleMode() { return lowPowerIdleMode; },
-  get lowPowerIdlePaused() { return lowPowerIdlePaused; },
-  get isAnimating() { return _mini.getIsAnimating(); },
-  get miniSleepPeeked() { return _mini.getMiniSleepPeeked(); },
-  set miniSleepPeeked(v) { _mini.setMiniSleepPeeked(v); },
-  get miniPeeked() { return _mini.getMiniPeeked(); },
-  set miniPeeked(v) { _mini.setMiniPeeked(v); },
   get mouseOverPet() { return mouseOverPet; },
   set mouseOverPet(v) { mouseOverPet = v; },
   get forceEyeResend() { return forceEyeResend; },
@@ -1843,8 +1783,6 @@ const _tickCtx = {
   setState,
   applyState,
   getIdleVisualChoice,
-  miniPeekIn: () => miniPeekIn(),
-  miniPeekOut: () => miniPeekOut(),
   getObjRect,
   getHitRectScreen,
   getAssetPointerPayload,
@@ -2060,15 +1998,11 @@ const _sessionHud = require("./session-hud")({
     return getEffectiveAppModePolicy().suppressSessionHud ? false : sessionHudEnabled;
   },
   get sessionHudShowStateLabels() { return sessionHudShowStateLabels; },
-  get sessionHudShowElapsed() { return sessionHudShowElapsed; },
   get sessionHudShowContextUsage() { return sessionHudShowContextUsage; },
   get sessionHudShowQuota() {
     return getEffectiveAppModePolicy().suppressSessionHud ? false : sessionHudShowQuota;
   },
   get sessionHudPinned() { return sessionHudPinned; },
-  get lowPowerIdleMode() { return lowPowerIdleMode; },
-  getMiniMode: () => _mini.getMiniMode(),
-  getMiniTransitioning: () => _mini.getMiniTransitioning(),
   getSessionSnapshot: () => _state.buildSessionSnapshot(),
   getI18n: () => getDashboardI18nPayload(),
   getPetWindowBounds,
@@ -3264,14 +3198,6 @@ const _menuCtx = {
   set contextMenu(v) { contextMenu = v; },
   enableDoNotDisturb: () => enableDoNotDisturb(),
   disableDoNotDisturb: () => disableDoNotDisturb(),
-  enterMiniViaMenu: () => {
-    if (!disableMiniModeCached) enterMiniViaMenu();
-  },
-  exitMiniMode: () => exitMiniMode(),
-  getDisableMiniMode: () => disableMiniModeCached,
-  getMiniMode: () => _mini.getMiniMode(),
-  getMiniTransitioning: () => _mini.getMiniTransitioning(),
-  miniHandleResize: (sizeKey) => _mini.handleResize(sizeKey),
   openDashboard: () => showDashboard(),
   openAgentLogManager: () => agentLogApp.showManager(),
   launchClaudeSession: (mode, cwd, sessionId) => launchClaudeSession(mode, cwd, sessionId),
@@ -3366,6 +3292,7 @@ const _menuCtx = {
   getActiveThemeCapabilities: () => themeRuntime.getActiveThemeCapabilities(),
   ensureUserThemesDir: () => themeLoader.ensureUserThemesDir(),
   openSettingsWindow: (options) => settingsWindowRuntime.open(options),
+  openCustomModeEditor: () => customModeWindowRuntime.open(),
   showTutorial: () => _tutorial.open(),
 };
 const trayRuntime = createTrayRuntime({
@@ -3379,7 +3306,7 @@ const trayRuntime = createTrayRuntime({
 _menuCtx.trayRuntime = trayRuntime;
 const _menu = require("./menu")(_menuCtx);
 const { t, buildContextMenu, buildTrayMenu, rebuildAllMenus, createTray,
-        destroyTray, showPetContextMenu, ensureContextMenuOwner,
+        destroyTray, ensureContextMenuOwner,
         requestAppQuit, applyDockVisibility } = _menu;
 trayStatusController = createTrayStatusLightController({
   setIcon: (icon) => reportTrayOperationFailure(
@@ -3405,7 +3332,6 @@ const SETTINGS_MIRROR_SETTERS = {
   autoStartWithClaude: (v) => { autoStartWithClaude = v; }, openAtLogin: (v) => { openAtLogin = v; },
   sessionHudEnabled: () => { sessionHudEnabled = getEffectiveAppModePolicy().sessionHudEnabled; },
   sessionHudShowStateLabels: () => { sessionHudShowStateLabels = getEffectiveAppModePolicy().sessionHudShowStateLabels; },
-  sessionHudShowElapsed: () => { sessionHudShowElapsed = getEffectiveAppModePolicy().sessionHudShowElapsed; },
   sessionHudShowContextUsage: () => { sessionHudShowContextUsage = getEffectiveAppModePolicy().sessionHudShowContextUsage; },
   sessionHudShowQuota: () => { sessionHudShowQuota = getEffectiveAppModePolicy().sessionHudShowQuota; },
   claudeQuotaCollectionEnabled: (v) => { claudeQuotaCollectionEnabled = v; },
@@ -3414,11 +3340,11 @@ const SETTINGS_MIRROR_SETTERS = {
   sessionHudPinned: (v) => { sessionHudPinned = v; },
   sessionStaleMs: (v) => { sessionStaleMs = v; }, workingStaleMs: (v) => { workingStaleMs = v; },
   detachedIdleStaleMs: (v) => { detachedIdleStaleMs = v; },
-  soundMuted: (v) => { soundMuted = v; }, soundVolume: (v) => { soundVolume = v; }, lowPowerIdleMode: () => { lowPowerIdleMode = getEffectiveAppModePolicy().lowPowerIdleMode; },
+  soundMuted: (v) => { soundMuted = v; }, soundVolume: (v) => { soundVolume = v; },
   keepAwakeWhileWorking: () => { keepAwakeWhileWorking = getEffectiveAppModePolicy().keepAwakeWhileWorking; },
   petTint: (v) => { petTint = v; },
   petAccessory: (v) => { petAccessory = v; },
-  allowEdgePinning: (v) => { allowEdgePinningCached = getEffectiveAppModePolicy().allowEdgePinning; }, disableMiniMode: (v) => { disableMiniModeCached = getEffectiveAppModePolicy().disableMiniMode; }, keepSizeAcrossDisplays: (v) => { keepSizeAcrossDisplaysCached = getEffectiveAppModePolicy().keepSizeAcrossDisplays; resetKeepSizeFrozen(); },
+  keepSizeAcrossDisplays: (v) => { keepSizeAcrossDisplaysCached = getEffectiveAppModePolicy().keepSizeAcrossDisplays; resetKeepSizeFrozen(); },
   fullscreenOverlay: (v) => { fullscreenOverlayCached = getEffectiveAppModePolicy().fullscreenOverlay; },
   freeRoam: () => { _roam.setEnabled(true); },
   textScale: (v) => { textScale = v; textScalePreview = null; },
@@ -3428,13 +3354,6 @@ const SETTINGS_MIRROR_SETTERS = {
 function updateSettingsMirrors(changes) { for (const [key, value] of Object.entries(changes)) if (SETTINGS_MIRROR_SETTERS[key]) SETTINGS_MIRROR_SETTERS[key](value); }
 
 function callRuntimeMethod(owner, method, ...args) { return owner && typeof owner[method] === "function" ? owner[method](...args) : undefined; }
-
-function reclampPetAfterEdgePinningChange() {
-  if (!win || win.isDestroyed() || petWindowRuntime.isDragLocked() || _mini.getMiniMode() || _mini.getMiniTransitioning()) return;
-  const clamped = computeFinalDragBounds(getPetWindowBounds(), getEffectiveCurrentPixelSize(), clampToScreenVisual);
-  if (clamped) applyPetWindowBounds(clamped);
-  syncHitWin(); repositionFloatingBubbles();
-}
 
 const settingsEffectRouter = createSettingsEffectRouter({
   settingsController: _settingsController,
@@ -3448,6 +3367,7 @@ const settingsEffectRouter = createSettingsEffectRouter({
   sendSessionHudI18n: () => sendSessionHudI18n(),
   syncWindowTitles: () => {
     settingsWindowRuntime.applyTitleToWindow();
+    customModeWindowRuntime.applyTitleToWindow();
     // syncLocalization pushes BOTH the native title AND fresh renderer state
     // (dictionary/lang), so an external language change (Settings/tray) keeps
     // the tutorial body, buttons, and document.title in sync with the new
@@ -3472,9 +3392,6 @@ const settingsEffectRouter = createSettingsEffectRouter({
       _sessionHud.handlePinnedChanged(next);
     }
   },
-  reclampPetAfterEdgePinningChange,
-  exitMiniMode: () => exitMiniMode(),
-  getMiniMode: () => _mini.getMiniMode(),
   getActiveTheme: () => getActiveTheme(),
   // #509: re-rest the pet on the newly selected idle visual right away, but
   // only while actually idle — task/sleep/mini states pick it up on their
@@ -3706,13 +3623,6 @@ registerSessionIpc({
     getActiveTheme(),
     (filename) => themeRuntime.getAssetPath(filename)
   ),
-  getPetBehaviorSettings: () => ({
-    freeRoam: getEffectiveAppModePolicy().allowRoamAnimation,
-    allowEdgePinning: getEffectiveAppModePolicy().allowEdgePinning,
-    keepSizeAcrossDisplays: getEffectiveAppModePolicy().keepSizeAcrossDisplays,
-  }),
-  openCustomModeEditor: () => { settingsWindowRuntime.open({tab:"custom-mode"}); return {status:"ok"}; },
-  updatePetBehaviorSetting: () => ({status:"error", message:"Use Edit Custom Mode"}),
   getI18n: () => getDashboardI18nPayload(),
   focusSession: (sessionId, options) => focusDashboardSession(sessionId, options),
   onConversationJumpResult: (result) => { lastConversationJumpResult = result; },
@@ -3739,7 +3649,7 @@ registerSessionIpc({
 function createWindow() {
   // Read everything from the settings controller. The mirror caches above
   // (lang/showTray/etc.) were already initialized at module-load time, so
-  // here we just need the position/mini fields plus the legacy size migration.
+  // here we just need the position fields plus the legacy size migration.
   let prefs = _settingsController.getSnapshot();
   // Legacy S/M/L → P:N migration. Only kicks in for prefs files that haven't
   // been touched since v0; new files always store the proportional form.
@@ -3762,7 +3672,7 @@ function createWindow() {
   );
   // keepSizeAcrossDisplays preserves the last realized pixel size across restarts.
   const proportionalSize = getCurrentPixelSize(launchSizingWorkArea);
-  const size = getLaunchPixelSize(prefs, proportionalSize);
+  const size = getLaunchPixelSize({...prefs, keepSizeAcrossDisplays: keepSizeAcrossDisplaysCached}, proportionalSize);
   // #408: seed the in-memory frozen keep-size from the realized launch size, so
   // display events reuse it instead of re-reading transiently-wrong live bounds.
   if (keepSizeAcrossDisplaysCached && isProportionalMode()) {
@@ -3782,7 +3692,6 @@ function createWindow() {
     initialVirtualBounds,
     initialWindowBounds,
   } = petWindowRuntime.resolveStartupPlacement(prefs, size, {
-    restoreMiniFromPrefs: (prefsSnapshot, pixelSize) => _mini.restoreFromPrefs(prefsSnapshot, pixelSize),
   });
 
   petWindowRuntime.createRenderWindow({
@@ -3834,11 +3743,8 @@ function createWindow() {
 
   registerPetInteractionIpc({
     ipcMain,
-    showContextMenu: (event) => showPetContextMenu(event),
     moveWindowForDrag: () => moveWindowForDrag(),
     setIdlePaused: (value) => { idlePaused = !!value; },
-    setLowPowerIdlePaused,
-    isMiniTransitioning: () => _mini.getMiniTransitioning(),
     getCurrentState: () => _state.getCurrentState(),
     getCurrentSvg: () => _state.getCurrentSvg(),
     sendToRenderer,
@@ -3859,13 +3765,12 @@ function createWindow() {
     isPetHeldAllowed: () => getEffectiveAppModePolicy().allowedPetStates.includes("held"),
     isInputSender: (event) => !!hitWin && !hitWin.isDestroyed() && event?.sender === hitWin.webContents,
     setMouseOverPet: (value) => { mouseOverPet = !!value; },
-    beginDragSnapshot: () => beginDragSnapshot(),
+    beginDragSnapshot: (gestureId) => beginDragSnapshot(gestureId),
+    hasDragMoved: () => petWindowRuntime.hasDragMoved(),
+    resetDragResult: (gestureId) => petWindowRuntime.resetDragResult(gestureId),
     clearDragSnapshot: () => clearDragSnapshot(),
     syncHitWin: () => syncHitWin(),
     syncImeEditingPetDodge: () => topmostRuntime.syncImeEditingPetDodge(),
-    isMiniMode: () => _mini.getMiniMode(),
-    checkMiniModeSnap: () => checkMiniModeSnap(),
-    getDisableMiniMode: () => disableMiniModeCached,
     hasPetWindow: () => !!(win && !win.isDestroyed()),
     getPetWindowBounds: () => getPetWindowBounds(),
     getKeepSizeAcrossDisplays: () => keepSizeAcrossDisplaysCached,
@@ -3878,7 +3783,6 @@ function createWindow() {
     reassertWinTopmost: () => reassertWinTopmost(),
     scheduleHwndRecovery: () => scheduleHwndRecovery(),
     repositionFloatingBubbles: () => repositionFloatingBubbles(),
-    exitMiniMode: () => exitMiniMode(),
     getFocusableLocalHudSessionIds: () => getFocusableLocalHudSessionIds(),
     focusLog: (message) => focusLog(message),
     showDashboard: () => showDashboard(),
@@ -3923,7 +3827,7 @@ function createWindow() {
       reconcilePowerSaveBlocker();
       broadcastDashboardSessionSnapshot(recoveredSnapshot);
       broadcastSessionHudSnapshot(recoveredSnapshot);
-      if (!doNotDisturb && !_mini.getMiniMode()) {
+      if (!doNotDisturb) {
         const recoveredState = resolveDisplayState();
         applyState(recoveredState, getSvgOverride(recoveredState));
       }
@@ -3937,8 +3841,10 @@ function createWindow() {
   // If hooks arrived during startup, respect them instead of forcing idle
   // Also handles crash recovery (render-process-gone → reload)
   win.webContents.on("did-start-loading", () => {
+    // Idle SVG <object> frames also emit this when loaded or removed during
+    // pickup. Only a reload of the pet page invalidates the active drag.
+    if (!win.webContents.isLoadingMainFrame()) return;
     cancelPetHold();
-    setLowPowerIdlePaused(false);
   });
   win.webContents.on("did-finish-load", () => {
     sendToRenderer("theme-config", buildRendererThemeConfig());
@@ -3950,7 +3856,6 @@ function createWindow() {
   // ── Crash recovery: renderer process can die from <object> churn ──
   win.webContents.on("render-process-gone", (_event, details) => {
     safeConsoleError("Renderer crashed:", details.reason);
-    setLowPowerIdlePaused(false);
     cancelPetHold();
     petWindowRuntime.reloadWindowWebContents(win, { crashKey: "renderWin", details });
   });
@@ -4016,53 +3921,7 @@ function computeFinalDragBounds(bounds, size, clampPosition = clampToScreenVisua
   return petWindowRuntime.computeFinalDragBounds(bounds, size, clampPosition);
 }
 
-// ── Mini Mode — initialized here after state module ──
-const _miniCtx = {
-  get theme() { return getActiveTheme(); },
-  get win() { return win; },
-  get currentSize() { return currentSize; },
-  get doNotDisturb() { return doNotDisturb; },
-  set doNotDisturb(v) { doNotDisturb = v; },
-  get currentState() { return _state.getCurrentState(); },
-  SIZES,
-  getCurrentPixelSize,
-  getEffectiveCurrentPixelSize,
-  getPixelSizeFor,
-  isProportionalMode,
-  sendToRenderer,
-  sendToHitWin,
-  syncHitWin,
-  applyState,
-  resolveDisplayState,
-  getSvgOverride,
-  stopWakePoll,
-  clampToScreenVisual,
-  getNearestWorkArea,
-  getPetWindowBounds,
-  applyPetWindowBounds,
-  applyPetWindowPosition,
-  setViewportOffsetY,
-  get pendingPermissions() { return pendingPermissions; },
-  repositionBubbles: () => repositionFloatingBubbles(),
-  syncSessionHudVisibility: () => syncSessionHudVisibilityAndBubbles(),
-  repositionSessionHud: () => repositionSessionHud(),
-  buildContextMenu: () => buildContextMenu(),
-  buildTrayMenu: () => buildTrayMenu(),
-  getAnimationAssetCycleMs: (file) => {
-    if (!file) return null;
-    const probe = animationOverridesMain && typeof animationOverridesMain.buildAnimationAssetProbe === "function"
-      ? animationOverridesMain.buildAnimationAssetProbe(file)
-      : null;
-    return Number.isFinite(probe && probe.assetCycleMs) && probe.assetCycleMs > 0
-      ? probe.assetCycleMs
-      : null;
-  },
-};
-const _mini = require("./mini")(_miniCtx);
-const { enterMiniMode, exitMiniMode, enterMiniViaMenu, miniPeekIn, miniPeekOut,
-        checkMiniModeSnap, cancelMiniTransition, animateWindowX, animateWindowParabola } = _mini;
-
-// ── Free Roam — initialized here after state and mini modules ──
+// ── Free Roam — initialized here after state module ──
 const _roamCtx = {
   get win() { return win; },
   getPetWindowBounds,
@@ -4076,12 +3935,10 @@ const _roamCtx = {
   get pendingPermissions() { return pendingPermissions; },
   getNearestWorkArea,
   clampToScreenVisual,
-  getMiniMode: () => _mini.getMiniMode(),
   isModeMovementAllowed: () => getEffectiveAppModePolicy().allowRoamAnimation,
   getIdlePlaybackDuration: () => _state.getIdlePlaybackDuration(),
   getRoamIntervalMs: () => getEffectiveAppModePolicy().roamIntervalMs,
   getCurrentState: () => _state.getCurrentState(),
-  get miniTransitioning() { return _mini.getMiniTransitioning(); },
   applyState: (state, svgOverride, opts) => _state.applyState(state, svgOverride, opts),
   setState: (state, svgOverride, opts) => _state.setState(state, svgOverride, opts),
   setRoamHeading: (headingLeft) => sendToRenderer("roam-heading", !!headingLeft),
@@ -4095,9 +3952,6 @@ const _roam = require("./roam")(_roamCtx);
 // Mode owns roaming. Preserve the old preference as compatibility data only.
 _roam.setEnabled(true);
 
-// Convenience getters for mini state (used throughout main.js)
-Object.defineProperties(this || {}, {}); // no-op placeholder
-// Mini state is accessed via _mini getters in ctx objects below
 
 // ── Theme switching ──
 //
@@ -4295,7 +4149,6 @@ if (!gotTheLock) {
       ipcMain,
       sendToRenderer,
       onRecovered: () => {
-        setLowPowerIdlePaused(false);
         // The main mirror can already be false while the renderer still owns a
         // paused SVG. Always resend the latest cursor position after receipt.
         setForceEyeResend(true);
@@ -4399,7 +4252,6 @@ if (!gotTheLock) {
     if (_lanWss) _lanWss.cleanup();
     _state.cleanup();
     _tick.cleanup();
-    _mini.cleanup();
     if (macHideController) macHideController.stop();
     _sessionHud.cleanup();
     agentRuntime.cleanup();

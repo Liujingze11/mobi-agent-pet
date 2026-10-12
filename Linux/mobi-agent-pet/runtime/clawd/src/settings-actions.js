@@ -223,10 +223,6 @@ const updateRegistry = {
   },
 
   // ── Mini mode persisted state ──
-  miniMode: requireBoolean("miniMode"),
-  miniEdge: requireEnum("miniEdge", ["left", "right"]),
-  preMiniX: requireFiniteNumber("preMiniX"),
-  preMiniY: requireFiniteNumber("preMiniY"),
   positionSaved: requireBoolean("positionSaved"),
   positionThemeId: requireString("positionThemeId", { allowEmpty: true }),
   positionVariantId: requireString("positionVariantId", { allowEmpty: true }),
@@ -282,7 +278,6 @@ const updateRegistry = {
   flashDurationMs: requireNumberInRange("flashDurationMs", 0, 60000),
   codexHookHealthNotifyEnabled: requireBoolean("codexHookHealthNotifyEnabled"),
   codexHookHealthLastNotified: requireString("codexHookHealthLastNotified", { allowEmpty: true }),
-  lowPowerIdleMode: requireBoolean("lowPowerIdleMode"),
   keepAwakeWhileWorking: requireBoolean("keepAwakeWhileWorking"),
   petTint(value) {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -323,7 +318,6 @@ const updateRegistry = {
   bubbleFollowPet: requireBoolean("bubbleFollowPet"),
   sessionHudEnabled: requireBoolean("sessionHudEnabled"),
   sessionHudShowStateLabels: requireBoolean("sessionHudShowStateLabels"),
-  sessionHudShowElapsed: requireBoolean("sessionHudShowElapsed"),
   sessionHudShowContextUsage: requireBoolean("sessionHudShowContextUsage"),
   sessionHudShowQuota: requireBoolean("sessionHudShowQuota"),
   claudeQuotaCollectionEnabled: {
@@ -411,8 +405,6 @@ const updateRegistry = {
     return { status: "ok" };
   },
   detachedIdleStaleMs: requireIntegerInRange("detachedIdleStaleMs", 5_000, 300_000),
-  allowEdgePinning: requireBoolean("allowEdgePinning"),
-  disableMiniMode: requireBoolean("disableMiniMode"),
   freeRoam: requireBoolean("freeRoam"),
   customModeProfile: {commandOnly:true, validate(value) { const error=require("./custom-mode-profile").validateCustomModeProfile(value); return error?{status:"error",message:error}:{status:"ok"}; }},
   keepSizeAcrossDisplays: requireBoolean("keepSizeAcrossDisplays"),

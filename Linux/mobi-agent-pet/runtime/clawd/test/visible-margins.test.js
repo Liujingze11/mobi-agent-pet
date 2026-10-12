@@ -134,8 +134,8 @@ describe("visible margin envelopes", () => {
   });
 });
 
-describe("edge pinning margin policy", () => {
-  it("keeps OFF drag bottom rubber band but caps total top overflow at half the window", () => {
+describe("ordinary screen boundary margin policy", () => {
+  it("keeps ordinary drag bottom rubber band but caps total top overflow at half the window", () => {
     const margins = getLooseDragMargins({
       width: 200,
       height: 280,
@@ -150,7 +150,7 @@ describe("edge pinning margin policy", () => {
     });
   });
 
-  it("OFF drag keeps the full 0.25h top overshoot when headroom is modest", () => {
+  it("ordinary drag keeps the full 0.25h top overshoot when headroom is modest", () => {
     const margins = getLooseDragMargins({
       width: 200,
       height: 280,
@@ -165,7 +165,7 @@ describe("edge pinning margin policy", () => {
     });
   });
 
-  it("OFF drag stops adding extra top overshoot once rest headroom already exceeds half the window", () => {
+  it("ordinary drag stops adding extra top overshoot once rest headroom already exceeds half the window", () => {
     const margins = getLooseDragMargins({
       width: 200,
       height: 280,
@@ -180,38 +180,9 @@ describe("edge pinning margin policy", () => {
     });
   });
 
-  it("ON drag uses height ratios 0.6/0.25 (Peter hitRect parity) regardless of visibleMargins", () => {
-    const margins = getLooseDragMargins({
-      width: 200,
-      height: 280,
-      visibleMargins: { top: 100, bottom: 50 }, // should be ignored when ON
-      allowEdgePinning: true,
-    });
 
-    assert.deepStrictEqual(margins, {
-      marginX: 50,
-      marginTop: 168, // round(280 * 0.6)
-      marginBottom: 70, // round(280 * 0.25)
-    });
-  });
 
-  it("ON drag caps bottom slack by display inset", () => {
-    const margins = getLooseDragMargins({
-      width: 200,
-      height: 280,
-      visibleMargins: { top: 100, bottom: 50 },
-      allowEdgePinning: true,
-      bottomInset: 48,
-    });
-
-    assert.deepStrictEqual(margins, {
-      marginX: 50,
-      marginTop: 168,
-      marginBottom: 48,
-    });
-  });
-
-  it("OFF rest clamp keeps the visibleMargins verbatim", () => {
+  it("ordinary rest clamp keeps the visibleMargins verbatim", () => {
     assert.deepStrictEqual(
       getRestClampMargins({
         height: 280,
@@ -222,76 +193,15 @@ describe("edge pinning margin policy", () => {
     );
   });
 
-  it("ON rest clamp matches ON drag (no rubber-band bounce-back)", () => {
-    const height = 280;
-    const drag = getLooseDragMargins({
-      width: 200,
-      height,
-      visibleMargins: { top: 22, bottom: 14 },
-      allowEdgePinning: true,
-    });
-    const rest = getRestClampMargins({
-      height,
-      visibleMargins: { top: 22, bottom: 14 },
-      allowEdgePinning: true,
-    });
 
-    assert.strictEqual(rest.top, drag.marginTop);
-    assert.strictEqual(rest.bottom, drag.marginBottom);
-    assert.deepStrictEqual(rest, { top: 168, bottom: 70 });
-  });
 
-  it("ON rest clamp caps bottom slack by display inset", () => {
-    assert.deepStrictEqual(
-      getRestClampMargins({
-        height: 280,
-        visibleMargins: { top: 500, bottom: 500 },
-        allowEdgePinning: true,
-        bottomInset: 48,
-      }),
-      { top: 168, bottom: 48 }
-    );
-  });
 
-  it("ON cap uses the smaller of ratio and inset", () => {
-    assert.deepStrictEqual(
-      getRestClampMargins({
-        height: 280,
-        visibleMargins: { top: 500, bottom: 500 },
-        allowEdgePinning: true,
-        bottomInset: 120,
-      }),
-      { top: 168, bottom: 70 }
-    );
-  });
 
-  it("ON bottom can clamp fully to zero when no physical inset is available", () => {
-    const drag = getLooseDragMargins({
-      width: 200,
-      height: 280,
-      visibleMargins: { top: 22, bottom: 14 },
-      allowEdgePinning: true,
-      bottomInset: 0,
-    });
-    const rest = getRestClampMargins({
-      height: 280,
-      visibleMargins: { top: 22, bottom: 14 },
-      allowEdgePinning: true,
-      bottomInset: 0,
-    });
 
-    assert.strictEqual(drag.marginBottom, 0);
-    assert.strictEqual(rest.bottom, 0);
-  });
+});
 
-  it("ON rest clamp ignores visibleMargins and uses height ratios", () => {
-    assert.deepStrictEqual(
-      getRestClampMargins({
-        height: 280,
-        visibleMargins: { top: 500, bottom: 500 }, // should be ignored
-        allowEdgePinning: true,
-      }),
-      { top: 168, bottom: 70 }
-    );
-  });
+it('ignores retired pinning arguments and retains ordinary drag and resting margins',()=>{
+ const args={width:200,height:280,visibleMargins:{top:100,bottom:50},bottomInset:0};
+ assert.deepStrictEqual(getLooseDragMargins({...args,allowEdgePinning:true}),getLooseDragMargins({...args,allowEdgePinning:false}));
+ assert.deepStrictEqual(getRestClampMargins({...args,allowEdgePinning:true}),{top:100,bottom:50});
 });

@@ -71,6 +71,8 @@ Pi is state-only in Clawd: Clawd does not intercept permissions or add confirmat
 
 ## Display and playback lifecycle
 
+A plain single click has no menu action, and right-click is suppressed. Hold and move the left button to drag. Double-click reveals task cards when enabled by the mode and visible data is available, along with enabled quota rings that have data. Mini mode keeps click-to-exit, and Ctrl/Cmd-click still opens the overview. Settings remain accessible through the tray menu.
+
 The main process owns the held lock and completion/error display deadlines. Renderer action frames include state, theme generation and state revision; stale frames and files outside the active slot are rejected. Changing a role or action plan invalidates previous frames and timers. Low-power pause/resume changes playback only.
 
 ## Mode policy
@@ -81,6 +83,8 @@ The main process owns the held lock and completion/error display deadlines. Rend
 | Background | Hidden | No visible playback | Agent bubbles and tray alerts on; manual approval; session HUD off |
 | Automatic | Visible | Idle, working, waiting, complete, error, held | Agent bubbles and HUD off; tray alerts on; supported requests handled automatically |
 | Custom | Separate saved profile | Idle required; other states optional | Configure only in Edit Custom Mode |
+
+Edit Custom Mode opens a standalone compact window from the tray's Mode menu. Boolean features and the seven state choices use sliding switches; idle remains required. The editor is no longer a Settings tab, and Desktop Pet contains only Overview, Actions and Theme.
 
 The first three modes use fixed rules and ignore legacy behavior switches. Automatic disables roam and retains waiting. Normal allows roam when eligible, after at least 120 seconds of idle/rest following a walk. Custom exposes a roaming interval of 10–3600 seconds (default 120) in Edit Custom Mode. Longer idle playback takes priority. Custom configuration is persisted separately; saving does not switch modes or change a preset. Disabled Custom states fall back to idle without changing raw Agent status or work records. Action assignments remain editable in the action manager.
 

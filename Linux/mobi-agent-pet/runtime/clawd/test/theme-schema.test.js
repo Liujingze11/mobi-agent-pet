@@ -156,7 +156,7 @@ describe("theme schema validation", () => {
     );
   });
 
-  it("projects mini low-power overrides through the mini viewBox", () => {
+  it("ignores retired low-power theme overrides", () => {
     const miniStates = Object.fromEntries(
       schema.MINI_REQUIRED_STATES.map((state) => [state, [`${state}.svg`]])
     );
@@ -188,7 +188,7 @@ describe("theme schema validation", () => {
       .filter((usage) => usage.source.startsWith(
         "rendering.lowPowerStaticImageOverrides.mini-idle"
       ));
-    assert.strictEqual(lowPowerUsages.length, 2);
+    assert.strictEqual(lowPowerUsages.length, 0);
     assert.ok(lowPowerUsages.every((usage) => usage.stateFamily.startsWith("mini:")));
     assert.ok(lowPowerUsages.every((usage) => usage.viewBoxSource === "mini"));
     assert.ok(lowPowerUsages.every((usage) => usage.effectiveViewBox.width === 20));
@@ -401,9 +401,6 @@ describe("theme schema defaults and normalization", () => {
     });
     assert.deepStrictEqual(builtin.rendering, {
       svgChannel: "object",
-      lowPowerStaticImageOverrides: {
-        sleeping: { from: "sleep.svg", to: "sleep.png" },
-      },
     });
     assert.deepStrictEqual(builtin.trustedRuntime, {
       scriptedSvgFiles: ["bridge.svg"],
@@ -450,8 +447,6 @@ describe("theme schema defaults and normalization", () => {
       "idle-look.svg",
       "idle.svg",
       "juggling.svg",
-      "sleep.png",
-      "sleep.svg",
       "tier.svg",
       "working.svg",
     ]);

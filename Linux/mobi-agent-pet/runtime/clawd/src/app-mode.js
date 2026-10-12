@@ -49,7 +49,6 @@ function resolveAppModePolicy(mode, snapshot = {}) {
     permissionAutomationMode: profile.permissionAutomationMode,
     permissionBubblePolicy: {enabled: profile.agentBubbles, autoCloseMs: profile.agentBubbles ? profile.permissionSeconds * 1000 : 0},
     notificationBubblePolicy: {enabled: profile.agentBubbles, autoCloseMs: profile.agentBubbles ? profile.notificationSeconds * 1000 : 0},
-    disableMiniMode: !profile.miniModeEnabled,
     fullscreenOverlay: profile.fullscreenOverlay,
     roamIntervalMs: profile.roamIntervalSeconds * 1000,
     trayAlerts: profile.trayAlerts,
@@ -57,13 +56,10 @@ function resolveAppModePolicy(mode, snapshot = {}) {
     flashDurationMs: profile.flashDurationMs,
     sessionHudEnabled: profile.sessionHud,
     sessionHudShowStateLabels: profile.hudStateLabels,
-    sessionHudShowElapsed: profile.hudElapsed,
     sessionHudShowContextUsage: profile.hudContext,
     sessionHudShowQuota: profile.hudQuota,
-    lowPowerIdleMode: profile.lowPowerIdle,
-    keepAwakeWhileWorking: profile.keepAwake,
-    allowEdgePinning: profile.allowEdgePinning,
-    keepSizeAcrossDisplays: profile.keepSizeAcrossDisplays,
+    keepAwakeWhileWorking: mode === APP_MODE.CUSTOM ? profile.keepAwake : true,
+    keepSizeAcrossDisplays: mode === APP_MODE.CUSTOM ? profile.keepSizeAcrossDisplays : true,
   };
 }
 

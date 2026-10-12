@@ -109,11 +109,6 @@ const SCHEMA = {
       typeof v === "string" &&
       (v === "S" || v === "M" || v === "L" || /^P:\d+(?:\.\d+)?$/.test(v)),
   },
-  // Mini mode runtime state (persisted so Mini Mode survives restart)
-  miniMode: { type: "boolean", default: false },
-  miniEdge: { type: "string", default: "right", enum: ["left", "right"] },
-  preMiniX: { type: "number", default: 0, validate: (v) => Number.isFinite(v) },
-  preMiniY: { type: "number", default: 0, validate: (v) => Number.isFinite(v) },
   // Pure data prefs
   lang: { type: "string", default: "en", enum: ["en", "zh", "zh-TW", "ko", "ja"] },
   showTray: { type: "boolean", default: true },
@@ -143,7 +138,6 @@ const SCHEMA = {
   bubbleFollowPet: { type: "boolean", default: false },
   sessionHudEnabled: { type: "boolean", default: true },
   sessionHudShowStateLabels: { type: "boolean", default: true },
-  sessionHudShowElapsed: { type: "boolean", default: false },
   sessionHudShowContextUsage: { type: "boolean", default: true },
   sessionHudShowQuota: { type: "boolean", default: true },
   // Claude Code exposes subscription limits only through its visible,
@@ -218,13 +212,10 @@ const SCHEMA = {
     default: 5000,
     validate: (v) => Number.isInteger(v) && v >= 0 && v <= 60000,
   },
-  lowPowerIdleMode: { type: "boolean", default: false },
   mobilePreviewEnabled: { type: "boolean", default: false },
   // When true, prevent the OS from sleeping while any agent task is in
   // progress (working/thinking/etc.); allow sleep again once tasks finish.
   keepAwakeWhileWorking: { type: "boolean", default: false },
-  allowEdgePinning: { type: "boolean", default: false },
-  disableMiniMode: { type: "boolean", default: false },
   // When true, moving the pet between displays does not trigger a
   // proportional pixel-size recomputation. The pet keeps its current
   // window size; the size slider still works (per-display proportional).
@@ -471,6 +462,10 @@ function isValidValue(field, value) {
 function validate(raw) {
   const out = getDefaults();
   if (!raw || typeof raw !== "object") return out;
+  // Retired mini mode restores ordinary placement, never the old edge window.
+  if (raw.miniMode === true && Number.isFinite(raw.preMiniX) && Number.isFinite(raw.preMiniY)) {
+    raw = {...raw, x: raw.preMiniX, y: raw.preMiniY, positionSaved: true};
+  }
   for (const key of SCHEMA_KEYS) {
     if (!(key in raw)) continue;
     const field = SCHEMA[key];
@@ -648,15 +643,8 @@ function migrate(raw) {
     out.autoApproveAllPermissions = false;
     out.version = 9;
   }
-  // v9 -> v10: sessionHudShowElapsed / sessionHudCleanupDetached flipped their
-  // schema defaults for FRESH INSTALLS ONLY (compact HUD by default). Existing
-  // files normally carry both keys explicitly (save() bakes the full
-  // snapshot), but a file written by a pre-HUD-toggle build or hand-trimmed
-  // by the user lacks them — without this backfill validate() would hand
-  // those users the new defaults and visibly change their HUD. Pin the old
-  // defaults for every pre-v10 file; fresh installs never run migrate().
+  // v9 -> v10: preserve the old cleanup default for existing installations.
   if (out.version < 10) {
-    if (!("sessionHudShowElapsed" in out)) out.sessionHudShowElapsed = true;
     if (!("sessionHudCleanupDetached" in out)) out.sessionHudCleanupDetached = false;
     out.version = 10;
   }

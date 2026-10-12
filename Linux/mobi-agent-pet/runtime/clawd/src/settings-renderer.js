@@ -7,7 +7,6 @@ const core = globalThis.ClawdSettingsCore;
 // system fonts and didn't dark-mode well.
 const SIDEBAR_TABS = [
   { id: "general", labelKey: "sidebarGeneral", available: true },
-  { id: "custom-mode", labelKey: "sidebarCustomMode", available: true },
   { id: "agents", labelKey: "sidebarAgents", available: true },
   { id: "shortcuts", labelKey: "sidebarShortcuts", available: true },
   { id: "telegram-approval", labelKey: "sidebarTelegramApproval", available: true },
@@ -82,7 +81,6 @@ core.ops.installRenderHooks({
 });
 
 globalThis.ClawdSettingsTabGeneral.init(core);
-if (globalThis.ClawdSettingsTabCustomMode) globalThis.ClawdSettingsTabCustomMode.init(core);
 globalThis.ClawdSettingsTabAgents.init(core);
 globalThis.ClawdSettingsTabShortcuts.init(core);
 if (globalThis.ClawdSettingsTabTelegramApproval) globalThis.ClawdSettingsTabTelegramApproval.init(core);

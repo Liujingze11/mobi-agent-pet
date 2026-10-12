@@ -49,11 +49,6 @@ function createHarness(overrides = {}) {
     ipcMain,
     getSessionSnapshot: overrides.getSessionSnapshot || (() => ({ sessions: [{ id: "s1" }] })),
     getPetScene: overrides.getPetScene || (() => ({ themeId: "calico", name: "Calico", imageUrl: "file:///calico.svg" })),
-    getPetBehaviorSettings: overrides.getPetBehaviorSettings || (() => ({ freeRoam: false, allowEdgePinning: true, keepSizeAcrossDisplays: true })),
-    updatePetBehaviorSetting: overrides.updatePetBehaviorSetting || ((key, value) => {
-      calls.push(["updatePetBehaviorSetting", key, value]);
-      return { status: "ok" };
-    }),
     getI18n: overrides.getI18n || (() => ({ lang: "en", translations: { title: "Sessions" } })),
     focusSession: overrides.focusSession || ((sessionId, options) => {
       calls.push(["focusSession", sessionId, options]);
@@ -90,16 +85,13 @@ test("session IPC registers owned channels and disposes them", () => {
   const { ipcMain, runtime } = createHarness();
 
   assert.deepStrictEqual([...ipcMain.handlers.keys()].sort(), [
-    "dashboard:edit-custom-mode",
     "dashboard:focus-session",
     "dashboard:get-i18n",
-    "dashboard:get-pet-behavior",
     "dashboard:get-pet-scene",
     "dashboard:get-snapshot",
     "dashboard:hide-session",
     "dashboard:open-session-folder",
     "dashboard:set-session-alias",
-    "dashboard:update-pet-behavior",
     "session-hud:get-i18n",
     "session-hud:open-session-folder",
     "session:ack-completion",
@@ -116,22 +108,6 @@ test("session IPC registers owned channels and disposes them", () => {
 
   assert.strictEqual(ipcMain.handlers.size, 0);
   assert.strictEqual(ipcMain.listeners.size, 0);
-});
-
-test("dashboard pet behavior keeps placement updates and rejects mode-owned roaming", async () => {
-  const { ipcMain, calls } = createHarness();
-  assert.deepStrictEqual(await ipcMain.invoke("dashboard:get-pet-behavior"), {
-    freeRoam: false,
-    allowEdgePinning: true,
-    keepSizeAcrossDisplays: true,
-  });
-  assert.equal((await ipcMain.invoke("dashboard:update-pet-behavior", { key: "freeRoam", value: true })).status, "error");
-  assert.equal((await ipcMain.invoke("dashboard:update-pet-behavior", { key: "allowEdgePinning", value: false })).status, "error");
-  assert.equal((await ipcMain.invoke("dashboard:update-pet-behavior", { key: "keepSizeAcrossDisplays", value: false })).status, "error");
-  assert.equal((await ipcMain.invoke("dashboard:update-pet-behavior", { key: "openAtLogin", value: true })).status, "error");
-  assert.equal((await ipcMain.invoke("dashboard:update-pet-behavior", { key: "disableMiniMode", value: true })).status, "error");
-  assert.equal((await ipcMain.invoke("dashboard:update-pet-behavior", { key: "freeRoam", value: "true" })).status, "error");
-  assert.deepStrictEqual(calls, []);
 });
 
 test("session IPC delegates dashboard and HUD behavior", async () => {

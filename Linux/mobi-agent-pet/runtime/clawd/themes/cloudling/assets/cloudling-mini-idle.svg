@@ -117,33 +117,15 @@ let cloudRotate = 0;
 let currentDistScale = 1.0;
 let lastT = performance.now();
 const startT = performance.now();
-let lowPowerPaused = false;
-let lowPowerPausedAt = 0;
-let lowPowerPausedTotal = 0;
 let rafId = 0;
 let nextBlinkT = 3 + Math.random() * 2;
 let blinkActive = false;
 let blinkStartT = 0;
 
 function scheduleLoop() {
-  if (!lowPowerPaused && !rafId) rafId = requestAnimationFrame(tick);
+  if (!rafId) rafId = requestAnimationFrame(tick);
 }
 
-window.__clawdSetLowPowerPaused = paused => {
-  const next = !!paused;
-  if (lowPowerPaused === next) return;
-  lowPowerPaused = next;
-  if (next) {
-    lowPowerPausedAt = performance.now();
-    if (rafId) cancelAnimationFrame(rafId);
-    rafId = 0;
-    return;
-  }
-  if (lowPowerPausedAt) lowPowerPausedTotal += performance.now() - lowPowerPausedAt;
-  lowPowerPausedAt = 0;
-  lastT = performance.now();
-  scheduleLoop();
-};
 
 function clamp(v, min, max) {
   return Math.max(min, Math.min(max, v));
@@ -178,10 +160,9 @@ function updateTarget() {
 
 function tick(now) {
   rafId = 0;
-  if (lowPowerPaused) return;
   const dt = Math.min(0.05, (now - lastT) / 1000);
   lastT = now;
-  const t = (now - startT - lowPowerPausedTotal) / 1000;
+  const t = (now - startT) / 1000;
   updateTarget();
   const eyeTime = pointerInside ? params.eyeTrack : params.recenter;
   const eyeRate = 1 - Math.exp(-dt / eyeTime);

@@ -21,8 +21,6 @@ function registerSessionIpc(options = {}) {
   const setSessionHudPinned = requiredDependency(options.setSessionHudPinned, "setSessionHudPinned");
   const ackSessionCompletion = requiredDependency(options.ackSessionCompletion, "ackSessionCompletion");
   const openSessionFolder = requiredDependency(options.openSessionFolder, "openSessionFolder");
-  const getPetBehaviorSettings = requiredDependency(options.getPetBehaviorSettings, "getPetBehaviorSettings");
-  const updatePetBehaviorSetting = requiredDependency(options.updatePetBehaviorSetting, "updatePetBehaviorSetting");
   const disposers = [];
 
   function handle(channel, listener) {
@@ -37,9 +35,6 @@ function registerSessionIpc(options = {}) {
 
   handle("dashboard:get-snapshot", () => getSessionSnapshot());
   handle("dashboard:get-pet-scene", () => getPetScene());
-  handle("dashboard:get-pet-behavior", () => getPetBehaviorSettings());
-  handle("dashboard:update-pet-behavior", () => ({status:"error", message:"Mode behavior is fixed; use Edit Custom Mode"}));
-  handle("dashboard:edit-custom-mode", () => options.openCustomModeEditor?.() || {status:"error", message:"Custom mode editor unavailable"});
   handle("dashboard:get-i18n", () => getI18n());
   handle("dashboard:focus-session", async (_event, sessionId) => {
     if (typeof sessionId !== "string" || !sessionId) return { status: "failed" };

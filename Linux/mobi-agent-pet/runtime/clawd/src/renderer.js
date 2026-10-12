@@ -3,7 +3,6 @@
 // Reactions are triggered via IPC from main (relayed from hit window).
 
 const container = document.getElementById("pet-container");
-const clipLayer = document.getElementById("pet-clip");
 const facingStage = document.getElementById("pet-facing-stage") || container;
 const motionStage = document.getElementById("pet-motion-stage") || container;
 const assetDirectionStage = document.getElementById("pet-asset-direction-stage") || container;
@@ -13,25 +12,17 @@ const accessoryEl = document.getElementById("clawd-accessory");
 const accessoryLayout = globalThis.petAccessoryLayout || null;
 let clawdEl = document.getElementById("clawd");
 let pendingNext = null;
-const LOW_POWER_IDLE_PAUSE_MS = 5000;
 const SWAP_LOAD_FALLBACK_MS = 3000;
 const SWAP_VISIBILITY_RESCUE_BUFFER_MS = 750;
 const EYE_ATTACH_RETRY_MS = 16;
 const EYE_ATTACH_MAX_ATTEMPTS = 60;
 const WAKE_OBJECT_RELOAD_RETRIES = 1;
-const LOW_POWER_PAUSE_STYLE_ID = "clawd-low-power-pause-svg";
-const LOW_POWER_PAUSE_STATES = new Set(["idle"]);
-const LOW_POWER_BOUNDARY_EPSILON_MS = 80;
 const CLOUDLING_POINTER_BRIDGE_STATES = new Set(["idle"]);
-let lowPowerIdleMode = false;
-let lowPowerIdlePauseTimer = null;
-let lowPowerSvgPaused = false;
 let lastSystemWakeId = null;
 let lastSystemWakeStatus = null;
 let pendingSystemWakeId = null;
 let queuedSystemWakePayload = null;
 let queuedSystemWakeReplayTimer = null;
-let _lowPowerStaticImageOverrides = {};
 let _petTintPayload = { id: "none", filter: "" };
 let _petTintSupported = false;
 let _accessoryPayload = {
@@ -59,7 +50,6 @@ const PET_TINT_FILTER_TOKEN_RE =
 let tc = window.themeConfig || {};
 let actionPlayer = null;
 let petStateSnapshot = null;
-let actionIdleDeadline = null;
 
 function initWithConfig(cfg) {
   tc = cfg || {};
@@ -74,7 +64,6 @@ function initWithConfig(cfg) {
   _eyeTrackingStates = (tc.eyeTrackingStates) || ["idle"];
   _trustedScriptedSvgFiles = new Set(Array.isArray(tc.trustedScriptedSvgFiles) ? tc.trustedScriptedSvgFiles : []);
   _forceSvgObjectChannel = !!(tc.rendering && tc.rendering.svgChannel === "object");
-  _lowPowerStaticImageOverrides = (tc.rendering && tc.rendering.lowPowerStaticImageOverrides) || {};
   _petTintSupported = tc.petTintSupported === true;
   if (Object.prototype.hasOwnProperty.call(tc, "petTintPayload")) {
     _petTintPayload = normalizePetTintPayload(tc.petTintPayload);
@@ -89,14 +78,12 @@ function initWithConfig(cfg) {
     _accessoryPayload = normalizeAccessoryPayload(tc.accessoryPayload);
   }
   _imgCacheBustSeq = 0;
-  _miniViewBox = tc.miniModeViewBox || null;
   _fileViewBoxes = tc.fileViewBoxes || {};
   _dragSvg = tc.dragSvg || null;
   _dragSvgs = tc.dragSvgs || {};
   _idleFollowSvg = tc.idleFollowSvg || "clawd-idle-follow.svg";
   // Pre-IPC first frame rests on the user-selected idle visual when one is set.
   _initialIdleSvg = tc.idleDefaultVisual || _idleFollowSvg;
-  _glyphFlipDefs = tc.glyphFlips || { "pixel-z": 4, "pixel-z-small": 3 };
 
   // Layered tracking: detect if theme uses multi-layer config
   _useLayeredTracking = !!(tc.eyeTracking && tc.eyeTracking.trackingLayers);
@@ -119,7 +106,6 @@ function initWithConfig(cfg) {
   _fileScales = os.fileScales || {};
   _fileOffsets = os.fileOffsets || {};
   _transitions = tc.transitions || {};
-  _miniFlipAssets = !!tc.miniFlipAssets;
   _hasRoamVisual = !!tc.hasRoamVisual;
   _roamFlipAssets = !!tc.roamFlipAssets;
 
@@ -167,195 +153,12 @@ function getCurrentSvgRoot() {
   }
 }
 
-function setCurrentScriptedSvgLowPowerPaused(paused) {
-  const target = clawdEl;
-  if (!target || target.tagName !== "OBJECT") return;
-  try {
-    const fn = target.contentWindow && target.contentWindow.__clawdSetLowPowerPaused;
-    if (typeof fn === "function") fn(!!paused);
-  } catch {}
-}
-
-function shouldPauseForLowPower() {
-  if (isReacting || isDragReacting) return false;
-  return lowPowerIdleMode && LOW_POWER_PAUSE_STATES.has(currentState);
-}
-
-function shouldSuppressPassiveTrackingForLowPower() {
-  return lowPowerIdleMode && lowPowerSvgPaused && shouldPauseForLowPower();
-}
-
-function setLowPowerSvgPaused(paused) {
-  const next = !!paused;
-  if (lowPowerSvgPaused === next) return;
-  lowPowerSvgPaused = next;
-  if (next) {
-    _cancelLayerAnimLoop();
-    cancelAccessoryFollow();
-  } else {
-    refreshAccessoryLayout();
-  }
-  if (window.electronAPI && typeof window.electronAPI.setLowPowerIdlePaused === "function") {
-    window.electronAPI.setLowPowerIdlePaused(next);
-  }
-}
-
-function getLowPowerAnimationBoundaryDelayMs(root) {
-  if (!root || typeof root.getAnimations !== "function") return 0;
-  let animations = [];
-  try {
-    animations = root.getAnimations({ subtree: true });
-  } catch {
-    return 0;
-  }
-
-  let delayMs = 0;
-  for (const animation of animations) {
-    if (!animation || animation.playState === "paused" || animation.playState === "finished") continue;
-    const effect = animation.effect;
-    if (!effect || typeof effect.getComputedTiming !== "function") continue;
-
-    let timing = null;
-    try {
-      timing = effect.getComputedTiming();
-    } catch {
-      continue;
-    }
-    if (!timing) continue;
-
-    const localTime = Number.isFinite(timing.localTime)
-      ? timing.localTime
-      : (Number.isFinite(animation.currentTime) ? animation.currentTime : null);
-    if (!Number.isFinite(localTime) || localTime < 0) continue;
-
-    const activeDuration = Number.isFinite(timing.activeDuration)
-      ? timing.activeDuration
-      : (Number.isFinite(timing.endTime) ? timing.endTime : null);
-    if (Number.isFinite(activeDuration) && activeDuration > localTime) {
-      delayMs = Math.max(delayMs, activeDuration - localTime);
-      continue;
-    }
-
-    const duration = Number.isFinite(timing.duration) ? timing.duration : null;
-    if (!Number.isFinite(duration) || duration <= 0) continue;
-
-    let direction = timing.direction || "";
-    try {
-      const rawTiming = typeof effect.getTiming === "function" ? effect.getTiming() : null;
-      if (rawTiming && rawTiming.direction) direction = rawTiming.direction;
-    } catch {}
-    const loopDuration = duration * ((direction === "alternate" || direction === "alternate-reverse") ? 2 : 1);
-    const progress = localTime % loopDuration;
-    const remaining = progress <= LOW_POWER_BOUNDARY_EPSILON_MS ? 0 : loopDuration - progress;
-    delayMs = Math.max(delayMs, remaining);
-  }
-  return delayMs > LOW_POWER_BOUNDARY_EPSILON_MS ? Math.ceil(delayMs) : 0;
-}
-
-function pauseCurrentSvgForLowPower({ waitForBoundary = false } = {}) {
-  if (!shouldPauseForLowPower()) return;
-  if (actionPlayer) actionPlayer.pause();
-  const root = getCurrentSvgRoot();
-  if (!root) { if (tc.actionPlan) setLowPowerSvgPaused(true); return; }
-  if (waitForBoundary) {
-    const delayMs = getLowPowerAnimationBoundaryDelayMs(root);
-    if (delayMs > 0) {
-      lowPowerIdlePauseTimer = setTimeout(() => {
-        lowPowerIdlePauseTimer = null;
-        pauseCurrentSvgForLowPower();
-      }, delayMs);
-      return;
-    }
-  }
-  const svgDoc = root.ownerDocument;
-  if (svgDoc && !svgDoc.getElementById(LOW_POWER_PAUSE_STYLE_ID)) {
-    const style = svgDoc.createElementNS("http://www.w3.org/2000/svg", "style");
-    style.id = LOW_POWER_PAUSE_STYLE_ID;
-    style.textContent = `
-      *, *::before, *::after {
-        animation-play-state: paused !important;
-        transition-property: none !important;
-      }
-    `;
-    root.appendChild(style);
-  }
-  try {
-    if (typeof root.pauseAnimations === "function") root.pauseAnimations();
-  } catch {}
-  setCurrentScriptedSvgLowPowerPaused(true);
-  setLowPowerSvgPaused(true);
-}
-
-function resumeCurrentSvgForLowPower() {
-  if (actionPlayer) actionPlayer.resume();
-  if (lowPowerIdlePauseTimer) {
-    clearTimeout(lowPowerIdlePauseTimer);
-    lowPowerIdlePauseTimer = null;
-  }
-  const root = getCurrentSvgRoot();
-  if (root) {
-    try {
-      const svgDoc = root.ownerDocument;
-      const style = svgDoc && svgDoc.getElementById(LOW_POWER_PAUSE_STYLE_ID);
-      if (style) style.remove();
-      if (typeof root.unpauseAnimations === "function") root.unpauseAnimations();
-    } catch {}
-  }
-  setCurrentScriptedSvgLowPowerPaused(false);
-  setLowPowerSvgPaused(false);
-}
-
-function hasLowPowerPauseStyle(root = getCurrentSvgRoot()) {
-  if (!root) return false;
-  try {
-    const svgDoc = root.ownerDocument;
-    return !!(svgDoc && svgDoc.getElementById(LOW_POWER_PAUSE_STYLE_ID));
-  } catch {
-    return false;
-  }
-}
-
-function scheduleLowPowerIdlePause() {
-  if (lowPowerIdlePauseTimer) {
-    clearTimeout(lowPowerIdlePauseTimer);
-    lowPowerIdlePauseTimer = null;
-  }
-  if (!shouldPauseForLowPower()) {
-    resumeCurrentSvgForLowPower();
-    return;
-  }
-  lowPowerIdlePauseTimer = setTimeout(() => {
-    lowPowerIdlePauseTimer = null;
-    pauseCurrentSvgForLowPower({ waitForBoundary: true });
-  }, tc.actionPlan && actionIdleDeadline !== null ? Math.max(0, actionIdleDeadline - Date.now()) : LOW_POWER_IDLE_PAUSE_MS);
-}
-
-function noteLowPowerActivity() {
-  if (tc.actionPlan) actionIdleDeadline = Date.now() + LOW_POWER_IDLE_PAUSE_MS;
-  if (!lowPowerIdleMode && !lowPowerSvgPaused) return;
-  if (lowPowerSvgPaused) {
-    resumeCurrentSvgForLowPower();
-  }
-  scheduleLowPowerIdlePause();
-}
-
-function setLowPowerIdleMode(enabled) {
-  lowPowerIdleMode = !!enabled;
-  if (lowPowerIdleMode) {
-    scheduleLowPowerIdlePause();
-  } else {
-    resumeCurrentSvgForLowPower();
-  }
-  refreshCurrentStateForLowPowerStaticImage();
-}
-
 function isSvgFile(file) {
   return typeof file === "string" && file.toLowerCase().endsWith(".svg");
 }
 
 function resolveViewBox(state, file) {
   if (file && _fileViewBoxes && _fileViewBoxes[file]) return _fileViewBoxes[file];
-  if (_inMiniMode && _miniViewBox) return _miniViewBox;
   return _viewBox;
 }
 
@@ -373,9 +176,7 @@ function hasRootViewBoxFileOverride(file) {
 
 function shouldUseNormalizedLayout(file, state) {
   if (!_layout || !_layout.contentBox) return false;
-  if (_inMiniMode) return false;
   if (hasRootViewBoxFileOverride(file)) return true;
-  if (_inMiniMode) return false;
   return true;
 }
 
@@ -424,24 +225,19 @@ let _eyeTrackingStates;
 let _trustedScriptedSvgFiles = new Set();
 let _forceSvgObjectChannel = false;
 let _imgCacheBustSeq = 0;
-let _miniViewBox = null;
 let _fileViewBoxes = {};
 let _dragSvg;
 let _dragSvgs;
 let currentDragSvg = null;
 let _idleFollowSvg;
 let _initialIdleSvg;
-let _glyphFlipDefs;
 let _objectScaleCSS;
 let _fileScales = {};
 let _fileOffsets = {};
 let _transitions = {};  // per-file fade config: { "file.apng": { in: 400, out: 400 } }
-let _miniFlipAssets = false; // theme's mini assets drawn in reverse direction
 let _hasRoamVisual = false;  // theme binds a dedicated roam visual (≠ idle)
 let _roamFlipAssets = false; // theme's roam visual is drawn facing left, not right
 let _roamHeadingLeft = false; // current walk direction; roam visuals are drawn facing right
-let _inMiniMode = false;
-let _miniPreEntryMode = false;
 let _viewportOffsetY = 0;
 
 function setViewportOffset(offsetY) {
@@ -455,20 +251,17 @@ function setViewportOffset(offsetY) {
   refreshAccessoryLayout();
 }
 
-function shouldApplyMiniAssetFlip(state) {
+function shouldApplyAssetDirectionFlip(state) {
   // Free roam: the dedicated roam visual is drawn facing right; mirror it
   // while the walk heads left (heading pushed from main via roam-heading).
   // Themes whose roam asset faces left (roamFlipAssets) invert the mirror.
   if (state === "roam") return _hasRoamVisual && (_roamHeadingLeft !== _roamFlipAssets);
-  // Only mini-family visuals mirror with flipAssets. mini-mode-change can land
-  // while a transitional visual (idle, drag reaction) is still on screen —
-  // those keep their orientation until the mini swap happens.
-  return _miniFlipAssets && (_inMiniMode || _miniPreEntryMode);
+  return false;
 }
 
-function applyMiniFlip(el, state = currentState) {
+function applyAssetDirectionFlip(el, state = currentState) {
   if (!assetDirectionStage || !assetDirectionStage.style) return;
-  const activeFlip = shouldApplyMiniAssetFlip(state);
+  const activeFlip = shouldApplyAssetDirectionFlip(state);
   if (el) el.__clawdAssetDirectionFlip = activeFlip;
   assetDirectionStage.style.scale = activeFlip ? "-1 1" : "none";
 
@@ -517,7 +310,6 @@ window.electronAPI.onThemeConfig((newConfig) => {
   initWithConfig(newConfig);
   applyPetTintToAllMedia();
   configureActionPlayer();
-  if (currentState && currentRequestedSvg) actionPlayer?.update(currentState, currentRequestedSvg);
 });
 
 window.electronAPI.onViewportOffset((offsetY) => {
@@ -653,9 +445,6 @@ function getAccessoryDescriptor(file, state) {
   if (files && typeof files === "object"
       && Object.prototype.hasOwnProperty.call(files, safeFile)) {
     return files[safeFile];
-  }
-  if (_inMiniMode && _accessoryAttachments.mini) {
-    return _accessoryAttachments.mini;
   }
   return _accessoryAttachments.default || null;
 }
@@ -835,7 +624,7 @@ function applyAccessoryLayout(layout) {
 
 function accessoryFollowTick(expectedKey) {
   _accessoryRaf = null;
-  if (document.hidden === true || shouldSuppressPassiveTrackingForLowPower()) return;
+  if (document.hidden === true) return;
   const context = getCurrentAccessoryContext();
   if (!context || context.descriptor.visibility === "hidden") {
     hideAccessory();
@@ -862,7 +651,7 @@ function accessoryFollowTick(expectedKey) {
 
 function startAccessoryFollow(context) {
   const follow = context.descriptor.followTarget;
-  if (!follow || shouldSuppressPassiveTrackingForLowPower()) return;
+  if (!follow) return;
   const key = `${context.file}|${_accessoryPayload.id}|${follow.id}`;
   cancelAccessoryFollow();
   _accessoryFollowKey = key;
@@ -949,99 +738,10 @@ let isDragReacting = false;
 let reactTimer = null;
 let currentIdleSvg = null;    // tracks which SVG is currently showing
 let currentState = null;      // last state name received from main (for re-pulse)
-let currentRequestedSvg = null; // original state file from main, before low-power substitution
 let lastCloudlingPointerPayload = null;
 let dndEnabled = false;
-let miniLeftFlip = false;
-
-if (window.electronAPI && typeof window.electronAPI.onLowPowerIdleModeChange === "function") {
-  window.electronAPI.onLowPowerIdleModeChange(setLowPowerIdleMode);
-}
 
 window.electronAPI.onDndChange((enabled) => { dndEnabled = enabled; });
-
-window.electronAPI.onMiniModeChange((enabled, edge, options) => {
-  const preEntry = !!(options && options.preEntry);
-  _miniPreEntryMode = !!enabled && preEntry;
-  _inMiniMode = !!enabled && !preEntry;
-  miniLeftFlip = !!enabled && edge === "left";
-  container.classList.toggle("mini-left", miniLeftFlip);
-  applyMiniFlip(clawdEl, currentState);
-  if (miniLeftFlip) {
-    applyGlyphFlipCompensation(clawdEl);
-  } else {
-    removeGlyphFlipCompensation(clawdEl);
-  }
-  if (!enabled) applyMiniClip(null);
-  if (shouldUseCloudlingPointerBridge(currentState, currentDisplayedSvg) && lastCloudlingPointerPayload) {
-    applyCloudlingPointerBridge(lastCloudlingPointerPayload);
-  }
-  refreshAccessoryLayout();
-});
-
-// Multi-monitor seam clip: in mini mode at an internal seam, main sends the
-// fraction of the window width that falls on the local display. We clip the
-// rest away so the half that physically crosses onto the neighbouring
-// monitor renders nothing there — the local display keeps the half-body peek.
-//
-// The clip is applied to #pet-clip outside #pet-facing-stage, which carries
-// the left-edge mini-mode flip. A clip-path inside that flipped stage would
-// be mirrored too, so a left-edge clip would land on the wrong half; the
-// unflipped wrapper keeps `inset()` in screen space for both edges.
-function applyMiniClip(info) {
-  if (!clipLayer) return;
-  if (!info || !Number.isFinite(info.fraction)) {
-    clipLayer.style.clipPath = "";
-    return;
-  }
-  const f = Math.max(0, Math.min(1, info.fraction));
-  if (info.edge === "left") {
-    // Local display lies to the RIGHT of the seam — keep [f, 1], clip the left.
-    clipLayer.style.clipPath = `inset(0 0 0 ${f * 100}%)`;
-  } else {
-    // Local display lies to the LEFT of the seam — keep [0, f], clip the right.
-    clipLayer.style.clipPath = `inset(0 ${(1 - f) * 100}% 0 0)`;
-  }
-}
-
-if (window.electronAPI && typeof window.electronAPI.onMiniClip === "function") {
-  window.electronAPI.onMiniClip(applyMiniClip);
-}
-
-// Counter-flip asymmetric pixel-art glyphs (Zzz) inside SVG defs so they
-// render correctly when the container has scaleX(-1). Only the glyph shape
-// is flipped — CSS animation transforms (float direction) are unaffected.
-function applyGlyphFlipCompensation(objectEl) {
-  if (!objectEl || objectEl.tagName !== "OBJECT") return;
-  try {
-    const doc = objectEl.contentDocument;
-    if (!doc) return;
-    const svgWindow = objectEl.contentWindow;
-    if (svgWindow && typeof svgWindow.__clawdSetGlyphFlipCompensation === "function") {
-      svgWindow.__clawdSetGlyphFlipCompensation(true);
-    }
-    for (const [id, w] of Object.entries(_glyphFlipDefs)) {
-      const el = doc.getElementById(id);
-      if (el) el.setAttribute("transform", `translate(${w}, 0) scale(-1, 1)`);
-    }
-  } catch {}
-}
-
-function removeGlyphFlipCompensation(objectEl) {
-  if (!objectEl || objectEl.tagName !== "OBJECT") return;
-  try {
-    const doc = objectEl.contentDocument;
-    if (!doc) return;
-    const svgWindow = objectEl.contentWindow;
-    if (svgWindow && typeof svgWindow.__clawdSetGlyphFlipCompensation === "function") {
-      svgWindow.__clawdSetGlyphFlipCompensation(false);
-    }
-    for (const id of Object.keys(_glyphFlipDefs)) {
-      const el = doc.getElementById(id);
-      if (el) el.removeAttribute("transform");
-    }
-  } catch {}
-}
 
 function getObjectSvgName(objectEl) {
   if (!objectEl) return null;
@@ -1075,7 +775,7 @@ function needsEyeTracking(state) {
  */
 function tracksEyesForFile(state, file) {
   if (!needsEyeTracking(state)) return false;
-  return state !== "idle" || _inMiniMode || file === _idleFollowSvg;
+  return state !== "idle" || file === _idleFollowSvg;
 }
 
 /**
@@ -1122,21 +822,6 @@ function refreshAccessoryMediaChannel() {
   return true;
 }
 
-function resolveLowPowerStaticImageOverride(state, file) {
-  // An active action plan owns the file; low power pauses that asset.
-  if (tc.actionPlan) return null;
-  if (!lowPowerIdleMode) return null;
-  const override = _lowPowerStaticImageOverrides && _lowPowerStaticImageOverrides[state];
-  if (!override || override.from !== file || !override.to) return null;
-  return override.to;
-}
-
-function hasLowPowerStaticImageOverride(state, file) {
-  if (tc.actionPlan) return false;
-  const override = _lowPowerStaticImageOverrides && _lowPowerStaticImageOverrides[state];
-  return !!(override && override.from === file && override.to);
-}
-
 function shouldUseCloudlingPointerBridge(state, file) {
   return CLOUDLING_POINTER_BRIDGE_STATES.has(state) && isSvgFile(file);
 }
@@ -1152,12 +837,6 @@ function normalizeCloudlingPointerPayload(payload) {
 
 function getDisplayedCloudlingPointerPayload(payload) {
   const next = { ...payload };
-  if (miniLeftFlip) {
-    const viewBox = resolveViewBox(currentState, currentDisplayedSvg);
-    if (viewBox && Number.isFinite(viewBox.x) && Number.isFinite(viewBox.width)) {
-      next.x = viewBox.x + viewBox.width - (payload.x - viewBox.x);
-    }
-  }
   return next;
 }
 
@@ -1177,7 +856,6 @@ function applyCloudlingPointerBridge(payload) {
   const normalized = normalizeCloudlingPointerPayload(payload);
   if (!normalized) return;
   lastCloudlingPointerPayload = normalized;
-  if (shouldSuppressPassiveTrackingForLowPower()) return;
   if (!shouldUseCloudlingPointerBridge(currentState, currentDisplayedSvg)) return;
   callCloudlingPointerBridge(clawdEl, getDisplayedCloudlingPointerPayload(normalized));
 }
@@ -1425,18 +1103,16 @@ function swapToFile(file, state, useObjectChannel, options = {}) {
       currentDisplayedSvg = file;
       currentDisplayedState = commitState;
       currentDisplayedAssetUrl = url;
-      applyMiniFlip(next, commitState);
+      applyAssetDirectionFlip(next, commitState);
       refreshAccessoryLayout();
       notifyPetVisualReadyOnce();
 
       if (commitState && tracksEyesForFile(commitState, file)) {
         attachEyeTracking(next);
       }
-      if (miniLeftFlip) applyGlyphFlipCompensation(next);
       if (shouldUseCloudlingPointerBridge(currentState, file) && lastCloudlingPointerPayload) {
         callCloudlingPointerBridge(next, getDisplayedCloudlingPointerPayload(lastCloudlingPointerPayload));
       }
-      scheduleLowPowerIdlePause();
       finishSwapReady();
     };
 
@@ -1510,10 +1186,9 @@ function swapToFile(file, state, useObjectChannel, options = {}) {
       currentDisplayedSvg = file;
       currentDisplayedState = commitState;
       currentDisplayedAssetUrl = url;
-      applyMiniFlip(next, commitState);
+      applyAssetDirectionFlip(next, commitState);
       refreshAccessoryLayout();
       notifyPetVisualReadyOnce();
-      scheduleLowPowerIdlePause();
     };
 
     next.addEventListener("load", swap, { once: true });
@@ -1546,11 +1221,7 @@ function displayStateFile(state, svg, options = {}) {
   // Track the latest state name so the Kimi permission pulse can re-trigger
   // swapToFile() with the matching state for eye-tracking decisions.
   currentState = state;
-  currentRequestedSvg = svg;
-  const requestedSvg = svg;
-  const lowPowerStaticImageOverride = resolveLowPowerStaticImageOverride(state, requestedSvg);
-  const effectiveSvg = lowPowerStaticImageOverride || requestedSvg;
-  if (!options.playlistFrame) noteLowPowerActivity();
+  const effectiveSvg = svg;
 
   // ── Roam state: add walk animation class for visual movement ──
   // When the pet is roaming (free-roam mode), add a CSS animation to simulate
@@ -1568,7 +1239,7 @@ function displayStateFile(state, svg, options = {}) {
   // Dedup only when the same file resolves to the same asset URL. Imported
   // Codex Pet themes reuse filenames, so filename-only dedup can keep showing
   // the previous theme until a drag/click forces a different animation.
-  const desiredObjectChannel = lowPowerStaticImageOverride ? false : needsObjectChannel(state, effectiveSvg);
+  const desiredObjectChannel = needsObjectChannel(state, effectiveSvg);
   const desiredAssetUrl = getAssetUrl(effectiveSvg);
   const alreadyDisplayed = clawdEl && clawdEl.isConnected
     && currentDisplayedSvg === effectiveSvg
@@ -1590,7 +1261,7 @@ function displayStateFile(state, svg, options = {}) {
     // roam mirror would leak into the mini entry (and vice versa).
     if (alreadyDisplayed) {
       currentDisplayedState = state;
-      applyMiniFlip(clawdEl, state);
+      applyAssetDirectionFlip(clawdEl, state);
       refreshAccessoryLayout();
     }
     if (alreadyPending && pendingChannelMatches) {
@@ -1610,7 +1281,6 @@ function displayStateFile(state, svg, options = {}) {
       if (shouldUseCloudlingPointerBridge(state, effectiveSvg) && lastCloudlingPointerPayload) {
         applyCloudlingPointerBridge(lastCloudlingPointerPayload);
       }
-      scheduleLowPowerIdlePause();
     }
     currentIdleSvg = effectiveSvg;
     return;
@@ -1620,14 +1290,8 @@ function displayStateFile(state, svg, options = {}) {
   cancelPendingSwap();
   detachEyeTracking();
 
-  swapToFile(effectiveSvg, state, lowPowerStaticImageOverride ? false : undefined);
+  swapToFile(effectiveSvg, state);
   currentIdleSvg = effectiveSvg;
-}
-
-function refreshCurrentStateForLowPowerStaticImage() {
-  if (!currentState || !currentRequestedSvg) return;
-  if (!hasLowPowerStaticImageOverride(currentState, currentRequestedSvg)) return;
-  displayStateFile(currentState, currentRequestedSvg, { playlistFrame: !!tc.actionPlan });
 }
 
 function configureActionPlayer() {
@@ -1649,8 +1313,6 @@ window.addEventListener("beforeunload", () => { if (actionPlayer) actionPlayer.s
 
 function renderStateFile(state, svg) {
   currentState = state;
-  currentRequestedSvg = svg;
-  noteLowPowerActivity();
   if (actionPlayer) actionPlayer.update(state, svg);
   else if (!isDragReacting) displayStateFile(state, svg);
 }
@@ -1815,7 +1477,6 @@ function _startLayerAnimLoop() {
 
   function tick() {
     if (!_trackingLayers) { _layerAnimFrame = null; return; }
-    if (shouldSuppressPassiveTrackingForLowPower()) { _layerAnimFrame = null; return; }
 
     const rawDx = _layerTargetDx;
     const rawDy = _layerTargetDy;
@@ -2016,17 +1677,15 @@ function recoverFromSystemWake(payload) {
   }
 
   const rootBefore = getCurrentSvgRoot();
-  const lowPowerWasPaused = lowPowerSvgPaused || hasLowPowerPauseStyle(rootBefore);
   const eyeTargetWasCurrentDocument = isEyeTrackingReady();
 
-  // Do this even when the local mirror says false: the injected pause style or
-  // the embedded SVG timeline can outlive that boolean across a system sleep.
-  resumeCurrentSvgForLowPower();
-  if (lowPowerIdleMode) scheduleLowPowerIdlePause();
-
+  // System sleep can leave an embedded SVG timeline or document stale.
+  // Recovery is independent of user-selectable power policies.
+  if (rootBefore && typeof rootBefore.unpauseAnimations === "function") {
+    try { rootBefore.unpauseAnimations(); } catch {}
+  }
   const needsEyes = tracksEyesForFile(currentState, currentDisplayedSvg);
-  const shouldReloadEyeObject = lowPowerIdleMode
-    && needsEyes
+  const shouldReloadEyeObject = needsEyes
     && clawdEl
     && clawdEl.tagName === "OBJECT"
     && currentDisplayedSvg;
@@ -2036,8 +1695,6 @@ function recoverFromSystemWake(payload) {
       id,
       wakeState: currentState,
       wakeSvg: currentDisplayedSvg,
-      lowPowerWasPaused,
-      pauseStyleRemoved: !hasLowPowerPauseStyle(),
       eyeTargetWasCurrentDocument,
     };
 
@@ -2051,8 +1708,6 @@ function recoverFromSystemWake(payload) {
         finishSystemWake({
           id: wakeContext.id,
           result: ready ? "resumed" : "error",
-          lowPowerWasPaused: wakeContext.lowPowerWasPaused,
-          pauseStyleRemoved: wakeContext.pauseStyleRemoved,
           eyeTrackingReady: ready,
           eyeTargetWasCurrentDocument: wakeContext.eyeTargetWasCurrentDocument,
           objectReloaded: stillCurrentWakeObject,
@@ -2070,8 +1725,6 @@ function recoverFromSystemWake(payload) {
       finishSystemWake({
         id: wakeContext.id,
         result: "error",
-        lowPowerWasPaused: wakeContext.lowPowerWasPaused,
-        pauseStyleRemoved: wakeContext.pauseStyleRemoved,
         eyeTrackingReady,
         eyeTargetWasCurrentDocument: wakeContext.eyeTargetWasCurrentDocument,
         objectReloaded: false,
@@ -2113,8 +1766,6 @@ function recoverFromSystemWake(payload) {
   const status = {
     id,
     result: rootBefore ? "resumed" : "no-svg",
-    lowPowerWasPaused,
-    pauseStyleRemoved: !hasLowPowerPauseStyle(),
     eyeTrackingReady: !needsEyes || isEyeTrackingReady(),
     eyeTargetWasCurrentDocument,
     objectReloaded: false,
@@ -2124,16 +1775,11 @@ function recoverFromSystemWake(payload) {
 }
 
 window.electronAPI.onEyeMove((dx, dy) => {
-  const effectiveDx = miniLeftFlip ? -dx : dx;
+  const effectiveDx = dx;
   lastEyeDx = effectiveDx;
   lastEyeDy = dy;
 
-  if (lowPowerIdleMode) noteLowPowerActivity();
 
-  if (shouldSuppressPassiveTrackingForLowPower()) {
-    _cancelLayerAnimLoop();
-    return;
-  }
 
   if ((eyeTarget || _trackingLayers) && !isEyeTrackingReady()) {
     detachEyeTracking();
@@ -2171,7 +1817,7 @@ if (window.electronAPI && typeof window.electronAPI.onRoamHeading === "function"
     // without a swap, and if this message lands after the state-change (IPC
     // order across channels is not contractual) the flip captured at IMG
     // creation is stale — refresh both the on-screen and the pending element.
-    applyMiniFlip(clawdEl, currentState);
+    applyAssetDirectionFlip(clawdEl, currentState);
   });
 }
 

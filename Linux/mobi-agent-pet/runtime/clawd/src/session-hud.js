@@ -5,6 +5,7 @@ const path = require("path");
 const { keepOutOfTaskbar } = require("./taskbar");
 const { clampTextScale, scaleHeight, applyZoomToWindow } = require("./text-scale");
 const ringGeom = require("./quota-ring-geometry");
+const createMouseButtonReader = require("./mouse-button-reader");
 
 const isLinux = process.platform === "linux";
 const isMac = process.platform === "darwin";
@@ -34,9 +35,9 @@ const WIN_TOPMOST_LEVEL = "pop-up-menu";
 const LINUX_WINDOW_TYPE = "toolbar";
 const MAC_FLOATING_TOPMOST_DELAY_MS = 120;
 const HOT_ZONE_PAD = 24;
-const AUTO_HIDE_POLL_MS = 200;
-const HIDE_GRACE_MS = 500;
-const HIDDEN_WINDOW_DESTROY_MS = 30000;
+const ELIGIBILITY_POLL_MS = 200;
+const OUTSIDE_CLICK_POLL_MS = 16;
+const REVEAL_AUTO_DISMISS_MS = 5000;
 const HUD_WIDTH_GROWTH_RATIO = 0.4;
 
 function clampToWorkArea(value, min, max) {
@@ -123,10 +124,6 @@ function evaluateShouldShow({
   sessionHudEnabled,
   sessionHudPinned,
   clickRevealed,
-  inHotZone,
-  now,
-  visibleHoldUntil,
-  hideGraceMs,
   petHidden,
   miniMode,
   miniTransitioning,
@@ -144,15 +141,8 @@ function evaluateShouldShow({
   if (sessionHudPinned === true) return { show: true, nextHoldUntil: 0 };
   if (clickRevealed !== true) return { show: false, nextHoldUntil: 0 };
 
-  // revealed 态：hot zone 续命 + grace period
-  let nextHoldUntil = Number.isFinite(visibleHoldUntil) ? visibleHoldUntil : 0;
-  const tNow = Number.isFinite(now) ? now : 0;
-  const grace = Number.isFinite(hideGraceMs) ? hideGraceMs : 0;
-  if (inHotZone) {
-    nextHoldUntil = tNow + grace;
-  }
-  const show = inHotZone || tNow < nextHoldUntil;
-  return { show, nextHoldUntil };
+  // A revealed card stays open until an explicit dismissal or eligibility loss.
+  return { show: true, nextHoldUntil: 0 };
 }
 
 function getHudMaxExpandedRows(showStateLabels = true) {
@@ -278,10 +268,10 @@ function computeSessionHudBounds({ hitRect, anchorRect, workArea, width = HUD_WI
   };
 }
 
-function getHudWidth(showElapsed = true, showStateLabels = true, showContextUsage = false) {
+function getHudWidth(showStateLabels = true, showContextUsage = false) {
   const base = showStateLabels === false
-    ? (showElapsed === false ? HUD_WIDTH_COMPACT : HUD_WIDTH)
-    : (showElapsed === false ? HUD_WIDTH_LABELS_COMPACT : HUD_WIDTH_LABELS);
+    ? HUD_WIDTH_COMPACT
+    : HUD_WIDTH_LABELS_COMPACT;
   if (showStateLabels !== false && showContextUsage !== true) {
     return Math.max(HUD_WIDTH_COMPACT, base - HUD_LABELS_ONLY_WIDTH_TRIM);
   }
@@ -307,9 +297,8 @@ module.exports = function initSessionHud(ctx) {
   let latestSnapshot = null;
   let hudFlippedAbove = false;
   let lastReservedOffset = 0;
-  const hiddenDestroyTimers = { hud: null, ring: null };
   // Pet-attached quota ring — a sibling floating window (quota-ring.html) that
-  // shares this module's reveal / pin / grace / hot-zone lifecycle. The HUD now
+  // shares this module's reveal / pin / explicit-dismiss lifecycle. The HUD now
   // shows sessions only; the ring shows account quota beside the pet.
   let ringWindow = null;
   let ringDidFinishLoad = false;
@@ -321,7 +310,85 @@ module.exports = function initSessionHud(ctx) {
   let lastHudHeight = HUD_ROW_HEIGHT;
   let pollTimer = null;
   let clickRevealed = false;
-  let visibleHoldUntil = 0;
+  let autoDismissTimer = null;
+  const mouseButtonReader = ctx.mouseButtonReader || createMouseButtonReader();
+  let outsideClickTimer = null;
+  let lastMouseButtons = null;
+
+  function cancelAutoDismiss() {
+    if (autoDismissTimer !== null) clearTimeout(autoDismissTimer);
+    autoDismissTimer = null;
+  }
+
+  function scheduleAutoDismiss({ restart = false } = {}) {
+    if (!isRevealPollingNeeded()) return;
+    if (autoDismissTimer !== null && !restart) return;
+    const visible = [hudWindow, ringWindow].some(win =>
+      win && !win.isDestroyed() && win.isVisible());
+    if (!visible) return;
+    cancelAutoDismiss();
+    const timer = setTimeout(() => {
+      if (autoDismissTimer !== timer) return;
+      autoDismissTimer = null;
+      dismissFromInteraction();
+    }, REVEAL_AUTO_DISMISS_MS);
+    autoDismissTimer = timer;
+    timer?.unref?.();
+  }
+
+  function stopOutsideClickPoll() {
+    if (outsideClickTimer !== null) clearTimeout(outsideClickTimer);
+    outsideClickTimer = null;
+    lastMouseButtons = null;
+    mouseButtonReader.stop();
+  }
+
+  function dismissFromInteraction() {
+    // A fixed card keeps its existing always-visible contract.
+    if (ctx.sessionHudPinned === true || !clickRevealed) return;
+    clearReveal();
+    syncSessionHud(latestSnapshot, { sendSnapshot: false });
+  }
+
+  function isPointOnPetOrCard(point) {
+    const bounds = typeof ctx.getPetWindowBounds === "function" ? ctx.getPetWindowBounds() : null;
+    const hit = bounds && typeof ctx.getHitRectScreen === "function" ? ctx.getHitRectScreen(bounds) : null;
+    if (pointInExpandedRect(point, hit, 0)) return true;
+    for (const win of [hudWindow, ringWindow]) {
+      if (!win || win.isDestroyed() || !win.isVisible()) continue;
+      const rect = win.getBounds();
+      if (pointInExpandedRect(point, {
+        left: rect.x, top: rect.y, right: rect.x + rect.width, bottom: rect.y + rect.height,
+      }, 0)) return true;
+    }
+    return false;
+  }
+
+  function pollOutsideClick() {
+    outsideClickTimer = null;
+    if (!isRevealPollingNeeded()) { stopOutsideClickPoll(); return; }
+    const buttons = mouseButtonReader.read();
+    if (!Number.isInteger(buttons)) { stopOutsideClickPoll(); return; }
+    const pressed = lastMouseButtons !== null && (buttons & ~lastMouseButtons) !== 0;
+    lastMouseButtons = buttons;
+    if (pressed) {
+      let point = null;
+      try { point = screen.getCursorScreenPoint(); } catch {}
+      if (point && !isPointOnPetOrCard(point)) dismissFromInteraction();
+    }
+    if (isRevealPollingNeeded()) {
+      outsideClickTimer = setTimeout(pollOutsideClick, OUTSIDE_CLICK_POLL_MS);
+      outsideClickTimer?.unref?.();
+    }
+  }
+
+  function startOutsideClickPoll() {
+    if (outsideClickTimer !== null) return;
+    lastMouseButtons = mouseButtonReader.read();
+    if (!Number.isInteger(lastMouseButtons)) return;
+    outsideClickTimer = setTimeout(pollOutsideClick, OUTSIDE_CLICK_POLL_MS);
+    outsideClickTimer?.unref?.();
+  }
 
   function getCurrentSnapshot() {
     return typeof ctx.getSessionSnapshot === "function"
@@ -354,7 +421,7 @@ module.exports = function initSessionHud(ctx) {
     return clickRevealed;
   }
 
-  function isAutoHidePollingNeeded() {
+  function isRevealPollingNeeded() {
     if (!baseEligible(latestSnapshot)) return false;
     if (ctx.sessionHudPinned === true) return false;
     return clickRevealed === true;
@@ -374,173 +441,42 @@ module.exports = function initSessionHud(ctx) {
     return rects;
   }
 
-  function computeExpectedHudContentBounds(snapshot, scale = getTextScale()) {
-    if (!ctx.win || ctx.win.isDestroyed()) return null;
-    const petBounds = typeof ctx.getPetWindowBounds === "function" ? ctx.getPetWindowBounds() : null;
-    if (!petBounds) return null;
-    const hitRect = typeof ctx.getHitRectScreen === "function"
-      ? ctx.getHitRectScreen(petBounds)
-      : null;
-    const anchorRect = typeof ctx.getSessionHudAnchorRect === "function"
-      ? ctx.getSessionHudAnchorRect(petBounds)
-      : null;
-    const cx = petBounds.x + petBounds.width / 2;
-    const cy = petBounds.y + petBounds.height / 2;
-    const workArea = typeof ctx.getNearestWorkArea === "function"
-      ? ctx.getNearestWorkArea(cx, cy)
-      : { x: 0, y: 0, width: 1280, height: 800 };
-    const width = getHudWidth(
-      ctx.sessionHudShowElapsed !== false,
-      ctx.sessionHudShowStateLabels !== false,
-      ctx.sessionHudShowContextUsage !== false
-    );
-    const widthScale = getHudWidthScale(scale);
-    // Must carry the SAME scale the visible HUD was laid out with — an
-    // unscaled expectation makes the auto-hide hot zone smaller than the
-    // real window, so the cursor "leaves" while still visually over it.
-    const hudEnabled = ctx.sessionHudEnabled !== false;
-    const hasSessions = snapshotHasVisibleSessions(snapshot);
-    let contentBounds = null;
-    if (hudEnabled && hasSessions) {
-      const layout = computeHudLayout(snapshot, { showStateLabels: ctx.sessionHudShowStateLabels !== false });
-      const height = computeHudHeight(layout.rowCount);
-      const computed = computeSessionHudBounds({ hitRect, anchorRect, workArea, width, height, scale, widthScale });
-      contentBounds = computed && computed.contentBounds;
-    }
-    const coinCount = countQuotaCoins(snapshot, ctx.sessionHudShowQuota !== false);
-    const ring = coinCount > 0
-      ? ringGeom.computeQuotaRingBounds({
-        hitRect,
-        anchorRect,
-        workArea,
-        coinCount,
-        scale,
-        avoidRects: collectRingAvoidRects(contentBounds),
-      })
-      : null;
-    return { hitRect, contentBounds, ringContentBounds: ring && ring.contentBounds };
-  }
-
-  function evaluateAutoHideCursorNow({ syncOnChange = true } = {}) {
-    if (!isAutoHidePollingNeeded()) {
-      stopAutoHidePoll();
-      return false;
-    }
-    let cursor = null;
-    try {
-      cursor = screen.getCursorScreenPoint();
-    } catch (_err) {
-      cursor = null;
-    }
-    let inHotZone = false;
-    if (cursor) {
-      // Single scale resolve for the whole evaluation: expected bounds and
-      // pad must describe the same (scaled) HUD the user actually sees.
-      const scale = getTextScale();
-      const expected = computeExpectedHudContentBounds(latestSnapshot, scale);
-      const hotZone = computeAutoHideHotZone({
-        petHitRect: expected && expected.hitRect,
-        expectedHudContentBounds: expected && expected.contentBounds,
-        expectedRingContentBounds: expected && expected.ringContentBounds,
-        pad: Math.round(HOT_ZONE_PAD * scale),
-      });
-      inHotZone = pointInHotZone(cursor, hotZone);
-    }
-    const now = Date.now();
-    const result = evaluateShouldShow({
-      snapshot: latestSnapshot,
-      sessionHudEnabled: ctx.sessionHudEnabled,
-      sessionHudPinned: ctx.sessionHudPinned,
-      clickRevealed,
-      inHotZone,
-      now,
-      visibleHoldUntil,
-      hideGraceMs: HIDE_GRACE_MS,
-      petHidden: ctx.petHidden,
-      miniMode: getMiniMode(),
-      miniTransitioning: getMiniTransitioning(),
-      showQuota: ctx.sessionHudShowQuota !== false,
-    });
-    visibleHoldUntil = result.nextHoldUntil;
-    // In revealed state, poll detecting !show means user moved away past grace.
-    // Clear clickRevealed so subsequent ticks stop polling.
-    const wasRevealed = clickRevealed;
-    if (wasRevealed && !result.show && ctx.sessionHudPinned !== true) {
-      clickRevealed = false;
-      visibleHoldUntil = 0;
-      if (syncOnChange) {
-        syncSessionHud(latestSnapshot, { sendSnapshot: false });
-      }
-      return true;
-    }
-    return false;
-  }
-
-  function pollAutoHideCursor() {
+  function pollRevealEligibility() {
     pollTimer = null;
-    if (!isAutoHidePollingNeeded()) {
-      stopAutoHidePoll();
+    if (!isRevealPollingNeeded()) {
+      stopRevealPolling();
+      syncSessionHud(latestSnapshot, { sendSnapshot: false });
       return;
     }
-    evaluateAutoHideCursorNow();
-    schedulePollTick();
+    if (isRevealPollingNeeded()) scheduleEligibilityTick();
   }
 
-  function schedulePollTick() {
+  function scheduleEligibilityTick() {
     if (pollTimer) return;
-    pollTimer = setTimeout(pollAutoHideCursor, AUTO_HIDE_POLL_MS);
+    pollTimer = setTimeout(pollRevealEligibility, ELIGIBILITY_POLL_MS);
   }
 
-  function startAutoHidePoll() {
-    evaluateAutoHideCursorNow({ syncOnChange: false });
-    if (!isAutoHidePollingNeeded()) return;
-    if (!pollTimer) schedulePollTick();
+  function startRevealPolling() {
+    if (!isRevealPollingNeeded()) return;
+    if (!pollTimer) scheduleEligibilityTick();
+    startOutsideClickPoll();
   }
 
-  function stopAutoHidePoll() {
+  function stopRevealPolling() {
+    cancelAutoDismiss();
+    stopOutsideClickPoll();
     if (pollTimer) {
       clearTimeout(pollTimer);
       pollTimer = null;
     }
     clickRevealed = false;
-    visibleHoldUntil = 0;
-  }
-
-  function managedWindow(kind) {
-    return kind === "ring" ? ringWindow : hudWindow;
-  }
-
-  function cancelHiddenDestroy(kind) {
-    const kinds = kind ? [kind] : ["hud", "ring"];
-    for (const key of kinds) {
-      const timer = hiddenDestroyTimers[key];
-      if (!timer) continue;
-      clearTimeout(timer);
-      hiddenDestroyTimers[key] = null;
-    }
-  }
-
-  function scheduleHiddenDestroy(kind) {
-    // Reclaiming a hidden HUD/ring renderer is a low-power-idle-mode behavior;
-    // default mode keeps both windows warm so reveals stay instant.
-    if (!ctx.lowPowerIdleMode) return;
-    const win = managedWindow(kind);
-    if (!win || win.isDestroyed() || win.isVisible()) return;
-    if (hiddenDestroyTimers[kind]) return;
-    hiddenDestroyTimers[kind] = setTimeout(() => {
-      hiddenDestroyTimers[kind] = null;
-      // Re-check the flag: the user may have left low-power mode while hidden.
-      if (!ctx.lowPowerIdleMode) return;
-      const current = managedWindow(kind);
-      if (!current || current.isDestroyed() || current.isVisible()) return;
-      current.destroy();
-    }, HIDDEN_WINDOW_DESTROY_MS);
   }
 
   // Internal: clear revealed state without syncing. Caller decides next sync.
   function clearReveal() {
+    cancelAutoDismiss();
+    stopOutsideClickPoll();
     clickRevealed = false;
-    visibleHoldUntil = 0;
     if (pollTimer) {
       clearTimeout(pollTimer);
       pollTimer = null;
@@ -556,24 +492,22 @@ module.exports = function initSessionHud(ctx) {
     if (!baseEligible(latestSnapshot)) return;
     if (ctx.sessionHudPinned === true) return;     // pinned already always-show
     if (clickRevealed) {
-      // Already revealed — refresh grace as a click tolerance.
-      visibleHoldUntil = Date.now() + HIDE_GRACE_MS;
+      // Another double-click grants a fresh reading interval.
+      scheduleAutoDismiss({ restart: true });
       return;
     }
     clickRevealed = true;
-    visibleHoldUntil = Date.now() + HIDE_GRACE_MS;  // seed
     syncSessionHud(latestSnapshot, { sendSnapshot: true });
-    startAutoHidePoll();
+    startRevealPolling();
   }
 
   // Public API: settings effect router calls this when sessionHudPinned flips.
   // Router has already updated ctx.sessionHudPinned before calling.
   function handlePinnedChanged(next) {
     if (next === true) {
-      stopAutoHidePoll();
+      stopRevealPolling();
       // Pinned now — HUD always shows via shouldShow. Clear any stale reveal.
       clickRevealed = false;
-      visibleHoldUntil = 0;
       syncSessionHud(latestSnapshot);
       return;
     }
@@ -584,11 +518,9 @@ module.exports = function initSessionHud(ctx) {
       (hudWindow && !hudWindow.isDestroyed() && hudWindow.isVisible())
       || (ringWindow && !ringWindow.isDestroyed() && ringWindow.isVisible());
     if (wasVisible && baseEligible(latestSnapshot)) {
-      // Seed revealed state so the HUD stays visible until the user moves
-      // away (grace period), preserving the on-screen experience.
+      // Unpinning starts a fresh reading interval when the card is shown.
       clickRevealed = true;
-      visibleHoldUntil = Date.now() + HIDE_GRACE_MS;
-      startAutoHidePoll();
+      startRevealPolling();
       syncSessionHud(latestSnapshot);
     } else {
       syncSessionHud(latestSnapshot);
@@ -596,8 +528,8 @@ module.exports = function initSessionHud(ctx) {
   }
 
   function syncAutoHidePollLifecycle() {
-    if (isAutoHidePollingNeeded()) startAutoHidePoll();
-    else stopAutoHidePoll();
+    if (isRevealPollingNeeded()) startRevealPolling();
+    else stopRevealPolling();
   }
 
   function sendSnapshot(snapshot = latestSnapshot) {
@@ -606,7 +538,6 @@ module.exports = function initSessionHud(ctx) {
     hudWindow.webContents.send("session-hud:session-snapshot", {
       ...snapshot,
       hudShowStateLabels: ctx.sessionHudShowStateLabels !== false,
-      hudShowElapsed: ctx.sessionHudShowElapsed !== false,
       hudShowContextUsage: ctx.sessionHudShowContextUsage !== false,
       hudShowQuota: ctx.sessionHudShowQuota !== false,
       hudPinned: ctx.sessionHudPinned === true,
@@ -640,7 +571,6 @@ module.exports = function initSessionHud(ctx) {
   // non-focusable, always-on-top panel) — only the preload/page and the
   // snapshot channel differ.
   function ensureQuotaRing() {
-    cancelHiddenDestroy("ring");
     if (ringWindow && !ringWindow.isDestroyed()) return ringWindow;
     if (!ctx.win || ctx.win.isDestroyed()) return null;
 
@@ -684,7 +614,6 @@ module.exports = function initSessionHud(ctx) {
       syncSessionHud();
     });
     ringWindow.on("closed", () => {
-      cancelHiddenDestroy("ring");
       ringWindow = null;
       ringDidFinishLoad = false;
     });
@@ -694,18 +623,17 @@ module.exports = function initSessionHud(ctx) {
 
   function hideQuotaRing() {
     if (ringWindow && !ringWindow.isDestroyed()) ringWindow.hide();
-    scheduleHiddenDestroy("ring");
   }
 
   function showQuotaRing(win) {
     if (!win || win.isDestroyed() || !ringDidFinishLoad) return;
-    cancelHiddenDestroy("ring");
     if (!win.isVisible()) {
       win.showInactive();
       keepOutOfTaskbar(win);
       if (isMac) deferMacFloatingVisibility(ctx, win);
       else if (typeof ctx.reapplyMacVisibility === "function") ctx.reapplyMacVisibility();
     }
+    scheduleAutoDismiss();
   }
 
   function computeRingBounds(snapshot, scale = getTextScale(), avoidRects = []) {
@@ -732,14 +660,12 @@ module.exports = function initSessionHud(ctx) {
   }
 
   function ensureSessionHud() {
-    cancelHiddenDestroy("hud");
     if (hudWindow && !hudWindow.isDestroyed()) return hudWindow;
     if (!ctx.win || ctx.win.isDestroyed()) return null;
 
     didFinishLoad = false;
     hudFlippedAbove = false;
     const hudWidth = getHudWidth(
-      ctx.sessionHudShowElapsed !== false,
       ctx.sessionHudShowStateLabels !== false,
       ctx.sessionHudShowContextUsage !== false
     );
@@ -786,7 +712,6 @@ module.exports = function initSessionHud(ctx) {
       syncSessionHud();
     });
     hudWindow.on("closed", () => {
-      cancelHiddenDestroy("hud");
       hudWindow = null;
       didFinishLoad = false;
       hudFlippedAbove = false;
@@ -800,7 +725,6 @@ module.exports = function initSessionHud(ctx) {
     hudFlippedAbove = false;
     if (hudWindow && !hudWindow.isDestroyed()) hudWindow.hide();
     notifyReservedOffsetIfChanged();
-    scheduleHiddenDestroy("hud");
   }
 
   function computeBounds(snapshot, scale = getTextScale()) {
@@ -821,7 +745,6 @@ module.exports = function initSessionHud(ctx) {
     const layout = computeHudLayout(snapshot, { showStateLabels: ctx.sessionHudShowStateLabels !== false });
     const height = computeHudHeight(layout.rowCount);
     const width = getHudWidth(
-      ctx.sessionHudShowElapsed !== false,
       ctx.sessionHudShowStateLabels !== false,
       ctx.sessionHudShowContextUsage !== false
     );
@@ -832,13 +755,13 @@ module.exports = function initSessionHud(ctx) {
 
   function showSessionHud(win) {
     if (!win || win.isDestroyed() || !didFinishLoad) return;
-    cancelHiddenDestroy("hud");
     if (!win.isVisible()) {
       win.showInactive();
       keepOutOfTaskbar(win);
       if (isMac) deferMacFloatingVisibility(ctx, win);
       else if (typeof ctx.reapplyMacVisibility === "function") ctx.reapplyMacVisibility();
     }
+    scheduleAutoDismiss();
     notifyReservedOffsetIfChanged();
   }
 
@@ -928,8 +851,7 @@ module.exports = function initSessionHud(ctx) {
   }
 
   function cleanup() {
-    stopAutoHidePoll();
-    cancelHiddenDestroy();
+    stopRevealPolling();
     if (hudWindow && !hudWindow.isDestroyed()) hudWindow.destroy();
     hudWindow = null;
     didFinishLoad = false;
@@ -955,6 +877,7 @@ module.exports = function initSessionHud(ctx) {
     revealFromPet,
     handlePinnedChanged,
     clearReveal,
+    dismissFromInteraction,
   };
 };
 
@@ -991,9 +914,8 @@ module.exports.__test = {
     EDGE_MARGIN,
     HUD_BORDER_Y,
     HOT_ZONE_PAD,
-    AUTO_HIDE_POLL_MS,
-    HIDE_GRACE_MS,
-    HIDDEN_WINDOW_DESTROY_MS,
+    ELIGIBILITY_POLL_MS,
+    REVEAL_AUTO_DISMISS_MS,
     HUD_WIDTH_GROWTH_RATIO,
   },
 };

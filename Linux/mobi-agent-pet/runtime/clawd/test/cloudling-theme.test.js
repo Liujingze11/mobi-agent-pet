@@ -59,12 +59,7 @@ describe("built-in Cloudling theme", () => {
     assert.strictEqual(theme.trustedRuntime.scriptedSvgCycleMs["cloudling-sweeping.svg"], 4550);
     assert.strictEqual(theme.trustedRuntime.scriptedSvgCycleMs["cloudling-react-drag.svg"], undefined);
     assert.deepStrictEqual(rendererConfig.trustedScriptedSvgFiles, CLOUDLING_SCRIPTED_FILES);
-    assert.deepStrictEqual(rendererConfig.rendering.lowPowerStaticImageOverrides, {
-      sleeping: {
-        from: "cloudling-sleeping.svg",
-        to: "cloudling-sleeping-static.png",
-      },
-    });
+    assert.equal(rendererConfig.rendering.lowPowerStaticImageOverrides, undefined);
     assert.strictEqual(theme.miniMode.states["mini-crabwalk"][0], "cloudling-mini-crabwalk.svg");
     assert.strictEqual(theme.trustedRuntime.scriptedSvgFiles.includes("cloudling-react-drag.svg"), false);
 
@@ -189,7 +184,7 @@ describe("built-in Cloudling theme", () => {
     }
   });
 
-  it("lets low-power idle mode stop Cloudling idle RAF loops", () => {
+  it("keeps Cloudling animation RAF loops independent of the removed idle power feature", () => {
     const checks = [
       {
         file: "cloudling-idle.svg",
@@ -210,9 +205,8 @@ describe("built-in Cloudling theme", () => {
       const sourceCopy = fs.readFileSync(path.join(__dirname, "..", source), "utf8");
 
       for (const content of [asset, sourceCopy]) {
-        assert.ok(content.includes("window.__clawdSetLowPowerPaused = paused =>"), `${file} should expose a low-power pause API`);
-        assert.ok(content.includes("cancelAnimationFrame(rafId)"), `${file} should cancel its RAF while paused`);
-        assert.ok(content.includes("function scheduleLoop()"), `${file} should restart RAF explicitly on resume`);
+        assert.ok(!content.includes("__clawdSetLowPowerPaused"), `${file} must not expose the retired pause API`);
+        assert.ok(content.includes("function scheduleLoop()"), `${file} should schedule its animation RAF`);
       }
     }
   });

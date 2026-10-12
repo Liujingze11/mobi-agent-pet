@@ -91,9 +91,6 @@
         "cloudling-sleeping.svg": {
           "visibility": "hidden"
         },
-        "cloudling-sleeping-static.png": {
-          "visibility": "hidden"
-        },
         "cloudling-sleeping-to-idle.svg": {
           "visibility": "hidden"
         },
@@ -253,13 +250,7 @@
     "mode": "full"
   },
   "rendering": {
-    "svgChannel": "auto",
-    "lowPowerStaticImageOverrides": {
-      "sleeping": {
-        "from": "cloudling-sleeping.svg",
-        "to": "cloudling-sleeping-static.png"
-      }
-    }
+    "svgChannel": "auto"
   },
   "workingTiers": [
     {

@@ -50,13 +50,13 @@ describe("prefs.getDefaults", () => {
     assert.strictEqual(d.autoStartWithClaude, false);
     assert.deepStrictEqual(d.petTint, {});
     assert.deepStrictEqual(d.petAccessory, {});
-    assert.strictEqual(d.lowPowerIdleMode, false);
-    assert.strictEqual(d.allowEdgePinning, false);
-    assert.strictEqual(d.disableMiniMode, false);
+    assert.strictEqual(d.lowPowerIdleMode, undefined);
+    assert.strictEqual(d.allowEdgePinning, undefined);
+    assert.strictEqual(d.disableMiniMode, undefined);
     assert.strictEqual(d.keepSizeAcrossDisplays, false);
     assert.strictEqual(d.sessionHudEnabled, true);
     assert.strictEqual(d.sessionHudShowStateLabels, true);
-    assert.strictEqual(d.sessionHudShowElapsed, false);
+    assert.strictEqual(d.sessionHudShowElapsed, undefined);
     assert.strictEqual(d.sessionHudShowContextUsage, true);
     assert.strictEqual(d.sessionHudShowQuota, true);
     assert.strictEqual(d.claudeQuotaCollectionEnabled, false);
@@ -218,20 +218,20 @@ describe("prefs.validate", () => {
     assert.strictEqual(v.soundVolume, 1);
     assert.deepStrictEqual(v.petTint, {});
     assert.deepStrictEqual(v.petAccessory, {});
-    assert.strictEqual(v.lowPowerIdleMode, false);
+    assert.strictEqual(v.lowPowerIdleMode, undefined);
     assert.strictEqual(v.x, 0);
     assert.strictEqual(v.bubbleFollowPet, true);
     assert.strictEqual(v.sessionHudEnabled, true);
     assert.strictEqual(v.sessionHudShowStateLabels, true);
-    assert.strictEqual(v.sessionHudShowElapsed, false);
+    assert.strictEqual(v.sessionHudShowElapsed, undefined);
     assert.strictEqual(v.sessionHudShowContextUsage, true);
     assert.strictEqual(v.sessionHudCleanupDetached, true);
     assert.strictEqual(v.hideBubbles, false);
     assert.strictEqual(v.permissionBubblesEnabled, true);
     assert.strictEqual(v.notificationBubbleAutoCloseSeconds, 6);
     assert.strictEqual(Object.hasOwn(v, "updateBubbleAutoCloseSeconds"), false);
-    assert.strictEqual(v.allowEdgePinning, false);
-    assert.strictEqual(v.disableMiniMode, false);
+    assert.strictEqual(v.allowEdgePinning, undefined);
+    assert.strictEqual(v.disableMiniMode, undefined);
     assert.strictEqual(v.savedPixelWidth, 0);
     assert.strictEqual(v.savedPixelHeight, 0);
     assert.strictEqual(v.savedPixelWorkArea, null);
@@ -360,15 +360,15 @@ describe("prefs.validate", () => {
     assert.strictEqual(v.lang, "ko");
     assert.strictEqual(v.soundMuted, true);
     assert.strictEqual(v.soundVolume, 0.4);
-    assert.strictEqual(v.lowPowerIdleMode, true);
+    assert.strictEqual(v.lowPowerIdleMode, undefined);
     assert.strictEqual(v.bubbleFollowPet, true);
     assert.strictEqual(v.sessionHudEnabled, false);
     assert.strictEqual(v.sessionHudShowStateLabels, false);
-    assert.strictEqual(v.sessionHudShowElapsed, false);
+    assert.strictEqual(v.sessionHudShowElapsed, undefined);
     assert.strictEqual(v.sessionHudShowContextUsage, false);
     assert.strictEqual(v.sessionHudCleanupDetached, true);
-    assert.strictEqual(v.allowEdgePinning, true);
-    assert.strictEqual(v.disableMiniMode, true);
+    assert.strictEqual(v.allowEdgePinning, undefined);
+    assert.strictEqual(v.disableMiniMode, undefined);
     assert.strictEqual(v.keepSizeAcrossDisplays, true);
     assert.strictEqual(v.savedPixelWidth, 286);
     assert.strictEqual(v.savedPixelHeight, 286);
@@ -376,7 +376,7 @@ describe("prefs.validate", () => {
     assert.strictEqual(v.x, 100);
     assert.strictEqual(v.y, -50);
     assert.strictEqual(v.size, "P:15");
-    assert.strictEqual(v.miniEdge, "left");
+    assert.strictEqual(v.miniEdge, undefined);
     assert.strictEqual(v.theme, "calico");
     assert.deepStrictEqual(v.petTint, { clawd: "gold", cloudling: "matcha" });
     assert.deepStrictEqual(v.petAccessory, { clawd: "wizard-hat", cloudling: "halo" });
@@ -1097,32 +1097,31 @@ describe("prefs.migrate v8 → v9 (auto-approve auto-pilot)", () => {
   });
 });
 
-describe("prefs.migrate v9 → v10 (compact HUD defaults are fresh-install only)", () => {
-  it("backfills the old HUD defaults for pre-v10 files missing the keys", () => {
-    // save() normally bakes every key, but files from pre-HUD-toggle builds
-    // (or hand-trimmed ones) lack these two — without the backfill validate()
-    // would hand existing users the flipped fresh-install defaults.
+describe("prefs.migrate v9 → v10 (cleanup defaults are fresh-install only)", () => {
+  it("preserves the old cleanup default and retires elapsed for pre-v10 files", () => {
+    // Cleanup keeps its earlier default for upgrades. Elapsed is retired
+    // for every install, even when an old preferences file contains it.
     for (const version of [8, 9]) {
       const validated = prefs.validate(prefs.migrate({ version, lang: "en" }));
       assert.strictEqual(validated.version, prefs.CURRENT_VERSION);
-      assert.strictEqual(validated.sessionHudShowElapsed, true, `v${version}: elapsed stays on for upgraders`);
+      assert.strictEqual(validated.sessionHudShowElapsed, undefined, `v${version}: elapsed is retired for upgraders`);
       assert.strictEqual(validated.sessionHudCleanupDetached, false, `v${version}: cleanup stays off for upgraders`);
     }
   });
 
-  it("preserves explicit values that match neither old nor new default", () => {
+  it("preserves explicit cleanup values while dropping retired elapsed", () => {
     const validated = prefs.validate(prefs.migrate({
       version: 9,
       sessionHudShowElapsed: false,
       sessionHudCleanupDetached: true,
     }));
-    assert.strictEqual(validated.sessionHudShowElapsed, false);
+    assert.strictEqual(validated.sessionHudShowElapsed, undefined);
     assert.strictEqual(validated.sessionHudCleanupDetached, true);
   });
 
   it("fresh defaults (no prefs file, migrate never runs) get the compact HUD", () => {
     const d = prefs.getDefaults();
-    assert.strictEqual(d.sessionHudShowElapsed, false);
+    assert.strictEqual(d.sessionHudShowElapsed, undefined);
     assert.strictEqual(d.sessionHudCleanupDetached, true);
   });
 
@@ -1859,4 +1858,10 @@ describe("prefs.mapLocaleToLang (device locale → UI language)", () => {
       assert.ok(enumVals.has(prefs.mapLocaleToLang(probe)), `${probe} mapped outside enum`);
     }
   });
+});
+
+it('restores an old mini position as a normal pet without reviving retired controls',()=>{
+ const saved=prefs.validate({miniMode:true,miniEdge:'left',preMiniX:123,preMiniY:456,x:-50,y:700,allowEdgePinning:true,disableMiniMode:false,keepSizeAcrossDisplays:true});
+ for(const key of ['miniMode','miniEdge','preMiniX','preMiniY','allowEdgePinning','disableMiniMode'])assert.equal(Object.hasOwn(saved,key),false,key);
+ assert.equal(saved.x,123);assert.equal(saved.y,456);assert.equal(saved.keepSizeAcrossDisplays,true);
 });

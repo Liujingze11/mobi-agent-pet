@@ -26,7 +26,7 @@ function checkPermissionBubblePolicy(options = {}) {
       status: "suppressed-by-dnd",
       level: "info",
       detail: "DND is on; bubbles are suppressed",
-      textHint: "Right-click the pet and toggle DND off if you want bubbles back.",
+      textHint: "Open Settings from the tray to review the current mode if you want bubbles back.",
     };
   }
 

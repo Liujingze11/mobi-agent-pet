@@ -9,10 +9,9 @@ function requiredDependency(value, name) {
 
 function registerPetInteractionIpc(options = {}) {
   const ipcMain = requiredDependency(options.ipcMain, "ipcMain");
-  const showContextMenu = requiredDependency(options.showContextMenu, "showContextMenu");
   const moveWindowForDrag = requiredDependency(options.moveWindowForDrag, "moveWindowForDrag");
   const setIdlePaused = requiredDependency(options.setIdlePaused, "setIdlePaused");
-  const isMiniTransitioning = requiredDependency(options.isMiniTransitioning, "isMiniTransitioning");
+  const isMiniTransitioning = options.isMiniTransitioning || (() => false);
   const getCurrentState = requiredDependency(options.getCurrentState, "getCurrentState");
   const getCurrentSvg = requiredDependency(options.getCurrentSvg, "getCurrentSvg");
   const sendToRenderer = requiredDependency(options.sendToRenderer, "sendToRenderer");
@@ -25,8 +24,7 @@ function registerPetInteractionIpc(options = {}) {
   const beginDragSnapshot = requiredDependency(options.beginDragSnapshot, "beginDragSnapshot");
   const clearDragSnapshot = requiredDependency(options.clearDragSnapshot, "clearDragSnapshot");
   const syncHitWin = requiredDependency(options.syncHitWin, "syncHitWin");
-  const isMiniMode = requiredDependency(options.isMiniMode, "isMiniMode");
-  const checkMiniModeSnap = requiredDependency(options.checkMiniModeSnap, "checkMiniModeSnap");
+  const isMiniMode = options.isMiniMode || (() => false);
   const hasPetWindow = requiredDependency(options.hasPetWindow, "hasPetWindow");
   const getPetWindowBounds = requiredDependency(options.getPetWindowBounds, "getPetWindowBounds");
   const getCurrentPixelSize = requiredDependency(options.getCurrentPixelSize, "getCurrentPixelSize");
@@ -45,8 +43,6 @@ function registerPetInteractionIpc(options = {}) {
     options.repositionFloatingBubbles,
     "repositionFloatingBubbles"
   );
-  const exitMiniMode = requiredDependency(options.exitMiniMode, "exitMiniMode");
-  const getDisableMiniMode = options.getDisableMiniMode || (() => false);
   const getFocusableLocalHudSessionIds = requiredDependency(
     options.getFocusableLocalHudSessionIds,
     "getFocusableLocalHudSessionIds"
@@ -55,10 +51,6 @@ function registerPetInteractionIpc(options = {}) {
   const showDashboard = requiredDependency(options.showDashboard, "showDashboard");
   const focusSession = requiredDependency(options.focusSession, "focusSession");
   const revealSessionHud = requiredDependency(options.revealSessionHud, "revealSessionHud");
-  const setLowPowerIdlePaused = requiredDependency(
-    options.setLowPowerIdlePaused,
-    "setLowPowerIdlePaused"
-  );
   // #640: the editing-overlap dodge defers its hit-window click-through write
   // while a drag is in flight; drag-lock release must re-run the sync so the
   // state the drag ended in (overlapping or not) gets applied.
@@ -96,7 +88,6 @@ function registerPetInteractionIpc(options = {}) {
     disposers.push(() => ipcMain.removeListener(channel, listener));
   }
 
-  on("show-context-menu", showContextMenu);
   on("drag-move", () => { if (dragPollTimer === null) moveWindowForDrag(); });
   on("pet-visual-ready", (event) => recoverVisiblePetAfterRendererLoad(event));
   on("pet-action-frame", (event, payload) => {
@@ -111,12 +102,12 @@ function registerPetInteractionIpc(options = {}) {
     if (isMiniTransitioning()) return;
     sendToRenderer("state-change", getCurrentState(), getCurrentSvg());
   });
-  on("low-power-idle-paused", (_event, paused) => {
-    setLowPowerIdlePaused(!!paused);
-  });
 
-  on("drag-lock", (event, locked) => {
+  on("drag-lock", (event, locked, gestureId) => {
     if (options.isInputSender && !options.isInputSender(event)) return;
+    // A legitimate new click is independent of whether this mode permits
+    // held/movement. Never let an old drag result block that click's HUD.
+    if (locked) options.resetDragResult?.(gestureId);
     if (locked && options.isPetHeldAllowed && !options.isPetHeldAllowed()) return;
     if (!locked && getDragLocked?.() && hasPetWindow()) moveWindowForDrag();
     setDragLocked(!!locked);
@@ -124,7 +115,7 @@ function registerPetInteractionIpc(options = {}) {
     if (options.setPetHeld) options.setPetHeld(!!locked);
     if (locked) {
       setMouseOverPet(true);
-      beginDragSnapshot();
+      beginDragSnapshot(gestureId);
       startDragPolling();
     } else {
       stopDragPolling();
@@ -148,7 +139,6 @@ function registerPetInteractionIpc(options = {}) {
     stopDragPolling();
     try {
       if (!isMiniMode() && !isMiniTransitioning()) {
-        if (!getDisableMiniMode()) checkMiniModeSnap();
         if (isMiniMode() || isMiniTransitioning()) return;
         if (hasPetWindow()) {
           const virtualBounds = getPetWindowBounds();
@@ -176,11 +166,9 @@ function registerPetInteractionIpc(options = {}) {
     }
   });
 
-  on("exit-mini-mode", () => {
-    if (isMiniMode()) exitMiniMode();
-  });
 
   on("pet-interaction:reveal-session-hud", () => {
+    if (options.hasDragMoved?.()) return;
     revealSessionHud();
   });
 

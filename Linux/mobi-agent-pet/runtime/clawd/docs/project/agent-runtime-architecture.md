@@ -281,7 +281,7 @@ opencode、MiMo Code、OpenClaw 和 Hermes 是 plugin 形式集成的 agent；Op
 - hook 脚本通过 `getStablePid()` 遍历进程树定位终端应用 PID（Windows Terminal、VS Code、iTerm2 等）
 - 不要用 `process.ppid` 做轻量替代：Claude Code / hook 进程链里它通常只是临时 shell PID，不稳定也不可持久化
 - `source_pid` 跟随状态更新送到 `main.js`，用于 Sessions 菜单聚焦
-- 右键 Sessions 子菜单点击后，`focusTerminalWindow()` 会用 PowerShell（Windows）或 `osascript`（macOS）聚焦终端
+- 在任务卡片或 Sessions 面板点击会话后，`focusTerminalWindow()` 会用 PowerShell（Windows）或 `osascript`（macOS）聚焦终端
 - 远程场景只通过 Settings Remote SSH controller 部署：`runtimeKey → layout` 解析、
   installId/profileId/nonce 身份、原子 lease/fencing、持久部署事务和 profile 专属 ingress
   共同把远端 hook 事件回送到本地 Clawd；`scripts/remote-deploy.sh` 已 fail-fast 停用

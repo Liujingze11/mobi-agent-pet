@@ -36,13 +36,10 @@ const FAST_TICK_MS = 50;
 const BOOST_TICK_MS = 100;
 const IDLE_TICK_MS = 250;
 // Keep a low-rate cursor probe so new movement can leave the paused state.
-const LOW_POWER_IDLE_TICK_MS = 1000;
-const LOW_POWER_MINI_IDLE_TICK_MS = 2000;
 const REACTION_TICK_MS = 500;
 const BACKGROUND_TICK_MS = 750;
 const RECENT_MOUSE_MS = 2000;
 const POINTER_BRIDGE_STATES = new Set(["idle"]);
-const LOW_POWER_PAUSE_STATES = new Set(["idle"]);
 const POINTER_BRIDGE_EPSILON = 0.001;
 
 // ── Theme-driven state (refreshed on hot theme switch) ──
@@ -93,8 +90,6 @@ function startMainTick() {
 function getBaseTickDelay(idleNow, miniIdleNow) {
   if (ctx.miniMode && ctx.miniPeeked) return FAST_TICK_MS;
   if (ctx.dragLocked || ctx.menuOpen || ctx.miniTransitioning) return FAST_TICK_MS;
-  if (ctx.lowPowerIdlePaused && idleNow) return LOW_POWER_IDLE_TICK_MS;
-  if (ctx.lowPowerIdlePaused && miniIdleNow) return LOW_POWER_MINI_IDLE_TICK_MS;
   if (ctx.miniMode || miniIdleNow) return FAST_TICK_MS;
   if (idleNow) {
     if (Date.now() - mouseStillSince <= RECENT_MOUSE_MS) return BOOST_TICK_MS;
@@ -105,7 +100,6 @@ function getBaseTickDelay(idleNow, miniIdleNow) {
 }
 
 function applyBoost(delay) {
-  if (ctx.lowPowerIdlePaused && LOW_POWER_PAUSE_STATES.has(ctx.currentState)) return delay;
   const boostUntil = Number(ctx.forceEyeResendBoostUntil) || 0;
   if (boostUntil > Date.now()) return Math.min(delay, BOOST_TICK_MS);
   return delay;
@@ -146,7 +140,6 @@ function pointerBridgePayloadChanged(key, payload) {
 
 function sendPointerBridge(cursor, bounds) {
   if (typeof ctx.getAssetPointerPayload !== "function") return;
-  if (shouldSuppressPassiveIpc()) return;
   const key = getPointerBridgeKey();
   if (!key || !cursor || !bounds) return;
   if (ctx.currentState !== "mini-peek" && Number(ctx.eyePauseUntil) > Date.now()) return;
@@ -166,10 +159,6 @@ function sendPointerBridge(cursor, bounds) {
   lastPointerBridgeKey = key;
   lastPointerBridgePayload = payload;
   ctx.sendToRenderer("cloudling-pointer", payload);
-}
-
-function shouldSuppressPassiveIpc() {
-  return !!ctx.lowPowerIdlePaused && LOW_POWER_PAUSE_STATES.has(ctx.currentState);
 }
 
 function runMainTick() {
@@ -227,9 +216,7 @@ function runMainTickOnce() {
 
     // ── Cursor-over-pet tracking (for mini peek + eye tracking, NOT for input routing) ──
     const pointerBridgeKey = getPointerBridgeKey();
-    const suppressPassiveIpc = shouldSuppressPassiveIpc();
     const needsPointerBridgeBounds = !!pointerBridgeKey
-      && !suppressPassiveIpc
       && (moved || ctx.forceEyeResend || pointerBridgeKey !== lastPointerBridgeKey);
     const needsBounds = ctx.miniMode || moved || ctx.forceEyeResend || miniIdleNow || needsPointerBridgeBounds;
     let bounds = null;
@@ -302,10 +289,6 @@ function runMainTickOnce() {
       if (idleNow && !isMouseIdle && ctx.forceEyeResend) ctx.forceEyeResend = false;
       return nextDelay();
     }
-    if (shouldSuppressPassiveIpc() && !moved) {
-      if (ctx.forceEyeResend) ctx.forceEyeResend = false;
-      return nextDelay();
-    }
     if (ctx.eyePauseUntil) {
       if (Date.now() < ctx.eyePauseUntil) return nextDelay();
       ctx.eyePauseUntil = null;
@@ -313,7 +296,7 @@ function runMainTickOnce() {
     if (!moved && !ctx.forceEyeResend) return nextDelay();
 
     // ── Eye position calculation (shared by idle and mini-idle) ──
-    const skipDedup = ctx.forceEyeResend || (ctx.lowPowerIdlePaused && moved);
+    const skipDedup = ctx.forceEyeResend;
     ctx.forceEyeResend = false;
 
     if (!bounds) {

@@ -31,7 +31,6 @@ function createThemeRuntime(options = {}) {
   const getHitWindow = options.getHitWindow || (() => null);
   const getStateRuntime = options.getStateRuntime || (() => null);
   const getTickRuntime = options.getTickRuntime || (() => null);
-  const getMiniRuntime = options.getMiniRuntime || (() => null);
   const getAnimationOverridesRuntime = options.getAnimationOverridesRuntime || (() => null);
   const getFadeSequencer = options.getFadeSequencer || (() => null);
   const getPetWindowBounds = options.getPetWindowBounds || (() => null);
@@ -167,31 +166,17 @@ function createThemeRuntime(options = {}) {
 
     const stateRuntime = getStateRuntime();
     const tickRuntime = getTickRuntime();
-    const miniRuntime = getMiniRuntime();
     let preservedVirtualBounds = getPetWindowBounds();
 
     callMethod(stateRuntime, "cleanup");
     callMethod(tickRuntime, "cleanup");
-    callMethod(miniRuntime, "cleanup");
     // Do not clear pending permission bubbles, sessions, or displayHint here;
     // those are runtime concepts that survive a theme asset reload.
 
-    if (
-      typeof miniRuntime.getMiniMode === "function" &&
-      miniRuntime.getMiniMode() &&
-      (!newTheme.miniMode || !newTheme.miniMode.supported)
-    ) {
-      preservedVirtualBounds = null;
-      callMethod(miniRuntime, "exitMiniMode");
-    }
 
     setActiveTheme(newTheme);
-    callMethod(miniRuntime, "refreshTheme");
     callMethod(stateRuntime, "refreshTheme");
     callMethod(tickRuntime, "refreshTheme");
-    if (typeof miniRuntime.getMiniMode === "function" && miniRuntime.getMiniMode()) {
-      callMethod(miniRuntime, "handleDisplayChange");
-    }
 
     reloadInProgress = true;
 
@@ -202,7 +187,6 @@ function createThemeRuntime(options = {}) {
       reloadInProgress = false;
       if (
         preservedVirtualBounds &&
-        !(typeof miniRuntime.getMiniTransitioning === "function" && miniRuntime.getMiniTransitioning()) &&
         isLiveWindow(getRenderWindow())
       ) {
         applyPetWindowBounds(preservedVirtualBounds);

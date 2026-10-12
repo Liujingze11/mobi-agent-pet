@@ -325,22 +325,8 @@ describe("tick adaptive polling", () => {
     assert.ok(cursorCalls < 45, `expected fewer than 45 polls, got ${cursorCalls}`);
   });
 
-  it("uses a bounded one-second cursor probe while normal idle is low-power paused", () => {
-    const theme = cloneTheme(_defaultTheme);
 
-    ctx = makeCtx(theme, statesSeen);
-    ctx.lowPowerIdleMode = true;
-    ctx.lowPowerIdlePaused = true;
-    tickApi = loader.initTick(ctx);
-    tickApi.startMainTick();
-
-    for (let elapsed = 0; elapsed < 10000; elapsed += 100) mock.timers.tick(100);
-
-    assert.ok(cursorCalls >= 9, `expected at least 9 polls in 10s while paused, got ${cursorCalls}`);
-    assert.ok(cursorCalls <= 11, `expected at most 11 polls in 10s while paused, got ${cursorCalls}`);
-  });
-
-  it("keeps non-paused idle polling materially above the low-power paused rate", () => {
+  it("keeps ordinary idle cursor polling responsive", () => {
     const theme = cloneTheme(_defaultTheme);
 
     ctx = makeCtx(theme, statesSeen);
@@ -352,24 +338,8 @@ describe("tick adaptive polling", () => {
     assert.ok(cursorCalls > 30, `expected more than 30 polls in 10s while not paused, got ${cursorCalls}`);
   });
 
-  it("uses a bounded low-power polling rate for mini-idle", () => {
-    const theme = cloneTheme(_defaultTheme);
 
-    ctx = makeCtx(theme, statesSeen);
-    ctx.currentState = "idle";
-    ctx.currentSvg = "clawd-mini-idle.svg";
-    ctx.miniMode = true;
-    ctx.lowPowerIdlePaused = true;
-    tickApi = loader.initTick(ctx);
-    tickApi.startMainTick();
-
-    mock.timers.tick(10000);
-
-    assert.ok(cursorCalls > 0);
-    assert.ok(cursorCalls <= 6, `expected at most 6 polls in 10s while mini-idle paused, got ${cursorCalls}`);
-  });
-
-  it("does not throttle mini-peek with the low-power paused idle delay", () => {
+  it("keeps mini-peek responsive despite retired legacy pause flags", () => {
     const theme = cloneTheme(_defaultTheme);
 
     ctx = makeCtx(theme, statesSeen);
@@ -386,7 +356,7 @@ describe("tick adaptive polling", () => {
     assert.ok(cursorCalls >= 8, `expected fast mini-peek polling, got ${cursorCalls}`);
   });
 
-  it("does not throttle drag, menu-open, or mini-transition paths while low-power paused", () => {
+  it("keeps drag, menu-open, and mini-transition polling responsive", () => {
     const theme = cloneTheme(_defaultTheme);
     const cases = [
       ["drag", { dragLocked: true }],
@@ -409,7 +379,7 @@ describe("tick adaptive polling", () => {
     }
   });
 
-  it("forwards new mouse movement within one second while low-power paused", () => {
+  it("ignores legacy pause flags when forwarding new mouse movement", () => {
     const theme = cloneTheme(_defaultTheme);
     const eyeMoves = [];
 
@@ -429,7 +399,7 @@ describe("tick adaptive polling", () => {
     assert.equal(eyeMoves.length, 1);
   });
 
-  it("keeps eye-position dedup active before low-power pause engages", () => {
+  it("keeps ordinary eye-position dedup active", () => {
     const theme = cloneTheme(_defaultTheme);
     const eyeMoves = [];
 
@@ -451,7 +421,7 @@ describe("tick adaptive polling", () => {
     assert.equal(eyeMoves.length, 1);
   });
 
-  it("keeps eye-move IPC suppressed while the mouse remains still in low-power pause", () => {
+  it("keeps eye-move IPC deduplicated while the mouse remains still", () => {
     const theme = cloneTheme(_defaultTheme);
     const eyeMoves = [];
 
@@ -469,7 +439,7 @@ describe("tick adaptive polling", () => {
     assert.deepStrictEqual(eyeMoves, []);
   });
 
-  it("suppresses passive Cloudling pointer IPC while low-power paused", () => {
+  it("forwards Cloudling pointer IPC despite retired legacy pause flags", () => {
     const theme = cloneTheme(_defaultTheme);
     const pointers = [];
 
@@ -490,7 +460,7 @@ describe("tick adaptive polling", () => {
     cursor = { x: 95, y: 70 };
     mock.timers.tick(5000);
 
-    assert.deepStrictEqual(pointers, []);
+    assert.ok(pointers.length>0);assert.deepStrictEqual(pointers.at(-1),{x:95,y:70,inside:true});
   });
 
   it("cleanup clears the pending adaptive tick", () => {

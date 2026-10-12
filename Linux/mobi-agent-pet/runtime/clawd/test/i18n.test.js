@@ -130,7 +130,7 @@ describe("i18n locales", () => {
         appModeBackground: "后台模式",
         appModeAutomatic: "自动模式",
         appModeAutomaticConfirmTitle: "启用自动模式？",
-        appModeAutomaticConfirmDetail: "莫比 Pet 将在本次运行期间自动批准新的 Agent 权限请求。已有请求不会被处理，退出应用后授权自动失效。",
+        appModeAutomaticConfirmDetail: "自动确认支持的新请求，优先选择推荐项；无明确推荐时交给 Agent 决定。已有请求不处理，退出后授权失效。",
         appModeAutomaticConfirm: "启用自动模式",
       }
     );

@@ -22,16 +22,15 @@ if (window.hitAPI && window.hitAPI.onThemeConfig) {
 // --- State synced from main ---
 let currentSvg = null;
 let currentState = null;
-let miniMode = false;
 let dndEnabled = false;
 
 window.hitAPI.onStateSync((data) => {
+  if (data.dndEnabled === true) {
+    lastHudClick = null;
+    hudRevealedFromPointer = false;
+  }
   if (data.currentSvg !== undefined) currentSvg = data.currentSvg;
   if (data.currentState !== undefined) currentState = data.currentState;
-  if (data.miniMode !== undefined) {
-    miniMode = data.miniMode;
-    area.style.cursor = miniMode ? "default" : "";
-  }
   if (data.dndEnabled !== undefined) dndEnabled = data.dndEnabled;
 });
 
@@ -39,10 +38,44 @@ window.hitAPI.onStateSync((data) => {
 let isDragging = false;
 let didDrag = false;
 let mouseDownX, mouseDownY;
-let lastDragClientX;
+let lastDragScreenX;
 let dragReactionDirection = null;
 let dragMoveRAF = null;
-const DRAG_THRESHOLD = 3;
+const { dragThreshold: DRAG_THRESHOLD, doubleClickMs: DOUBLE_CLICK_MS,
+  doubleClickDistance: DOUBLE_CLICK_DISTANCE } = globalThis.MobiPetInputPolicy;
+let lastHudClick = null;
+let hudRevealedFromPointer = false;
+let pointerGesture = 0;
+
+function pointerPosition(event) {
+  return {
+    x: Number.isFinite(event.screenX) ? event.screenX : event.clientX,
+    y: Number.isFinite(event.screenY) ? event.screenY : event.clientY,
+  };
+}
+
+function recordHudClick(event) {
+  if (dndEnabled) { lastHudClick = null; return; }
+  const point = pointerPosition(event);
+  const now = Date.now();
+  if (lastHudClick && now - lastHudClick.time <= DOUBLE_CLICK_MS
+    && Math.abs(point.x - lastHudClick.x) <= DOUBLE_CLICK_DISTANCE
+    && Math.abs(point.y - lastHudClick.y) <= DOUBLE_CLICK_DISTANCE) {
+    lastHudClick = null;
+    hudRevealedFromPointer = true;
+    window.hitAPI.revealSessionHud();
+  } else {
+    lastHudClick = { ...point, time: now };
+  }
+}
+
+window.hitAPI.onDragStarted((result) => {
+  // A delayed main-process result belongs only to the matching press.
+  if (!result || result.gestureId !== pointerGesture) return;
+  didDrag = true;
+  lastHudClick = null;
+  hudRevealedFromPointer = false;
+});
 
 // --- Reaction state (tracked here to gate input) ---
 let isReacting = false;
@@ -75,15 +108,17 @@ function clearQueuedDragMove() {
 // --- Pointer handlers ---
 area.addEventListener("pointerdown", (e) => {
   if (e.button === 0) {
-    if (miniMode) { didDrag = false; return; }
+    hudRevealedFromPointer = false;
+    pointerGesture++;
     area.setPointerCapture(e.pointerId);
     isDragging = true;
     didDrag = false;
-    mouseDownX = e.clientX;
-    mouseDownY = e.clientY;
-    lastDragClientX = e.clientX;
+    const point = pointerPosition(e);
+    mouseDownX = point.x;
+    mouseDownY = point.y;
+    lastDragScreenX = point.x;
     dragReactionDirection = null;
-    window.hitAPI.dragLock(true);
+    window.hitAPI.dragLock(true, pointerGesture);
     area.classList.add("dragging");
     startDragReaction(null);
   }
@@ -91,18 +126,20 @@ area.addEventListener("pointerdown", (e) => {
 
 document.addEventListener("pointermove", (e) => {
   if (isDragging) {
+    const point = pointerPosition(e);
     if (!didDrag) {
-      const totalDx = e.clientX - mouseDownX;
-      const totalDy = e.clientY - mouseDownY;
+      const totalDx = point.x - mouseDownX;
+      const totalDy = point.y - mouseDownY;
       if (Math.abs(totalDx) > DRAG_THRESHOLD || Math.abs(totalDy) > DRAG_THRESHOLD) {
         didDrag = true;
+        lastHudClick = null;
         startDragReaction(totalDx < 0 ? "left" : (totalDx > 0 ? "right" : null));
       }
     } else {
-      const stepDx = e.clientX - lastDragClientX;
+      const stepDx = point.x - lastDragScreenX;
       if (stepDx !== 0) startDragReaction(stepDx < 0 ? "left" : "right");
     }
-    lastDragClientX = e.clientX;
+    lastDragScreenX = point.x;
     queueDragMove();
   }
 });
@@ -111,7 +148,7 @@ function stopDrag() {
   if (!isDragging) return;
   clearQueuedDragMove();
   isDragging = false;
-  window.hitAPI.dragLock(false);
+  window.hitAPI.dragLock(false, pointerGesture);
   area.classList.remove("dragging");
   if (didDrag) {
     window.hitAPI.dragEnd();
@@ -121,15 +158,22 @@ function stopDrag() {
 
 document.addEventListener("pointerup", (e) => {
   if (e.button !== 0) return;
+  const hadPress = isDragging;
+  // Transparent windows may deliver release before coalesced pointermove.
+  // Use the release coordinates too, so a drag cannot become a double-click.
+  const point = pointerPosition(e);
+  if (isDragging && (Math.abs(point.x - mouseDownX) > DRAG_THRESHOLD || Math.abs(point.y - mouseDownY) > DRAG_THRESHOLD)) {
+    didDrag = true;
+  }
   const wasDrag = didDrag;
   stopDrag();
-  if (wasDrag) return;
+  if (wasDrag) { lastHudClick = null; return; }
 
-  // macOS Ctrl-click is the system right-click gesture. Let the OS / our
-  // contextmenu handler deal with it; do NOT treat it as the Dashboard
-  // shortcut, and do NOT fall through to handleClick (would otherwise
-  // leak into the click accumulator).
+  // macOS Ctrl-click is the system right-click gesture. Suppress it like
+  // other pet context-menu requests, without treating it as a Dashboard
+  // shortcut or leaking into the click accumulator.
   if (isMac && e.ctrlKey && !e.metaKey) {
+    lastHudClick = null;
     resetClickAccumulator();
     return;
   }
@@ -137,17 +181,31 @@ document.addEventListener("pointerup", (e) => {
   // Dashboard shortcut: Cmd-click on mac, Ctrl-click elsewhere.
   const isDashboardShortcut = isMac ? e.metaKey : (e.ctrlKey && !e.metaKey);
   if (isDashboardShortcut) {
+    lastHudClick = null;
     resetClickAccumulator();
     window.hitAPI.showDashboard();
     return;
   }
 
+  if (e.ctrlKey || e.metaKey) lastHudClick = null;
+  else if (hadPress) recordHudClick(e);
   handleClick(e.clientX);
 });
 
-area.addEventListener("pointercancel", () => stopDrag());
-area.addEventListener("lostpointercapture", () => { if (isDragging) stopDrag(); });
-window.addEventListener("blur", stopDrag);
+document.addEventListener("dblclick", (e) => {
+  if (e.button !== 0 || e.ctrlKey || e.metaKey || dndEnabled || isDragging || didDrag) return;
+  e.preventDefault();
+  // Keep the native event for the OS-configured interval; the independent
+  // pointer pair handles jitter and held-state updates that suppress it.
+  if (hudRevealedFromPointer) { hudRevealedFromPointer = false; return; }
+  lastHudClick = null;
+  window.hitAPI.revealSessionHud();
+});
+
+function cancelDrag() { lastHudClick = null; hudRevealedFromPointer = false; stopDrag(); }
+area.addEventListener("pointercancel", cancelDrag);
+area.addEventListener("lostpointercapture", () => { if (isDragging) cancelDrag(); });
+window.addEventListener("blur", cancelDrag);
 
 // --- Click reaction logic (2-click = poke, 4-click = flail) ---
 const CLICK_WINDOW_MS = 400;
@@ -173,10 +231,6 @@ function canPlayReactionNow() {
 }
 
 function handleClick(clientX) {
-  if (miniMode) {
-    window.hitAPI.exitMiniMode();
-    return;
-  }
   if (isDragReacting) return;
 
   clickCount++;
@@ -217,9 +271,7 @@ function handleClick(clientX) {
       clickTimer = null;
       clickCount = 0;
       firstClickDir = null;
-      // A single click opens the same menu as a right-click. Waiting for the
-      // click window preserves the existing double-click pet reaction.
-      window.hitAPI.showContextMenu();
+      // A plain single click has no action.
     }, CLICK_WINDOW_MS);
   }
 }
@@ -268,7 +320,7 @@ function dragHasFiles(e) {
 
 if (!isMac) {
   area.addEventListener("dragover", (e) => {
-    if (miniMode || !dragHasFiles(e)) return;
+    if (!dragHasFiles(e)) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "copy";
   });
@@ -276,7 +328,6 @@ if (!isMac) {
   area.addEventListener("drop", (e) => {
     if (!dragHasFiles(e)) return;
     e.preventDefault();
-    if (miniMode) return;
     const paths = [];
     for (const file of e.dataTransfer.files || []) {
       const p = window.hitAPI.getPathForFile(file);
@@ -305,8 +356,7 @@ if (!isMac) {
   });
 }
 
-// --- Right-click context menu ---
+// --- Suppress pet context menus, including the browser default ---
 document.addEventListener("contextmenu", (e) => {
   e.preventDefault();
-  window.hitAPI.showContextMenu();
 });

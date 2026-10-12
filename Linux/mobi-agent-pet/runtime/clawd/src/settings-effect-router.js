@@ -23,7 +23,6 @@ const MENU_AFFECTING_KEYS = new Set([
   "theme",
   "size",
   "sessionAliases",
-  "disableMiniMode",
 ]);
 
 function requiredDependency(value, name) {
@@ -81,9 +80,6 @@ function createSettingsEffectRouter(options = {}) {
   const applyTextScale = options.applyTextScale || noop;
   const syncSessionHudVisibility = options.syncSessionHudVisibility || noop;
   const handleSessionHudPinnedChanged = options.handleSessionHudPinnedChanged || noop;
-  const reclampPetAfterEdgePinningChange = options.reclampPetAfterEdgePinningChange || noop;
-  const exitMiniMode = options.exitMiniMode || noop;
-  const getMiniMode = options.getMiniMode || (() => false);
   const getActiveTheme = options.getActiveTheme || (() => null);
   const refreshIdleVisual = options.refreshIdleVisual || noop;
   const rebuildAllMenus = options.rebuildAllMenus || noop;
@@ -109,18 +105,6 @@ function createSettingsEffectRouter(options = {}) {
     }
     if ("showDock" in changes) {
       safeCall(logWarn, "Clawd: applyDockVisibility failed:", applyDockVisibility);
-    }
-    if ("lowPowerIdleMode" in changes) {
-      sendToRenderer("low-power-idle-mode-change", changes.lowPowerIdleMode);
-      // If the HUD/ring were already hidden when low-power mode was enabled,
-      // no visibility transition would otherwise schedule their delayed
-      // destruction. Re-sync after mirrors update so hidden windows are
-      // reclaimed under the new policy.
-      safeCall(
-        logWarn,
-        "Clawd: low-power Session HUD sync failed:",
-        syncSessionHudVisibility
-      );
     }
     if ("petTint" in changes) {
       const activeTheme = getActiveTheme();
@@ -220,7 +204,6 @@ function createSettingsEffectRouter(options = {}) {
     if (
       "sessionHudEnabled" in changes
       || "sessionHudShowStateLabels" in changes
-      || "sessionHudShowElapsed" in changes
       || "sessionHudShowContextUsage" in changes
       || "sessionHudShowQuota" in changes
     ) {
@@ -266,16 +249,6 @@ function createSettingsEffectRouter(options = {}) {
       } catch (err) {
         warn(logWarn, "Clawd: stale cleanup config refresh failed:", err);
       }
-    }
-    if ("allowEdgePinning" in changes) {
-      safeCall(
-        logWarn,
-        "Clawd: allowEdgePinning re-clamp failed:",
-        reclampPetAfterEdgePinningChange
-      );
-    }
-    if ("disableMiniMode" in changes && changes.disableMiniMode && getMiniMode()) {
-      safeCall(logWarn, "Clawd: disableMiniMode exit failed:", exitMiniMode);
     }
     if ("idleVisual" in changes) {
       safeCall(logWarn, "Clawd: idle visual refresh failed:", refreshIdleVisual);

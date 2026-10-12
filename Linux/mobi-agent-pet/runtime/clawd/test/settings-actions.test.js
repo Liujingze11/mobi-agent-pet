@@ -60,12 +60,6 @@ describe("updateRegistry pure-data validators", () => {
     assert.strictEqual(updateRegistry.size("P:abc", deps).status, "error");
   });
 
-  it("miniEdge accepts only left/right", () => {
-    const deps = { snapshot: baseSnapshot };
-    assert.strictEqual(updateRegistry.miniEdge("left", deps).status, "ok");
-    assert.strictEqual(updateRegistry.miniEdge("right", deps).status, "ok");
-    assert.strictEqual(updateRegistry.miniEdge("top", deps).status, "error");
-  });
 
   it("petTint accepts only safe per-theme catalog selections", () => {
     const deps = { snapshot: baseSnapshot };
@@ -111,22 +105,20 @@ describe("updateRegistry pure-data validators", () => {
     assert.strictEqual(updateRegistry.petAccessory(null, deps).status, "error");
   });
 
-  it("x/y/preMiniX/preMiniY require finite numbers", () => {
+  it("x/y require finite numbers", () => {
     const deps = { snapshot: baseSnapshot };
     assert.strictEqual(updateRegistry.x(0, deps).status, "ok");
     assert.strictEqual(updateRegistry.y(-100, deps).status, "ok");
-    assert.strictEqual(updateRegistry.preMiniX(NaN, deps).status, "error");
-    assert.strictEqual(updateRegistry.preMiniY(Infinity, deps).status, "error");
   });
 
   it("function-form boolean fields reject non-booleans", () => {
     const deps = { snapshot: baseSnapshot };
     for (const key of [
-      "sessionHudEnabled", "sessionHudShowElapsed", "sessionHudShowContextUsage", "sessionHudShowQuota", "sessionHudCleanupDetached",
+      "sessionHudEnabled", "sessionHudShowContextUsage", "sessionHudShowQuota", "sessionHudCleanupDetached",
       "sessionHudShowStateLabels", "sessionHudPinned",
-      "miniMode", "openAtLoginHydrated", "soundMuted", "bubbleFollowPet",
-      "hideBubbles", "permissionBubblesEnabled", "lowPowerIdleMode",
-      "allowEdgePinning", "disableMiniMode", "keepSizeAcrossDisplays", "codexHookHealthNotifyEnabled",
+      "openAtLoginHydrated", "soundMuted", "bubbleFollowPet",
+      "hideBubbles", "permissionBubblesEnabled",
+      "keepSizeAcrossDisplays", "codexHookHealthNotifyEnabled",
       "quotaMergeSources",
     ]) {
       assert.strictEqual(updateRegistry[key](true, deps).status, "ok", `${key}(true)`);

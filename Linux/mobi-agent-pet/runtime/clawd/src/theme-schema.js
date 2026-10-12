@@ -432,32 +432,6 @@ function projectThemeVisualUsages(cfg) {
       "timings.dndSleepTransitionSvg"
     );
   }
-  const lowPower = cfg
-    && cfg.rendering
-    && cfg.rendering.lowPowerStaticImageOverrides;
-  for (const [state, override] of Object.entries(lowPower || {})) {
-    if (!isPlainObject(override)) continue;
-    const isMiniState = state.startsWith("mini-");
-    if (isMiniState && !isMiniSupported(cfg)) continue;
-    const usageFamily = isMiniState ? "mini:" : "";
-    if (typeof override.from === "string") {
-      addVisualUsage(
-        usages,
-        `${usageFamily}low-power-source:${state}`,
-        override.from,
-        `rendering.lowPowerStaticImageOverrides.${state}.from`
-      );
-    }
-    if (typeof override.to === "string") {
-      addVisualUsage(
-        usages,
-        `${usageFamily}low-power-static:${state}`,
-        override.to,
-        `rendering.lowPowerStaticImageOverrides.${state}.to`
-      );
-    }
-  }
-
   const rootViewBox = normalizeViewBox(cfg && cfg.viewBox);
   const miniViewBox = normalizeViewBox(cfg && cfg.miniMode && cfg.miniMode.viewBox);
   const fileViewBoxes = getCanonicalFileViewBoxes(cfg);
@@ -833,22 +807,9 @@ function normalizeTrustedRuntime(value, isBuiltin, themeId) {
 
 function normalizeRendering(value) {
   if (!isPlainObject(value)) return { svgChannel: "auto" };
-  const lowPowerStaticImageOverrides = {};
-  if (isPlainObject(value.lowPowerStaticImageOverrides)) {
-    for (const [state, override] of Object.entries(value.lowPowerStaticImageOverrides)) {
-      if (!isPlainObject(override)) continue;
-      const from = basenameOnly(override.from);
-      const to = basenameOnly(override.to);
-      if (!state || !from || !to) continue;
-      lowPowerStaticImageOverrides[state] = { from, to };
-    }
-  }
   const rendering = {
     svgChannel: value.svgChannel === "object" ? "object" : "auto",
   };
-  if (Object.keys(lowPowerStaticImageOverrides).length > 0) {
-    rendering.lowPowerStaticImageOverrides = lowPowerStaticImageOverrides;
-  }
   return {
     ...rendering,
   };

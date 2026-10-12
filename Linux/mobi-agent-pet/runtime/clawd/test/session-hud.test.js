@@ -32,20 +32,10 @@ function mkSession(id, overrides = {}) {
 
 describe("session HUD geometry", () => {
   it("uses wider HUD widths when state labels are enabled", () => {
-    assert.strictEqual(
-      getHudWidth(true, true),
-      constants.HUD_WIDTH_LABELS - constants.HUD_LABELS_ONLY_WIDTH_TRIM
-    );
-    assert.strictEqual(
-      getHudWidth(false, true),
-      constants.HUD_WIDTH_LABELS_COMPACT - constants.HUD_LABELS_ONLY_WIDTH_TRIM
-    );
-    assert.strictEqual(getHudWidth(true, false), constants.HUD_WIDTH);
+    assert.strictEqual(getHudWidth(true, false), constants.HUD_WIDTH_LABELS_COMPACT - constants.HUD_LABELS_ONLY_WIDTH_TRIM);
     assert.strictEqual(getHudWidth(false, false), constants.HUD_WIDTH_COMPACT);
-    assert.strictEqual(
-      getHudWidth(true, true, true),
-      constants.HUD_WIDTH_LABELS + constants.HUD_CONTEXT_USAGE_WIDTH_BUMP
-    );
+    assert.strictEqual(getHudWidth(true, true), constants.HUD_WIDTH_LABELS_COMPACT + constants.HUD_CONTEXT_USAGE_WIDTH_BUMP);
+    assert.strictEqual(getHudWidth(false, true), constants.HUD_WIDTH_COMPACT + constants.HUD_CONTEXT_USAGE_WIDTH_BUMP);
 
     const result = computeSessionHudBounds({
       hitRect: { left: 10, top: 80, right: 90, bottom: 160 },
@@ -411,7 +401,7 @@ describe("session HUD layout", () => {
   });
 });
 
-describe("session HUD auto-hide helpers", () => {
+describe("session HUD visibility and hit geometry helpers", () => {
   const baseSnapshot = { sessions: [mkSession("a")] };
   const baseFlags = {
     snapshot: baseSnapshot,
@@ -443,7 +433,7 @@ describe("session HUD auto-hide helpers", () => {
     assert.strictEqual(r.nextHoldUntil, 0);
   });
 
-  it("evaluateShouldShow hides when revealed + unpinned + outside zone + hold expired", () => {
+  it("evaluateShouldShow retains a revealed card after leaving and waiting", () => {
     const r = evaluateShouldShow({
       ...baseFlags,
       clickRevealed: true,
@@ -452,8 +442,8 @@ describe("session HUD auto-hide helpers", () => {
       visibleHoldUntil: 500,
       now: 1000,
     });
-    assert.strictEqual(r.show, false);
-    assert.strictEqual(r.nextHoldUntil, 500);
+    assert.strictEqual(r.show, true);
+    assert.strictEqual(r.nextHoldUntil, 0);
   });
 
   it("evaluateShouldShow shows when pinned regardless of clickRevealed or zone", () => {
@@ -466,7 +456,7 @@ describe("session HUD auto-hide helpers", () => {
     assert.strictEqual(r.show, true);
   });
 
-  it("evaluateShouldShow advances visibleHoldUntil when revealed and in hot zone", () => {
+  it("evaluateShouldShow does not create an expiry while near the pet", () => {
     const r = evaluateShouldShow({
       ...baseFlags,
       clickRevealed: true,
@@ -476,10 +466,10 @@ describe("session HUD auto-hide helpers", () => {
       hideGraceMs: 500,
     });
     assert.strictEqual(r.show, true);
-    assert.strictEqual(r.nextHoldUntil, 1500);
+    assert.strictEqual(r.nextHoldUntil, 0);
   });
 
-  it("evaluateShouldShow keeps HUD visible during hold-grace window after revealed", () => {
+  it("evaluateShouldShow retains a revealed card independent of old hold data", () => {
     const r = evaluateShouldShow({
       ...baseFlags,
       clickRevealed: true,
@@ -490,7 +480,7 @@ describe("session HUD auto-hide helpers", () => {
     assert.strictEqual(r.show, true);
   });
 
-  it("evaluateShouldShow hides once now >= visibleHoldUntil in revealed state", () => {
+  it("evaluateShouldShow ignores an expired legacy hold in revealed state", () => {
     const r = evaluateShouldShow({
       ...baseFlags,
       clickRevealed: true,
@@ -498,7 +488,7 @@ describe("session HUD auto-hide helpers", () => {
       now: 1500,
       visibleHoldUntil: 1500,
     });
-    assert.strictEqual(r.show, false);
+    assert.strictEqual(r.show, true);
   });
 
   it("evaluateShouldShow honors base guards even when revealed", () => {
@@ -564,13 +554,13 @@ describe("session HUD v5 three-state runtime contracts (source-level)", () => {
     "utf8"
   );
 
-  it("revealFromPet seeds visibleHoldUntil with HIDE_GRACE_MS (HIGH 3 fix)", () => {
-    // Inside revealFromPet, after setting clickRevealed, must seed hold.
+  it("revealFromPet latches visibility without a timed hold", () => {
+    // Only an explicit dismissal or eligibility loss may clear the latch.
     const revealFn = src.match(/function revealFromPet\(\)\s*\{[\s\S]*?\n  \}/);
     assert.ok(revealFn, "revealFromPet function missing");
     assert.ok(
-      /visibleHoldUntil\s*=\s*Date\.now\(\)\s*\+\s*HIDE_GRACE_MS/.test(revealFn[0]),
-      "revealFromPet must seed visibleHoldUntil = Date.now() + HIDE_GRACE_MS"
+      !/visibleHoldUntil|HIDE_GRACE_MS/.test(revealFn[0]),
+      "revealFromPet must not schedule an expiry"
     );
     assert.ok(
       /clickRevealed\s*=\s*true/.test(revealFn[0]),
@@ -602,9 +592,9 @@ describe("session HUD v5 three-state runtime contracts (source-level)", () => {
     );
   });
 
-  it("isAutoHidePollingNeeded gates on clickRevealed only (no hover-mode regression)", () => {
-    const pollFn = src.match(/function isAutoHidePollingNeeded\(\)\s*\{[\s\S]*?\n  \}/);
-    assert.ok(pollFn, "isAutoHidePollingNeeded function missing");
+  it("isRevealPollingNeeded gates on clickRevealed only (no hover-mode regression)", () => {
+    const pollFn = src.match(/function isRevealPollingNeeded\(\)\s*\{[\s\S]*?\n  \}/);
+    assert.ok(pollFn, "isRevealPollingNeeded function missing");
     assert.ok(
       /return\s+clickRevealed\s*===\s*true/.test(pollFn[0]),
       "polling must require clickRevealed (not autoHide)"
@@ -637,38 +627,7 @@ describe("session HUD v5 three-state runtime contracts (source-level)", () => {
     );
   });
 
-  it("destroys hidden HUD and quota-ring windows independently in low power idle mode", () => {
-    assert.ok(
-      /const\s+HIDDEN_WINDOW_DESTROY_MS\s*=\s*30000/.test(src),
-      "session-hud should define a hidden-window destroy delay"
-    );
-    assert.ok(
-      /function scheduleHiddenDestroy\(kind\)\s*\{[\s\S]*?if\s*\(!ctx\.lowPowerIdleMode\)\s*return;/.test(src),
-      "hidden-window destroy must be gated behind low power idle mode"
-    );
-    assert.ok(
-      /const hiddenDestroyTimers = \{ hud: null, ring: null \}/.test(src),
-      "HUD and ring must not cancel each other's hidden cleanup"
-    );
-    assert.ok(
-      /function scheduleHiddenDestroy\(kind\)\s*\{[\s\S]*?current\.destroy\(\)/.test(src),
-      "hidden cleanup must eventually destroy the selected BrowserWindow"
-    );
-    assert.ok(
-      /function hideSessionHud\(\)\s*\{[\s\S]*?scheduleHiddenDestroy\("hud"\)/.test(src),
-      "hiding the HUD should schedule hidden-window cleanup"
-    );
-    assert.ok(
-      /function hideQuotaRing\(\)\s*\{[\s\S]*?scheduleHiddenDestroy\("ring"\)/.test(src),
-      "hiding a ring-only UI should schedule its own renderer cleanup"
-    );
-    assert.ok(
-      /function showSessionHud\(win\)\s*\{[\s\S]*?cancelHiddenDestroy\("hud"\)/.test(src),
-      "showing the HUD should cancel hidden-window cleanup"
-    );
-    assert.ok(
-      /function showQuotaRing\(win\)\s*\{[\s\S]*?cancelHiddenDestroy\("ring"\)/.test(src),
-      "showing the ring should cancel only the ring cleanup"
-    );
+  it("does not schedule retired idle power window cleanup", () => {
+    assert.doesNotMatch(src, /HIDDEN_WINDOW_DESTROY_MS|hiddenDestroyTimers|scheduleHiddenDestroy|lowPowerIdleMode/);
   });
 });

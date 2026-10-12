@@ -156,13 +156,6 @@ let currentSvg = null;
 const pendingCompletionTimers = new Map();
 let eyeResendTimer = null;
 
-// ── Wake poll ──
-// Cursor-sample cadence while dozing/collapsing/sleeping. (A low-power idle-mode
-// slowdown was tried here and removed: real-machine powermetrics showed no wakeup
-// or CPU win — macOS timer coalescing absorbs a 200ms timer — for added latency.)
-
-
-
 // ── Kimi CLI permission hold ──
 // Keeps the pet in notification state while Kimi is waiting for user approval.
 const kimiPermissionHolds = new Map();

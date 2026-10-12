@@ -644,6 +644,24 @@ describe("server-route-permission POST", () => {
     assert.strictEqual(autoTools.permission.pendingPermissions.length, 1);
   });
 
+  it("returns the Agent's recommended single and multi-select answers through Claude and Hermes protocols", async () => {
+    const longQuestion = '  '+ 'Which approach? '.repeat(35)+'  ';
+    const questions = [
+      {question:longQuestion,options:[{label:'A'},{label:'B (Recommended)'}]},
+      {question:'Pick features',multiSelect:true,options:[{label:'X（推荐）'},{label:'Y'},{label:'Z (Recommended)'}]},
+      {question:'No recommendation',options:[{label:'First'},{label:'Second'}]},
+      {question:'__proto__',options:[{label:'Safe（推荐）'}]},
+    ];
+    for (const agentId of ['claude-code','hermes']) {
+      const res = await callPermissionPostThroughAutomation(JSON.stringify({agent_id:agentId,session_id:agentId+':recommendations',tool_name:agentId==='hermes'?'clarify':'AskUserQuestion',tool_input:{questions}}), 'unattended');
+      assert.equal(res.statusCode,200);assert.equal(res.permission.pendingPermissions.length,0);
+      const reply=JSON.parse(res.body);const answers=agentId==='hermes'?reply.answers:reply.hookSpecificOutput.decision.updatedInput.answers;
+      assert.equal(answers[longQuestion],'B (Recommended)');assert.equal(answers['Pick features'],'X（推荐）, Z (Recommended)');
+      assert.equal(answers['No recommendation'],'You choose whatever is best.');assert.equal(Object.hasOwn(answers,'__proto__'),true);assert.equal(answers.__proto__,'Safe（推荐）');
+      if(agentId==='claude-code')assert.deepEqual(reply.hookSpecificOutput.decision.updatedInput.questions,questions);
+    }
+  });
+
   it("normalizes unattended Claude question aliases before generating the wire response", async () => {
     for (const toolName of ["askuserquestion", "AskUserQuestionTool"]) {
       const res = await callPermissionPostThroughAutomation(JSON.stringify({

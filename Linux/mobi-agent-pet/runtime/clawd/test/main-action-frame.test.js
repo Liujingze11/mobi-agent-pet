@@ -24,7 +24,7 @@ test('both real renderer crash callbacks release the physical lock and controlle
  for(const callback of callbacks){
   const h=harness();h.controller.request('working');h.controller.setHeld(true);h.controller.request('error');
   let dragLocked=true;
-  const context={petWindowRuntime:{setDragLocked:x=>{dragLocked=x},clearDragSnapshot(){},reloadWindowWebContents(){}},_state:{setPetHeld:x=>h.controller.setHeld(x)},safeConsoleError(){},setLowPowerIdlePaused(){},idlePaused:true,mouseOverPet:true,win:{}};
+  const context={petWindowRuntime:{setDragLocked:x=>{dragLocked=x},clearDragSnapshot(){},reloadWindowWebContents(){}},_state:{setPetHeld:x=>h.controller.setHeld(x)},safeConsoleError(){},idlePaused:true,mouseOverPet:true,win:{}};
   const helperStart=source.indexOf('function cancelPetHold()');
   if(helperStart>=0){const helperEnd=source.indexOf('\n}',helperStart)+2;vm.runInNewContext(source.slice(helperStart,helperEnd),context);}
   vm.runInNewContext('('+callback+')',context)({reason:'crashed'},{reason:'crashed'});
@@ -39,10 +39,40 @@ test('ordinary reload of either pet window cancels a held controller before load
   const start=source.indexOf(prefix),end=source.indexOf('\n  });',start);
   assert.ok(start>=0,'loading recovery registered for '+windowName);
   const h=harness();h.controller.request('working');h.controller.setHeld(true);
-  const context={_state:{setPetHeld:x=>h.controller.setHeld(x)},petWindowRuntime:{setDragLocked(){},clearDragSnapshot(){}},setLowPowerIdlePaused(){}};
+  let dragLocked=true,clears=0;
+  const context={_state:{setPetHeld:x=>h.controller.setHeld(x)},petWindowRuntime:{setDragLocked:value=>{dragLocked=value},clearDragSnapshot(){clears++}},idlePaused:true,mouseOverPet:true,[windowName]:{webContents:{isLoadingMainFrame:()=>true}}};
   const helperStart=source.indexOf('function cancelPetHold()');
   if(helperStart>=0) vm.runInNewContext(source.slice(helperStart,source.indexOf('\n}',helperStart)+2),context);
   vm.runInNewContext('('+source.slice(start+prefix.length,end)+'\n  })',context)();
-  assert.equal(h.controller.getState(),'working');h.controller.cleanup();
+  assert.equal(h.controller.getState(),'working');
+  assert.equal(dragLocked,false);assert.equal(clears,1);
+  assert.equal(context.idlePaused,false);assert.equal(context.mouseOverPet,false);
+  h.controller.cleanup();
  }
+});
+
+
+test('SVG object loading during pickup preserves the drag lock and held state',()=>{
+ const source=fs.readFileSync(path.join(__dirname,'../src/main.js'),'utf8');
+ const prefix='win.webContents.on("did-start-loading", ';
+ const start=source.indexOf(prefix),end=source.indexOf('\n  });',start);
+ const h=harness();h.controller.request('idle');h.controller.setHeld(true);
+ let dragLocked=true,clears=0;
+ const context={
+  win:{webContents:{isLoadingMainFrame:()=>false}},
+  _state:{setPetHeld:value=>h.controller.setHeld(value)},
+  petWindowRuntime:{setDragLocked:value=>{dragLocked=value},clearDragSnapshot(){clears++}},
+idlePaused:true,mouseOverPet:true,
+ };
+ const helperStart=source.indexOf('function cancelPetHold()');
+ vm.runInNewContext(source.slice(helperStart,source.indexOf('\n}',helperStart)+2),context);
+ const onLoading=vm.runInNewContext('('+source.slice(start+prefix.length,end)+'\n  })',context);
+ // Removing the idle <object> while switching to held loads about:blank;
+ // the SVG child frame can finish loading while the pointer is still held.
+ onLoading();onLoading();
+ assert.equal(dragLocked,true,'child-frame loads must not release the physical drag lock');
+ assert.equal(h.controller.getState(),'held');
+ assert.equal(clears,0);
+ assert.equal(context.idlePaused,true);assert.equal(context.mouseOverPet,true);
+ h.controller.cleanup();
 });

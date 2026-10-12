@@ -20,8 +20,6 @@ function normalizeWakeStatus(payload) {
   return {
     id,
     result,
-    lowPowerWasPaused: payload.lowPowerWasPaused === true,
-    pauseStyleRemoved: payload.pauseStyleRemoved === true,
     eyeTrackingReady: payload.eyeTrackingReady === true,
     eyeTargetWasCurrentDocument: payload.eyeTargetWasCurrentDocument === true,
     objectReloaded: payload.objectReloaded === true,
@@ -74,7 +72,7 @@ function createSystemWakeRecovery(options = {}) {
     activeWake = null;
     log(
       `system-wake id=${wake.id} trigger=${wake.trigger} result=timeout ` +
-      "receiptMs=- lowPowerWasPaused=- pauseStyleRemoved=- eyeTrackingReady=- " +
+      "receiptMs=- eyeTrackingReady=- " +
       "eyeTargetWasCurrentDocument=- objectReloaded=- eyeTargetRebound=- late=-"
     );
   }
@@ -147,8 +145,7 @@ function createSystemWakeRecovery(options = {}) {
     }
     log(
       `system-wake id=${wake.id} trigger=${wake.trigger} result=${status.result} ` +
-      `receiptMs=${receiptMs} lowPowerWasPaused=${status.lowPowerWasPaused ? 1 : 0} ` +
-      `pauseStyleRemoved=${status.pauseStyleRemoved ? 1 : 0} ` +
+      `receiptMs=${receiptMs} ` +
       `eyeTrackingReady=${status.eyeTrackingReady ? 1 : 0} ` +
       `eyeTargetWasCurrentDocument=${status.eyeTargetWasCurrentDocument ? 1 : 0} ` +
       `objectReloaded=${status.objectReloaded ? 1 : 0} ` +

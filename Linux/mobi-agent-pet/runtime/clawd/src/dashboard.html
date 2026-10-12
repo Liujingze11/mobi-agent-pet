@@ -98,7 +98,7 @@ body { user-select: none; }
 .dashboard-tab[aria-selected="true"] { color: #285db1; background: #eaf2ff; }
 .dashboard-tab-icon { display: inline-flex; flex: 0 0 18px; align-items: center; justify-content: center; width: 18px; height: 18px; }
 .dashboard-tab-icon svg { width: 18px; height: 18px; }
-.dashboard-tab:focus-visible, .pet-behavior-switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dashboard-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .dashboard-main { flex: 1 1 auto; min-width: 0; min-height: 0; }
 .dashboard-page { width: 100%; height: 100%; min-height: 0; overflow-y: auto; padding: 31px 32px 40px; }
 .dashboard-page::-webkit-scrollbar { width: 6px; }
@@ -108,18 +108,6 @@ body { user-select: none; }
 .dashboard-page-heading p { margin: 0 0 22px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .status-page .dashboard-page-heading { margin-bottom: 20px; }
 .status-page .dashboard-page-heading h1 { margin-bottom: 0; }
-.pet-behavior-card { overflow: hidden; border: 1px solid var(--border); border-radius: 18px; background: var(--surface); box-shadow: 0 8px 24px rgba(37, 63, 101, .045); }
-.pet-behavior-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 17px 18px; border-bottom: 1px solid var(--row-border); }
-.pet-behavior-row:last-child { border-bottom: 0; }
-.pet-behavior-copy { min-width: 0; }
-.pet-behavior-copy strong { display: block; font-size: 13px; line-height: 1.45; }
-.pet-behavior-copy p { margin: 4px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
-.pet-behavior-switch { position: relative; flex: 0 0 auto; min-width: 42px; width: 42px; height: 25px; padding: 0; border: 0; border-radius: 16px; background: #c9d1dc; cursor: pointer; transition: background .18s ease; }
-.pet-behavior-switch[aria-checked="true"] { background: var(--accent); }
-.pet-behavior-switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 19px; height: 19px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(17,24,39,.15); transition: transform .18s ease; }
-.pet-behavior-switch[aria-checked="true"]::after { transform: translateX(17px); }
-.pet-behavior-switch:disabled { opacity: .55; cursor: wait; }
-.pet-behavior-error { min-height: 18px; margin: 6px 0 0; color: #b42318; font-size: 11px; }
 
 .dashboard-overview {
   display: grid;
@@ -792,8 +780,6 @@ button {
 button:hover:not(:disabled) { background: var(--accent-hover); }
 .dashboard-tab:hover:not(:disabled) { background: #f1f5fa; }
 .dashboard-tab[aria-selected="true"]:hover:not(:disabled) { background: #e7effd; }
-.pet-behavior-switch:hover:not(:disabled) { background: #aab8c9; }
-.pet-behavior-switch[aria-checked="true"]:hover:not(:disabled) { background: var(--accent-hover); }
 button:disabled {
   cursor: default;
   opacity: 0.45;
@@ -902,7 +888,6 @@ button:disabled {
       </div>
       <nav id="dashboardSidebar" class="dashboard-navigation" role="tablist" aria-label="Desktop Pet">
         <button id="statusTab" class="dashboard-tab" type="button" role="tab" aria-controls="statusPage" aria-selected="true"><span id="statusTabIcon" class="dashboard-tab-icon" aria-hidden="true"></span><span id="statusTabLabel"></span></button>
-        <button id="behaviorTab" class="dashboard-tab" type="button" role="tab" aria-controls="behaviorPage" aria-selected="false"><span id="behaviorTabIcon" class="dashboard-tab-icon" aria-hidden="true"></span><span id="behaviorTabLabel"></span></button>
         <button id="actionsTab" class="dashboard-tab" type="button" role="tab" aria-controls="actionsPage" aria-selected="false"><span id="actionsTabIcon" class="dashboard-tab-icon" aria-hidden="true"></span><span id="actionsTabLabel"></span></button>
         <button id="themeTab" class="dashboard-tab" type="button" role="tab" aria-controls="themePage" aria-selected="false"><span id="themeTabIcon" class="dashboard-tab-icon" aria-hidden="true"></span><span id="themeTabLabel"></span></button>
       </nav>
@@ -932,16 +917,6 @@ button:disabled {
     <div class="sessions-panel">
       <main id="content" class="session-content" aria-live="polite"></main>
     </div>
-    </div>
-    <div id="behaviorPage" class="dashboard-page pet-behavior-page" role="tabpanel" aria-labelledby="behaviorTab" hidden>
-      <header class="dashboard-page-heading">
-        <h1 id="behaviorTitle"></h1>
-        <p id="behaviorIntro"></p>
-      </header>
-      <section class="pet-behavior-card">
-        <div id="behaviorRows"></div>
-      </section>
-      <p id="behaviorError" class="pet-behavior-error" role="status" aria-live="polite"></p>
     </div>
     <div id="actionsPage" class="dashboard-page" role="tabpanel" aria-labelledby="actionsTab" hidden><div id="actionsContent"></div></div>
     <div id="themePage" class="dashboard-page dashboard-theme-page" role="tabpanel" aria-labelledby="themeTab" hidden>

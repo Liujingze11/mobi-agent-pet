@@ -111,8 +111,8 @@ describe("built-in accessory capability contracts", () => {
     const usages = projectThemeVisualUsages(raw);
     const files = collectRequiredAssetFiles(raw);
 
-    assert.strictEqual(usages.length, 40);
-    assert.strictEqual(files.length, 29);
+    assert.strictEqual(usages.length, 38);
+    assert.strictEqual(files.length, 28);
     assert.strictEqual(normalized._capabilities.accessories, true);
     assert.ok(files.includes("cloudling-idle-to-sleeping.svg"));
     assert.ok(
@@ -127,7 +127,6 @@ describe("built-in accessory capability contracts", () => {
       "cloudling-idle-to-sleeping.svg",
       "cloudling-dozing-to-sleeping.svg",
       "cloudling-sleeping.svg",
-      "cloudling-sleeping-static.png",
       "cloudling-sleeping-to-idle.svg",
       "cloudling-mini-enter-sleep.svg",
       "cloudling-mini-sleep.svg",

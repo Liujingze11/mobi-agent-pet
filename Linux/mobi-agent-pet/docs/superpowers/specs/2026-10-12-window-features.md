@@ -1,0 +1,5 @@
+# Retire edge pinning and mini display
+
+Remove user-facing edge pinning and mini display features, including saved mini restoration, edge-snap entry, input/menu controls and animation runtime. Preserve ordinary dragging and normal screen-boundary protection. Ignore old custom/prefs feature fields without resetting other values. Recover an old mini pet to its pre-mini position when valid. Keep size across displays enabled in the three fixed modes and configurable in Custom; use effective mode policy for launch pixel sizing. Fullscreen behavior is explanation only and remains unchanged.
+
+Keep user/theme artwork and existing uncommitted changes. Old imported theme mini metadata and optional generic helper interfaces may remain as compatibility data, with no application entry path or active renderer/input listener. Test normal pickup/drag/drop, task cards, mode switches, theme reload, startup placement, same-size cross-display behavior and saved config. Do not manipulate the user's mouse or modify actual configuration during native checks.
