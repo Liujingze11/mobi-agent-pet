@@ -82,7 +82,7 @@ test('frames from a state removed by a Custom edit cannot update the pet visual'
 
 test('idle playback wait follows the enabled actions and current sequence/random plan',()=>{
  const h=fixture();const actions=require('../src/pet-action-plan');const plan=actions.defaultPlan(h.ctx.theme);
- const selected=plan.states.idle.actions.slice(0,2);assert.equal(selected.length,2);
+ const selected=[{file:'standing.svg',enabled:true,durationMs:8000},{file:'collapsing.svg',enabled:true,durationMs:6000}];
  plan.states.idle={mode:'sequence',actions:selected};
  h.ctx.theme={...h.ctx.theme,_userOverrides:{actionPlan:plan},actionDurations:{...h.ctx.theme.actionDurations,[selected[0].file]:8000,[selected[1].file]:6000}};
  try{

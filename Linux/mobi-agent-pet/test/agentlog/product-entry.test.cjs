@@ -530,5 +530,5 @@ test("Linux development windows identify as the installed development desktop en
     },
   });
   vm.runInContext(productMain, context);
-  assert.deepEqual(events, [["desktop", "mobi-agent-pet-dev.desktop"], ["catalog", { defaultThemeId: "mobi-a", excludedBuiltinThemeIds: ["clawd", "calico", "cloudling"] }], ["install"], ["host-main"]]);
+  assert.deepEqual(events, [["desktop", "mobi-agent-pet-dev.desktop"], ["catalog", { defaultThemeId: "mobi-a", excludedBuiltinThemeIds: ["clawd", "calico", "cloudling"], allowUserThemes: false }], ["install"], ["host-main"]]);
 });

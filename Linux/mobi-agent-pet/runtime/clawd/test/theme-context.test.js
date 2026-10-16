@@ -50,6 +50,13 @@ function writeFile(filePath, content = "x") {
   fs.writeFileSync(filePath, content, "utf8");
 }
 
+test("renderer receives a bounded optional drag release duration", () => {
+  for (const [releaseDuration, expected] of [[1600, 1600], [undefined, 0], [-1, 0], [Infinity, 0], [60001, 0]]) {
+    const theme = makeTheme({ reactions: { drag: { file: "drag.svg", releaseDuration } } });
+    assert.strictEqual(createThemeContext(theme).getRendererConfig().dragReleaseDuration, expected);
+  }
+});
+
 test("renderer uses native action timings even when a saved plan contains short manual durations", () => {
   const saved = { version: 1, states: { idle: { mode: "random", actions: [
     { file: "idle.svg", enabled: true, durationMs: 500 },

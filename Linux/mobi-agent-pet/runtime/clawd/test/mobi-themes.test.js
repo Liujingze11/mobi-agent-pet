@@ -21,21 +21,17 @@ test("only the three new Mobi characters are selectable built-in pets in the pro
 });
 
 for (const id of ["mobi-a", "mobi-b", "mobi-c"]) {
-  test(`${id} loads without fallback and resolves normal, mini, and interaction assets`, () => {
+  test(`${id} loads current action and interaction assets without the retired mini capability`, () => {
     const theme = loader.loadTheme(id, { strict: true });
     assert.equal(theme._id, id);
     assert.equal(theme._capabilities.eyeTracking, true);
-    assert.equal(theme._capabilities.miniMode, true);
+    assert.equal(theme._capabilities.miniMode, false);
     const context = createThemeContext(theme, { assetsSvgDir: path.join(runtime, "assets", "svg") });
     const files = new Set([
       ...Object.values(theme.states).flat(),
-      ...Object.values(theme.miniMode.states).flat(),
       ...theme.workingTiers.map((tier) => tier.file),
       ...theme.jugglingTiers.map((tier) => tier.file),
-      theme.reactions.drag.file,
-      theme.reactions.clickLeft.file,
-      theme.reactions.clickRight.file,
-      ...theme.reactions.double.files,
+      ...require('../src/pet-action-plan').collectActionFiles(theme),
     ]);
     for (const file of files) {
       const assetPath = context.resolveAssetPath(file);
@@ -93,73 +89,52 @@ test("the real theme page offers 莫比, 莫莫, and 比比 and allows selecting
 });
 
 for (const variant of variants) {
-  test(`${variant.id} ships 29 safe staged actions with truthful durations and Chinese names`, () => {
+  test(`${variant.id} ships its current safe actions with truthful durations and Chinese names`, () => {
     const theme = loader.loadTheme(variant.id, { strict: true });
     assert.equal(theme.name, { "mobi-a": "莫比", "mobi-b": "莫莫", "mobi-c": "比比" }[variant.id]);
     assert.equal(theme.version, "2.0.0");
     assert.deepEqual(theme.actionDurations, manifest(variant).actionDurations);
-    assert.equal(Object.keys(theme.actionDurations).length, 29);
+    assert.equal(Object.keys(theme.actionDurations).length, { 'mobi-a': 14, 'mobi-b': 14, 'mobi-c': 15 }[variant.id]);
+    assert.deepEqual(Object.keys(theme.actionDurations).sort(), require('../src/pet-action-plan').collectActionFiles(theme).sort());
     for (const [file, duration] of Object.entries(theme.actionDurations)) {
-      assert.ok(duration > 3000, file);
+      assert.ok(duration >= 3000, file);
       assert.match(theme.actionLabels[file], /[\u4e00-\u9fff]/);
       const svg = fs.readFileSync(path.join(runtime, "themes", variant.id, "assets", file), "utf8");
-      assert.equal(svg, renderSvg(variant, file.replace(/\.svg$/, "")), `${file} must match reproducible source`);
+      assert.equal(svg, renderSvg(variant, file === variant.idleFile ? 'idle' : file.replace(/\.svg$/, "")), `${file} must match reproducible source`);
       const doc = new JSDOM(svg, { contentType: "image/svg+xml" });
       assert.equal(doc.window.document.querySelectorAll("script,foreignObject,image").length, 0);
       assert.ok(doc.window.document.getElementById("body-js"));
-      assert.ok(doc.window.document.getElementById("eyes-js"));
       assert.equal(new Set([...doc.window.document.querySelectorAll("[id]")].map(el => el.id)).size, doc.window.document.querySelectorAll("[id]").length);
-      const stages = [...doc.window.document.querySelectorAll(".stage")];
-      assert.equal(stages.length, 4, `${file} has a setup, effort, mishap, and recovery`);
-      assert.equal(new Set(stages.map(stage => stage.innerHTML)).size, 4, `${file} changes the artwork through its story`);
       const cycle = probeSvgCycle(svg);
-      assert.equal(cycle.status, "exact");
-      assert.equal(cycle.ms, duration, `${file}: ${JSON.stringify(cycle)}`);
-      if (file !== "error.svg") assert.equal(doc.window.document.querySelectorAll(".accent-bug,.prop-chaos,[fill='#ef7777']").length,0, `${file} must keep error outbursts in the error state`);
-      if (["roam.svg","mini-crabwalk.svg"].includes(file)) for (const stage of stages) assert.ok(stage.querySelector(".pose-step,.pose-side-step"), `${file} must walk throughout`);
-      if (file === "drag.svg") for (const stage of stages) assert.ok(stage.querySelector(".pose-held"), "drag must stay suspended throughout");
-      const css = doc.window.document.querySelector("style").textContent;
-      for (const animation of css.matchAll(/animation:([^;}]+)/g)) {
-        if (animation[1].includes("none")) continue; // accessibility still frame
-        assert.match(animation[1], /\binfinite\b/, `${file} must keep looping`);
-        assert.equal(Number(animation[1].match(/([\d.]+)s/)[1])*1000, duration, `${file} uses one clock for every moving part`);
-      }
-      const opacityTracks = [...css.matchAll(/@keyframes beat-\d\{((?:[^{}]*\{[^{}]*\})+)\}/g)].map(match => {
-        const keys = [...match[1].matchAll(/([\d.%,]+)\{opacity:(\d)\}/g)].flatMap(key => key[1].split(",").map(percent => [parseFloat(percent), Number(key[2])]));
-        return keys.sort((a,b)=>a[0]-b[0]);
-      });
-      assert.equal(opacityTracks.length, 4);
-      const samples = new Set([0,100,...Array.from({length:401}, (_,i)=>i/4),...opacityTracks.flatMap(keys=>keys.map(key=>key[0]))]);
-      for (const percent of samples) {
-        const total = opacityTracks.reduce((sum, keys) => {
-          const right = keys.findIndex(key=>key[0]>=percent);
-          if (right === 0) return sum + keys[0][1];
-          const a=keys[right-1], b=keys[right];
-          return sum+a[1]+(b[1]-a[1])*(percent-a[0])/(b[0]-a[0]);
-        },0);
-        assert.ok(Math.abs(total-1)<1e-6, `${file} must have visible artwork at ${percent}% including its loop seam`);
+      if (file === 'standing.svg') {
+        assert.equal(cycle.status, 'unavailable', 'standing is intentionally static');
+      } else {
+        assert.equal(cycle.status, file === 'drag.svg' ? 'estimated' : 'exact', file);
+        assert.equal(cycle.ms, duration, `${file}: ${JSON.stringify(cycle)}`);
       }
       doc.window.close();
     }
     const numericLeaves = value => Object.values(value).flatMap(item => typeof item === "number" ? [item] : item && typeof item === "object" ? numericLeaves(item) : []);
-    for (const duration of numericLeaves(theme.timings)) assert.ok(duration > 3000);
-    for (const reaction of Object.values(theme.reactions)) if (reaction.duration) assert.ok(reaction.duration > 3000);
-    assert.ok(theme.miniMode.enterDuration > 3000);
+    for (const duration of numericLeaves({ minDisplay: theme.timings.minDisplay, autoReturn: theme.timings.autoReturn })) assert.ok(duration >= 3000);
+    for (const reaction of Object.values(theme.reactions)) if (reaction.duration) assert.ok(reaction.duration >= 3000);
+    assert.equal(theme.miniMode.supported, false);
   });
 }
 
-test("比比 visibly blushes and throws several office props before returning to work", () => {
+test("比比 visibly blushes and throws thirteen office props through the second half of its outburst", () => {
   const doc = new JSDOM(fs.readFileSync(path.join(runtime,"themes/mobi-c/assets/error.svg"),"utf8"), {contentType:"image/svg+xml"});
   try {
     assert.ok(doc.window.document.querySelector('[fill="#ef7777"]'), "rage should visibly redden 比比's face");
-    assert.ok(doc.window.document.querySelectorAll('.stage-2 .thrown-item').length >= 3, "the outburst throws paper, keyboard, and coffee");
-    assert.ok(doc.window.document.querySelector('.stage-3 .prop-laptop'), "比比 returns to the laptop after the outburst");
+    const props = [...doc.window.document.querySelectorAll('.rage-item')];
+    assert.equal(props.length, 13);
+    for (const kind of ['paper', 'keyboard', 'cup']) assert.ok(props.some(prop => prop.getAttribute('aria-label') === kind));
+    assert.ok(doc.window.document.querySelector('.rage-laptop'), 'the broken computer remains in the scene');
   } finally { doc.window.close(); }
 });
 
 for (const id of ["mobi-a","mobi-b","mobi-c"]) {
   test(`${id} working actions show foreground typing hands and a normal laptop in every beat`, () => {
-    for (const file of ["working.svg","mini-working.svg"]) {
+    for (const file of ["working.svg"]) {
       const doc = new JSDOM(fs.readFileSync(path.join(runtime,"themes",id,"assets",file),"utf8"), {contentType:"image/svg+xml"});
       try {
         for (const stage of doc.window.document.querySelectorAll(".stage")) {

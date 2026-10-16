@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const vm = require("node:vm");
 const { describe, it } = require("node:test");
 const prefsModule = require("../src/prefs");
 const { getBubblePolicy } = require("../src/bubble-policy");
@@ -11,10 +12,36 @@ const { createSettingsController } = require("../src/settings-controller");
 const {
   APP_MODE,
   createAppModeController,
+  resolveAppModePolicy,
   resolveEffectiveBubblePolicy,
   resolveEffectiveSoundMuted,
   resolveEffectiveTrayFlashEnabled,
 } = require("../src/app-mode");
+const { defaultCustomModeProfile } = require("../src/custom-mode-profile");
+const { evaluateBaseEligible } = require("../src/session-hud").__test;
+
+it("quota-only Custom mode survives the main HUD projection while quiet presets stay hidden", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../src/main.js"), "utf8");
+  const getter = source.match(/get sessionHudShowQuota\(\) \{([\s\S]*?)\n  \},/);
+  assert.ok(getter);
+  const snapshot = { sessions: [], accountQuota: [{ host: "fixture", claudeQuota: {
+    group: { claudeWeekly: { usedPercent: 41, resetAt: Date.now() + 3600000 } }, updatedAt: Date.now(),
+  } }] };
+  for (const [mode, cards, quota, want] of [
+    ["custom", false, true, true], ["custom", true, false, false],
+    ["custom", false, false, false], ["normal", false, false, true],
+    ["automatic", true, true, false], ["background", true, true, false],
+  ]) {
+    const policy = resolveAppModePolicy(mode, { customModeProfile: {
+      ...defaultCustomModeProfile(), sessionHud: cards, hudQuota: quota,
+    } });
+    const projected = vm.runInNewContext(`({get sessionHudShowQuota() {${getter[1]}}})`, {
+      getEffectiveAppModePolicy: () => policy, sessionHudShowQuota: policy.sessionHudShowQuota,
+    });
+    assert.equal(evaluateBaseEligible({ snapshot, sessionHudEnabled: policy.sessionHudEnabled,
+      showQuota: projected.sessionHudShowQuota }), want, `${mode}: cards=${cards}, quota=${quota}`);
+  }
+});
 
 function createController(snapshot = {}, overrides = {}) {
   const calls = [];

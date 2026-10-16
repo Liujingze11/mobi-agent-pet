@@ -255,7 +255,7 @@ describe("hit geometry", () => {
     };
 
     assert.strictEqual(
-      hitGeometry.usesObjectChannel(theme, "idle", "codex-pet-idle-loop.svg"),
+      hitGeometry.usesObjectChannel(theme, "idle", "external-idle-loop.svg"),
       true
     );
 
@@ -263,7 +263,7 @@ describe("hit geometry", () => {
       theme,
       bounds,
       "idle",
-      "codex-pet-idle-loop.svg"
+      "external-idle-loop.svg"
     );
 
     approx(rect.x, 7.69);

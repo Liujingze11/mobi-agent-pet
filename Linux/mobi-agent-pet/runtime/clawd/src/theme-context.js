@@ -61,6 +61,7 @@ function createThemeContext(theme, options = {}) {
 
   function getRendererConfig() {
     if (!theme) return null;
+    const releaseDuration = theme.reactions && theme.reactions.drag && theme.reactions.drag.releaseDuration;
     const trustedScriptedSvgFiles = theme._builtin && theme.trustedRuntime
       ? (theme.trustedRuntime.scriptedSvgFiles || [])
       : [];
@@ -77,6 +78,7 @@ function createThemeContext(theme, options = {}) {
       miniFlipAssets: theme.miniMode ? !!theme.miniMode.flipAssets : false,
       roamFlipAssets: !!theme.roamFlipAssets,
       dragSvg: theme.reactions && theme.reactions.drag ? theme.reactions.drag.file : null,
+      dragReleaseDuration: Number.isFinite(releaseDuration) && releaseDuration > 0 && releaseDuration <= 60000 ? releaseDuration : 0,
       dragSvgs: theme.reactions && theme.reactions.drag ? {
         left: theme.reactions.drag.fileLeft || null,
         right: theme.reactions.drag.fileRight || null,

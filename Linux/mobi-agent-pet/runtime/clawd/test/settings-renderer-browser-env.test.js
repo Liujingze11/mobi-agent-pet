@@ -3271,6 +3271,8 @@ describe("settings renderer browser environment", () => {
     const mainSource = fs.readFileSync(MAIN_PROCESS, "utf8");
     const bare = css.match(/\d+(?:\.\d+)?v[hw]\b(?!\s*\/\s*var\(--clawd-text-zoom)/g) || [];
     assert.deepStrictEqual(bare, [], "settings.css has uncompensated viewport units");
+    const officeCss = fs.readFileSync(path.join(SRC_DIR, "dashboard-office.css"), "utf8");
+    assert.deepStrictEqual(officeCss.match(/\d+(?:\.\d+)?v[hw]\b(?!\s*\/\s*var\(--clawd-text-zoom)/g) || [], [], "dashboard-office.css has uncompensated viewport units");
     assert.doesNotMatch(dashboardHtml, /\d+(?:\.\d+)?v[hw]\b/, "dashboard.html must not use viewport units");
     assert.match(mainSource, /height:calc\(100vh \/ \$\{resumeScale\}\)/);
   });
@@ -3849,7 +3851,7 @@ describe("settings renderer browser environment", () => {
     assert.ok(i18nSource.includes("collapsibleCollapse"));
   });
 
-  it("groups Theme cards and exposes theme import actions in Settings", () => {
+  it("groups Theme cards and supports customization in Settings", () => {
     const tabSource = fs.readFileSync(path.join(SRC_DIR, "settings-tab-theme.js"), "utf8");
     const generalSource = fs.readFileSync(SETTINGS_TAB_GENERAL, "utf8");
     const preloadSource = fs.readFileSync(PRELOAD_SETTINGS, "utf8");
@@ -3859,17 +3861,7 @@ describe("settings renderer browser environment", () => {
     const i18nSource = fs.readFileSync(SETTINGS_I18N, "utf8");
 
     assert.ok(tabSource.includes("function getThemeSections(themes)"));
-    assert.ok(tabSource.includes("themeGroupBuiltIn"));
-    assert.ok(tabSource.includes("themeGroupImportedCodexPets"));
     assert.ok(tabSource.includes("themeGroupUserThemes"));
-    assert.ok(tabSource.includes("handleImportCodexPetZip"));
-    assert.ok(tabSource.includes("handleImportUserThemeZip"));
-    assert.ok(!tabSource.includes("themeOpenCodexPetsFolder"));
-    assert.ok(!tabSource.includes("handleOpenCodexPetsFolder"));
-    assert.ok(tabSource.includes("handleOpenUserThemesFolder"));
-    assert.ok(tabSource.includes("handleRefreshThemes"));
-    assert.ok(tabSource.includes("handleRemoveCodexPet"));
-    assert.ok(tabSource.includes("themeUninstallPetLabel"));
     assert.ok(tabSource.includes('footer.className = "theme-card-footer";'));
     assert.ok(tabSource.includes('btn.className = "theme-customize-btn";'));
     assert.ok(tabSource.includes("function renderThemeDetail(parent, theme)"));
@@ -3879,36 +3871,12 @@ describe("settings renderer browser environment", () => {
     assert.ok(tabSource.includes('caps.powerProfile === "scripted"'));
     assert.ok(tabSource.includes("themeCapabilityFineMotion"));
     assert.ok(tabSource.includes('if (!theme.active) indicator.setAttribute("aria-hidden", "true");'));
-    assert.ok(!tabSource.includes("if (theme.active || canDelete || canRemoveCodexPet)"));
-    assert.ok(coreSource.includes("codexPetZipImportPending"));
-    assert.ok(coreSource.includes("userThemeZipImportPending"));
-    assert.ok(coreSource.includes("codexPetRemovalPendingThemeId"));
-    assert.ok(preloadSource.includes("openUserThemesDir"));
-    assert.ok(preloadSource.includes("importUserThemeZip"));
-    assert.ok(preloadSource.includes("openCodexPetsDir"));
-    assert.ok(preloadSource.includes("importCodexPetZip"));
-    assert.ok(preloadSource.includes("removeCodexPet"));
-    assert.ok(settingsIpcSource.includes('handle("settings:open-user-themes-dir"'));
-    assert.ok(settingsIpcSource.includes('handle("settings:import-user-theme-zip"'));
-    assert.ok(settingsIpcSource.includes('handle("settings:open-codex-pets-dir"'));
-    assert.ok(settingsIpcSource.includes('handle("settings:import-codex-pet-zip"'));
-    assert.ok(settingsIpcSource.includes('handle("settings:remove-codex-pet"'));
     assert.ok(css.includes(".theme-section-title"));
-    assert.ok(css.includes(".theme-action-group"));
-    assert.ok(css.includes(".theme-action-buttons"));
-    assert.ok(css.includes(".theme-uninstall-btn"));
     assert.ok(css.includes(".theme-customize-btn"));
     assert.ok(css.includes(".theme-detail-hero"));
     assert.ok(css.includes(".theme-customization-row"));
     assert.ok(/\.theme-card-footer\s*\{[^}]*min-height:\s*26px;[^}]*margin-top:\s*auto;[^}]*\}/.test(css));
     assert.ok(/\.theme-card-check\s*\{[^}]*white-space:\s*nowrap;[^}]*\}/.test(css));
-    assert.ok(i18nSource.includes("themeImportPetZip"));
-    assert.ok(i18nSource.includes("themeImportUserThemeZip"));
-    assert.ok(i18nSource.includes("themeImportUserThemeZipHint"));
-    assert.ok(i18nSource.includes("themeOpenUserThemesFolder"));
-    assert.ok(i18nSource.includes("toastUserThemeZipImportOk"));
-    assert.ok(i18nSource.includes("toastCodexPetZipImportOk"));
-    assert.ok(i18nSource.includes("toastCodexPetRemoveOk"));
     assert.ok(i18nSource.includes("themeCustomize"));
     assert.ok(i18nSource.includes("themeBackToPets"));
     assert.ok(i18nSource.includes("themeAppearanceTitle"));
@@ -3916,13 +3884,6 @@ describe("settings renderer browser environment", () => {
     assert.ok(i18nSource.includes("accessoryCowboyHat"));
 
     const strings = loadSettingsI18nForTest();
-    assert.strictEqual(strings.en.themeActionGroupCodexPets, "Codex Pets");
-    assert.strictEqual(strings.en.themeActionGroupUserThemes, "User themes");
-    assert.strictEqual(strings.en.themeImportPetZip, "Import Codex Pet package (.zip)");
-    assert.strictEqual(strings.en.themeImportUserThemeZip, "Import Mobi Agent Pet theme package (.zip)");
-    assert.ok(strings.en.themeImportUserThemeZipHint.includes("theme.json"));
-    assert.strictEqual(strings.en.themeOpenUserThemesFolder, "Open themes folder");
-    assert.strictEqual(strings.en.themeRefreshThemes, "Refresh themes");
     assert.strictEqual(strings.en.themeCapabilityFineMotion, "Fine motion");
     assert.strictEqual(strings.en.themeCustomize, "Customize");
     assert.strictEqual(strings.en.rowPetAccessory, "Accessory");
@@ -3930,30 +3891,23 @@ describe("settings renderer browser environment", () => {
     assert.strictEqual(strings.zh.themeCustomize, "装扮");
     assert.strictEqual(strings.zh.rowPetAccessory, "配饰");
     assert.strictEqual(strings.zh.accessoryWizardHat, "巫师帽");
-    assert.strictEqual(strings.zh.themeImportPetZip, "导入 Codex Pet 包（.zip）");
     assert.strictEqual(strings.zh.themeCapabilityFineMotion, "精细动效");
-    assert.strictEqual(strings.zh.themeActionGroupCodexPets, "Codex Pets");
-    assert.strictEqual(strings.zh.themeImportUserThemeZip, "导入 莫比 Pet 主题包（.zip）");
-    assert.ok(strings.zh.themeImportUserThemeZipHint.includes("theme.json"));
-    assert.strictEqual(strings.zh.themeOpenUserThemesFolder, "打开主题文件夹");
   });
 
-  it("keeps Theme card footers reserved without leaking button keyboard events to card activation", async () => {
+  it("keeps Theme controls separate without leaking button keyboard events to card activation", async () => {
     const { content, commands } = loadThemeTabForTest({
       themes: [
         { id: "clawd", name: "Clawd", builtin: true, active: true },
         { id: "calico", name: "Calico", builtin: true, active: false },
-        { id: "pet-active", name: "Pet Active", managedCodexPet: true, active: true },
-        { id: "pet-inactive", name: "Pet Inactive", managedCodexPet: true, active: false },
         { id: "user-theme", name: "User Theme", active: false },
       ],
     });
 
     const cards = content.querySelectorAll(".theme-card");
-    assert.strictEqual(cards.length, 5);
-    for (const card of cards) {
-      assert.ok(card.querySelector(".theme-card-footer"));
-    }
+    assert.strictEqual(cards.length, 3);
+    assert.strictEqual(cards[0].querySelector(".theme-card-footer"), null);
+    assert.strictEqual(cards[1].querySelector(".theme-card-footer"), null);
+    assert.ok(cards[2].querySelector(".theme-card-footer"));
 
     const activeChecks = cards
       .filter((card) => card.getAttribute("aria-checked") === "true")
@@ -3973,24 +3927,14 @@ describe("settings renderer browser environment", () => {
     }
 
     const deleteButton = content.querySelector(".theme-delete-btn");
-    const inactiveUninstallButton = content.querySelectorAll(".theme-uninstall-btn")
-      .find((button) => {
-        const card = findAncestorByClass(button, "theme-card");
-        return card && card.getAttribute("aria-checked") === "false";
-      });
     assert.ok(deleteButton);
-    assert.ok(inactiveUninstallButton);
 
     const deleteKeydown = createKeyboardEventForTest("Enter");
     deleteButton.dispatchEvent(deleteKeydown);
-    const uninstallKeydown = createKeyboardEventForTest(" ");
-    inactiveUninstallButton.dispatchEvent(uninstallKeydown);
     await Promise.resolve();
 
     assert.strictEqual(deleteKeydown.cancelBubble, true);
-    assert.strictEqual(uninstallKeydown.cancelBubble, true);
     assert.strictEqual(deleteKeydown.defaultPrevented, false);
-    assert.strictEqual(uninstallKeydown.defaultPrevented, false);
     assert.deepStrictEqual(commands, []);
   });
 
@@ -6084,11 +6028,6 @@ describe("settings renderer browser environment", () => {
     assert.ok(html.includes("settings-anim-overrides-merge.js"));
     const themeTabSource = fs.readFileSync(path.join(SRC_DIR, "settings-tab-theme.js"), "utf8");
     assert.ok(!html.includes("object-src"));
-    assert.ok(css.includes(".theme-thumb-atlas-frame"));
-    assert.ok(css.includes("width: 800%;"));
-    assert.ok(themeTabSource.includes("getCodexPetPreviewAtlasUrl"));
-    assert.ok(themeTabSource.includes("theme-thumb-atlas-frame"));
-    assert.ok(themeTabSource.includes("theme.codexPet.previewAtlasUrl"));
     assert.ok(!themeTabSource.includes('document.createElement("object")'));
     assert.ok(previewHtml.includes("default-src 'self' file:"));
     assert.ok(previewHtml.includes("object-src 'self' file:"));

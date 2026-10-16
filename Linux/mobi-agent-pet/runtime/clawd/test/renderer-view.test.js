@@ -1599,3 +1599,89 @@ it('idle action playback keeps replaying after five seconds without an idle paus
  assert.ok(h.activeTimers().some(t=>t.ms===1000));
  assert.equal(h.electronHandlers.onLowPowerIdleModeChange,undefined);
 });
+
+it('held playback preserves the loaded entry animation across cycle timers and restarts on a new lift', () => {
+ const h=createRendererHarness({themeConfig:{actionPlan:{version:1,states:{
+  idle:{mode:'sequence',actions:[{file:'standing.svg',enabled:true,durationMs:4000}]},
+  held:{mode:'sequence',actions:[{file:'drag.svg',enabled:true,durationMs:5000}]},
+ }}}});
+ h.electronHandlers.onStateChange('held','drag.svg');
+ const first=h.api.pendingNext;assert.ok(first);first.listeners.get('load')();
+ for(let n=0;n<3;n++){
+  const timer=h.activeTimers().find(t=>t.ms===5000);assert.ok(timer);timer.cleared=true;timer.callback();
+  assert.equal(h.api.pendingNext,null,'continued suspension must not reload the SVG');
+  assert.equal(h.electronCalls.filter(c=>c.name==='reportActionFrame').at(-1).args[0].replay,false);
+ }
+ h.electronHandlers.onStateChange('idle','standing.svg');
+ h.api.pendingNext.listeners.get('load')();
+ h.electronHandlers.onStateChange('held','drag.svg');
+ assert.ok(h.api.pendingNext);assert.notStrictEqual(h.api.pendingNext,first);
+ assert.equal(h.electronCalls.filter(c=>c.name==='reportActionFrame').at(-1).args[0].replay,true);
+});
+
+it('action frame reports distinguish a new celebration cycle from a duplicate state update',()=>{
+ const h=createRendererHarness({themeConfig:{actionPlan:{version:1,states:{
+  idle:{mode:'sequence',actions:[{file:'standing.svg',enabled:true,durationMs:4000}]},
+  complete:{mode:'sequence',actions:[{file:'celebration-screen.svg',enabled:true,durationMs:8000}]},
+ }}}});
+ h.electronHandlers.onStateChange('complete','celebration-screen.svg',{state:'complete',themeGeneration:1,stateRevision:1});
+ assert.equal(h.electronCalls.filter(c=>c.name==='reportActionFrame').at(-1).args[0].replay,true);
+ h.electronHandlers.onStateChange('complete','celebration-screen.svg',{state:'complete',themeGeneration:1,stateRevision:2});
+ assert.equal(h.electronCalls.filter(c=>c.name==='reportActionFrame').at(-1).args[0].replay,false);
+});
+
+function heldReturnHarness() {
+ const h=createRendererHarness({themeConfig:{dragSvg:'drag.svg',dragReleaseDuration:1600,actionPlan:{version:1,states:{
+  idle:{mode:'sequence',actions:[{file:'standing.svg',enabled:true,durationMs:4000}]},
+  working:{mode:'sequence',actions:[{file:'working.svg',enabled:true,durationMs:5000}]},
+  error:{mode:'sequence',actions:[{file:'error.svg',enabled:true,durationMs:5000}]},
+  held:{mode:'sequence',actions:[{file:'drag.svg',enabled:true,durationMs:5000}]},
+ }}}});
+ h.electronHandlers.onStateChange('held','drag.svg');
+ const held=h.api.pendingNext;
+ assert.equal(held.tagName,'OBJECT','release needs access to the current SVG pose');
+ assert.equal(h.container.classList.contains('pet-lifted'),false,'the SVG owns its hanging motion');
+ const root=new FakeElement('svg');root.setAttribute('data-held-release','true');
+ held.contentDocument={documentElement:root,querySelectorAll:()=>[],getAnimations:()=>[]};
+ held.listeners.get('load')();
+ return {h,held,root};
+}
+
+it('release returns the laptop in the loaded SVG before resuming the latest configured action', () => {
+ const {h,held,root}=heldReturnHarness();
+ h.electronHandlers.onStateChange('idle','standing.svg');
+ assert.equal(h.api.pendingNext,null);assert.strictEqual(h.api.clawdEl,held);
+ assert.ok(root.classList.contains('pet-released'));
+ const finish=h.activeTimers().find(t=>t.ms===1600);assert.ok(finish);
+ h.electronHandlers.onStateChange('working','working.svg');
+ assert.equal(h.api.pendingNext,null,'incoming work must wait for the handoff');
+ finish.cleared=true;finish.callback();
+ assert.equal(h.api.pendingSvgFile,'working.svg');
+});
+
+it('lifting again cancels the return and a stale release callback cannot interrupt suspension', () => {
+ const {h}=heldReturnHarness();
+ h.electronHandlers.onStateChange('idle','standing.svg');
+ const finish=h.activeTimers().find(t=>t.ms===1600);assert.ok(finish);
+ h.electronHandlers.onStateChange('held','drag.svg');
+ assert.ok(finish.cleared);const next=h.api.pendingNext;assert.ok(next);
+ finish.callback();assert.strictEqual(h.api.pendingNext,next);assert.equal(h.api.pendingSvgFile,'drag.svg');
+});
+
+it('theme replacement cancels a pending laptop return without restoring the previous theme', () => {
+ const {h}=heldReturnHarness();
+ h.electronHandlers.onStateChange('idle','standing.svg');
+ const finish=h.activeTimers().find(t=>t.ms===1600);assert.ok(finish);
+ h.electronHandlers.onThemeConfig({assetsPath:'../themes/other/assets',idleFollowSvg:'other.svg',eyeTracking:{states:[]},
+  actionPlan:{version:1,states:{idle:{mode:'sequence',actions:[{file:'other.svg',enabled:true,durationMs:4000}]}}}});
+ h.electronHandlers.onStateChange('idle','other.svg');
+ const next=h.api.pendingNext;finish.callback();
+ assert.strictEqual(h.api.pendingNext,next);assert.equal(h.api.pendingSvgFile,'other.svg');assert.ok(finish.cleared);
+});
+
+it('release falls back to the current action when the held document is unavailable', () => {
+ const {h,held}=heldReturnHarness();held.contentDocument=null;
+ h.electronHandlers.onStateChange('working','working.svg');
+ assert.equal(h.api.pendingSvgFile,'working.svg');
+ assert.equal(h.activeTimers().some(t=>t.ms===1600),false);
+});

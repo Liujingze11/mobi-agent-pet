@@ -113,6 +113,7 @@ function buildThemeMetadata(themeId, raw, isBuiltin, themeDir, options = {}) {
   return {
     id: themeId,
     name: raw.name || themeId,
+    description: raw.description != null ? raw.description : null,
     builtin: !!isBuiltin,
     previewFileUrl: buildPreviewUrl(raw, themeDir, isBuiltin, options),
     previewContentRatio: computePreviewContentRatio(raw),

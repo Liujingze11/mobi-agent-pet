@@ -62,6 +62,7 @@ function createDocument(ids) {
   const elements = new Map(ids.map((id) => [id, new FakeElement("div")]));
   return {
     title: "",
+    addEventListener: () => {},
     createElement: (tag) => new FakeElement(tag),
     createTextNode: (text) => ({ textContent: String(text), children: [] }),
     createDocumentFragment: () => new FakeElement("fragment"),
@@ -177,6 +178,12 @@ async function loadDashboard(sessions, openResult = { status: "ok" }, focusResul
   const context = vm.createContext({
     window: { dashboardAPI: api, addEventListener: () => {} }, document, console, Intl, Date,
     ClawdDashboardTheme: { create: () => ({ t: () => "Theme", enter: () => {}, leave: () => {}, refresh: async () => {}, render: () => {} }) },
+    MobiDashboardOffice: { create: () => ({
+      setTheme: (scene) => { document.elements.get("petScene").scene = scene; },
+      setActive: (active) => { document.elements.get("petScene").active = active; },
+      setSessions: () => {},
+      destroy: () => {},
+    }) },
     ClawdDashboardAnimation: { create: () => ({ enter: async () => {}, leave: () => {}, refreshLanguage: () => {} }) },
     setInterval: (callback) => { renderInterval = callback; return 1; },
     setTimeout: () => 1,
@@ -280,7 +287,7 @@ test("Dashboard shows the active pet in its scene while keeping session cards", 
     session("working", { badge: "running", canFocus: true }),
     session("finished", { badge: "done" }),
   ]);
-  assert.strictEqual(elements.get("petImage").src, "file:///calico-idle.svg");
+  assert.strictEqual(elements.get("petScene").scene.imageUrl, "file:///calico-idle.svg");
   assert.strictEqual(elements.get("petName").textContent, "Calico");
   assert.ok(elements.get("petScene").className.includes("is-working"));
   assert.strictEqual(elements.get("petMood").textContent, "Working");
@@ -305,7 +312,7 @@ test("Dashboard scene follows the selected pet while the window stays open", asy
   dashboard.setPetScene({ themeId: "fox", name: "Fox", imageUrl: "file:///fox-idle.svg" });
   dashboard.tickRender();
   await flush();
-  assert.strictEqual(dashboard.elements.get("petImage").src, "file:///fox-idle.svg");
+  assert.strictEqual(dashboard.elements.get("petScene").scene.imageUrl, "file:///fox-idle.svg");
   assert.strictEqual(dashboard.elements.get("petName").textContent, "Fox");
 });
 

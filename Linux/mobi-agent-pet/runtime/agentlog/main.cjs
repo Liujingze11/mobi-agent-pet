@@ -19,6 +19,7 @@ const agentLogApp = require("./app-runtime.cjs");
 require("../clawd/src/theme-loader").setThemePolicy({
   defaultThemeId: "mobi-a",
   excludedBuiltinThemeIds: ["clawd", "calico", "cloudling"],
+  allowUserThemes: false,
 });
 agentLogApp.install();
 

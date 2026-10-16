@@ -64,8 +64,7 @@
     "uninstall:qoderwork-hooks": "node hooks/qoderwork-install.js --uninstall",
     "install:workbuddy-hooks": "node hooks/workbuddy-install.js",
     "uninstall:workbuddy-hooks": "node hooks/workbuddy-install.js --uninstall",
-    "cleanup:integrations": "node hooks/cleanup-integrations.js --apply",
-    "register-protocol:dev": "node launch.js --register-protocol"
+    "cleanup:integrations": "node hooks/cleanup-integrations.js --apply"
   },
   "keywords": [
     "clawd",
@@ -79,14 +78,6 @@
   "build": {
     "appId": "com.clawd.on-desk",
     "productName": "Clawd on Desk",
-    "protocols": [
-      {
-        "name": "Clawd Import Protocol",
-        "schemes": [
-          "clawd"
-        ]
-      }
-    ],
     "mac": {
       "icon": "../../assets/brand/icon.png",
       "artifactName": "Clawd-on-Desk-${version}-${arch}.${ext}",
@@ -168,6 +159,7 @@
       "NOTICE.md",
       "src/**/*",
       "assets/icons/agents/**/*",
+      "assets/help/**/*",
       "assets/svg/**/*",
       "assets/accessories/**/*",
       "assets/sounds/**/*",

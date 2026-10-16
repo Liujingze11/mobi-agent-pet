@@ -1,0 +1,667 @@
+{
+  "variant": "C",
+  "source": "/home/ljz/.codex/generated_images/01a133ca-5013-7092-b4d5-e75341ee7ee1/exec-e834d429-e105-471f-92a5-bee50ccaff9b.png",
+  "width": 1086,
+  "height": 1448,
+  "columns": 4,
+  "rows": 4,
+  "cellWidth": 271.5,
+  "cellHeight": 362.0,
+  "rowActions": [
+    "typing",
+    "mouse",
+    "phone",
+    "coffee"
+  ],
+  "foregroundThreshold": 128,
+  "boundsSemantics": "[left,top,right,bottom], right/bottom exclusive; local to integer cell crop. Main component ignores detached hair and stray pixels. Head horizontal anchor is estimated from first 80px of main foreground.",
+  "alpha": {
+    "zero": 1055849,
+    "opaque": 5591,
+    "partial": 511088,
+    "peaks": [
+      [
+        0,
+        1055849
+      ],
+      [
+        254,
+        305498
+      ],
+      [
+        253,
+        102339
+      ],
+      [
+        1,
+        22924
+      ],
+      [
+        252,
+        18489
+      ],
+      [
+        251,
+        6441
+      ],
+      [
+        255,
+        5591
+      ],
+      [
+        2,
+        5278
+      ]
+    ]
+  },
+  "frames": [
+    {
+      "row": 0,
+      "column": 0,
+      "action": "typing",
+      "crop": [
+        0,
+        0,
+        271,
+        362
+      ],
+      "allAlphaBounds": [
+        0,
+        79,
+        266,
+        348
+      ],
+      "alpha128Bounds": [
+        60,
+        121,
+        247,
+        325
+      ],
+      "mainForegroundBounds": [
+        60,
+        121,
+        247,
+        325
+      ],
+      "mainForegroundPixels": 29220,
+      "headAnchorEstimate": {
+        "left": 60,
+        "top": 121,
+        "right": 239,
+        "note": "top and horizontal extent from first 80px of largest foreground component; head bottom is not measured"
+      },
+      "detachedAlpha128Pixels": 0,
+      "detachedComponents": 0
+    },
+    {
+      "row": 0,
+      "column": 1,
+      "action": "typing",
+      "crop": [
+        271,
+        0,
+        543,
+        362
+      ],
+      "allAlphaBounds": [
+        3,
+        68,
+        262,
+        358
+      ],
+      "alpha128Bounds": [
+        60,
+        122,
+        247,
+        325
+      ],
+      "mainForegroundBounds": [
+        60,
+        122,
+        247,
+        325
+      ],
+      "mainForegroundPixels": 28836,
+      "headAnchorEstimate": {
+        "left": 60,
+        "top": 122,
+        "right": 240,
+        "note": "top and horizontal extent from first 80px of largest foreground component; head bottom is not measured"
+      },
+      "detachedAlpha128Pixels": 0,
+      "detachedComponents": 0
+    },
+    {
+      "row": 0,
+      "column": 2,
+      "action": "typing",
+      "crop": [
+        543,
+        0,
+        814,
+        362
+      ],
+      "allAlphaBounds": [
+        1,
+        22,
+        270,
+        362
+      ],
+      "alpha128Bounds": [
+        60,
+        123,
+        252,
+        325
+      ],
+      "mainForegroundBounds": [
+        60,
+        123,
+        252,
+        325
+      ],
+      "mainForegroundPixels": 28840,
+      "headAnchorEstimate": {
+        "left": 60,
+        "top": 123,
+        "right": 239,
+        "note": "top and horizontal extent from first 80px of largest foreground component; head bottom is not measured"
+      },
+      "detachedAlpha128Pixels": 0,
+      "detachedComponents": 0
+    },
+    {
+      "row": 0,
+      "column": 3,
+      "action": "typing",
+      "crop": [
+        814,
+        0,
+        1086,
+        362
+      ],
+      "allAlphaBounds": [
+        20,
+        118,
+        248,
+        348
+      ],
+      "alpha128Bounds": [
+        50,
+        122,
+        245,
+        325
+      ],
+      "mainForegroundBounds": [
+        50,
+        122,
+        245,
+        325
+      ],
+      "mainForegroundPixels": 29288,
+      "headAnchorEstimate": {
+        "left": 50,
+        "top": 122,
+        "right": 231,
+        "note": "top and horizontal extent from first 80px of largest foreground component; head bottom is not measured"
+      },
+      "detachedAlpha128Pixels": 0,
+      "detachedComponents": 0
+    },
+    {
+      "row": 1,
+      "column": 0,
+      "action": "mouse",
+      "crop": [
+        0,
+        362,
+        271,
+        724
+      ],
+      "allAlphaBounds": [
+        50,
+        9,
+        271,
+        346
+      ],
+      "alpha128Bounds": [
+        57,
+        108,
+        247,
+        312
+      ],
+      "mainForegroundBounds": [
+        57,
+        108,
+        247,
+        312
+      ],
+      "mainForegroundPixels": 29437,
+      "headAnchorEstimate": {
+        "left": 57,
+        "top": 108,
+        "right": 243,
+        "note": "top and horizontal extent from first 80px of largest foreground component; head bottom is not measured"
+      },
+      "detachedAlpha128Pixels": 0,
+      "detachedComponents": 0
+    },
+    {
+      "row": 1,
+      "column": 1,
+      "action": "mouse",
+      "crop": [
+        271,
+        362,
+        543,
+        724
+      ],
+      "allAlphaBounds": [
+        0,
+        49,
+        266,
+        346
+      ],
+      "alpha128Bounds": [
+        55,
+        107,
+        261,
+        312
+      ],
+      "mainForegroundBounds": [
+        55,
+        107,
+        261,
+        312
+      ],
+      "mainForegroundPixels": 29272,
+      "headAnchorEstimate": {
+        "left": 55,
+        "top": 107,
+        "right": 239,
+        "note": "top and horizontal extent from first 80px of largest foreground component; head bottom is not measured"
+      },
+      "detachedAlpha128Pixels": 0,
+      "detachedComponents": 0
+    },
+    {
+      "row": 1,
+      "column": 2,
+      "action": "mouse",
+      "crop": [
+        543,
+        362,
+        814,
+        724
+      ],
+      "allAlphaBounds": [
+        1,
+        1,
+        271,
+        344
+      ],
+      "alpha128Bounds": [
+        55,
+        107,
+        246,
+        312
+      ],
+      "mainForegroundBounds": [
+        55,
+        107,
+        246,
+        312
+      ],
+      "mainForegroundPixels": 29416,
+      "headAnchorEstimate": {
+        "left": 55,
+        "top": 107,
+        "right": 240,
+        "note": "top and horizontal extent from first 80px of largest foreground component; head bottom is not measured"
+      },
+      "detachedAlpha128Pixels": 0,
+      "detachedComponents": 0
+    },
+    {
+      "row": 1,
+      "column": 3,
+      "action": "mouse",
+      "crop": [
+        814,
+        362,
+        1086,
+        724
+      ],
+      "allAlphaBounds": [
+        0,
+        27,
+        256,
+        346
+      ],
+      "alpha128Bounds": [
+        49,
+        105,
+        247,
+        313
+      ],
+      "mainForegroundBounds": [
+        49,
+        105,
+        247,
+        313
+      ],
+      "mainForegroundPixels": 29501,
+      "headAnchorEstimate": {
+        "left": 49,
+        "top": 105,
+        "right": 232,
+        "note": "top and horizontal extent from first 80px of largest foreground component; head bottom is not measured"
+      },
+      "detachedAlpha128Pixels": 0,
+      "detachedComponents": 0
+    },
+    {
+      "row": 2,
+      "column": 0,
+      "action": "phone",
+      "crop": [
+        0,
+        724,
+        271,
+        1086
+      ],
+      "allAlphaBounds": [
+        0,
+        9,
+        271,
+        344
+      ],
+      "alpha128Bounds": [
+        58,
+        92,
+        241,
+        290
+      ],
+      "mainForegroundBounds": [
+        58,
+        92,
+        241,
+        290
+      ],
+      "mainForegroundPixels": 28219,
+      "headAnchorEstimate": {
+        "left": 58,
+        "top": 92,
+        "right": 239,
+        "note": "top and horizontal extent from first 80px of largest foreground component; head bottom is not measured"
+      },
+      "detachedAlpha128Pixels": 0,
+      "detachedComponents": 0
+    },
+    {
+      "row": 2,
+      "column": 1,
+      "action": "phone",
+      "crop": [
+        271,
+        724,
+        543,
+        1086
+      ],
+      "allAlphaBounds": [
+        1,
+        29,
+        272,
+        362
+      ],
+      "alpha128Bounds": [
+        60,
+        92,
+        248,
+        290
+      ],
+      "mainForegroundBounds": [
+        60,
+        92,
+        248,
+        290
+      ],
+      "mainForegroundPixels": 28764,
+      "headAnchorEstimate": {
+        "left": 60,
+        "top": 92,
+        "right": 248,
+        "note": "top and horizontal extent from first 80px of largest foreground component; head bottom is not measured"
+      },
+      "detachedAlpha128Pixels": 0,
+      "detachedComponents": 0
+    },
+    {
+      "row": 2,
+      "column": 2,
+      "action": "phone",
+      "crop": [
+        543,
+        724,
+        814,
+        1086
+      ],
+      "allAlphaBounds": [
+        1,
+        39,
+        268,
+        362
+      ],
+      "alpha128Bounds": [
+        55,
+        92,
+        241,
+        290
+      ],
+      "mainForegroundBounds": [
+        55,
+        92,
+        241,
+        290
+      ],
+      "mainForegroundPixels": 28042,
+      "headAnchorEstimate": {
+        "left": 55,
+        "top": 92,
+        "right": 239,
+        "note": "top and horizontal extent from first 80px of largest foreground component; head bottom is not measured"
+      },
+      "detachedAlpha128Pixels": 0,
+      "detachedComponents": 0
+    },
+    {
+      "row": 2,
+      "column": 3,
+      "action": "phone",
+      "crop": [
+        814,
+        724,
+        1086,
+        1086
+      ],
+      "allAlphaBounds": [
+        3,
+        17,
+        246,
+        356
+      ],
+      "alpha128Bounds": [
+        54,
+        92,
+        241,
+        290
+      ],
+      "mainForegroundBounds": [
+        54,
+        92,
+        241,
+        290
+      ],
+      "mainForegroundPixels": 28894,
+      "headAnchorEstimate": {
+        "left": 54,
+        "top": 92,
+        "right": 238,
+        "note": "top and horizontal extent from first 80px of largest foreground component; head bottom is not measured"
+      },
+      "detachedAlpha128Pixels": 0,
+      "detachedComponents": 0
+    },
+    {
+      "row": 3,
+      "column": 0,
+      "action": "coffee",
+      "crop": [
+        0,
+        1086,
+        271,
+        1448
+      ],
+      "allAlphaBounds": [
+        0,
+        27,
+        270,
+        330
+      ],
+      "alpha128Bounds": [
+        59,
+        66,
+        244,
+        271
+      ],
+      "mainForegroundBounds": [
+        59,
+        66,
+        244,
+        271
+      ],
+      "mainForegroundPixels": 28999,
+      "headAnchorEstimate": {
+        "left": 59,
+        "top": 66,
+        "right": 242,
+        "note": "top and horizontal extent from first 80px of largest foreground component; head bottom is not measured"
+      },
+      "detachedAlpha128Pixels": 0,
+      "detachedComponents": 0
+    },
+    {
+      "row": 3,
+      "column": 1,
+      "action": "coffee",
+      "crop": [
+        271,
+        1086,
+        543,
+        1448
+      ],
+      "allAlphaBounds": [
+        1,
+        0,
+        264,
+        314
+      ],
+      "alpha128Bounds": [
+        55,
+        66,
+        258,
+        271
+      ],
+      "mainForegroundBounds": [
+        55,
+        66,
+        258,
+        271
+      ],
+      "mainForegroundPixels": 29358,
+      "headAnchorEstimate": {
+        "left": 55,
+        "top": 66,
+        "right": 239,
+        "note": "top and horizontal extent from first 80px of largest foreground component; head bottom is not measured"
+      },
+      "detachedAlpha128Pixels": 0,
+      "detachedComponents": 0
+    },
+    {
+      "row": 3,
+      "column": 2,
+      "action": "coffee",
+      "crop": [
+        543,
+        1086,
+        814,
+        1448
+      ],
+      "allAlphaBounds": [
+        19,
+        0,
+        270,
+        362
+      ],
+      "alpha128Bounds": [
+        53,
+        65,
+        266,
+        272
+      ],
+      "mainForegroundBounds": [
+        53,
+        65,
+        266,
+        272
+      ],
+      "mainForegroundPixels": 29957,
+      "headAnchorEstimate": {
+        "left": 53,
+        "top": 65,
+        "right": 237,
+        "note": "top and horizontal extent from first 80px of largest foreground component; head bottom is not measured"
+      },
+      "detachedAlpha128Pixels": 0,
+      "detachedComponents": 0
+    },
+    {
+      "row": 3,
+      "column": 3,
+      "action": "coffee",
+      "crop": [
+        814,
+        1086,
+        1086,
+        1448
+      ],
+      "allAlphaBounds": [
+        0,
+        1,
+        257,
+        300
+      ],
+      "alpha128Bounds": [
+        55,
+        67,
+        246,
+        273
+      ],
+      "mainForegroundBounds": [
+        55,
+        67,
+        246,
+        273
+      ],
+      "mainForegroundPixels": 29360,
+      "headAnchorEstimate": {
+        "left": 55,
+        "top": 67,
+        "right": 237,
+        "note": "top and horizontal extent from first 80px of largest foreground component; head bottom is not measured"
+      },
+      "detachedAlpha128Pixels": 0,
+      "detachedComponents": 0
+    }
+  ]
+}

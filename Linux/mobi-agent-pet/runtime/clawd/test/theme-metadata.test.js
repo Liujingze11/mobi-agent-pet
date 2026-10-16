@@ -170,6 +170,7 @@ describe("theme metadata facade helpers", () => {
     const { userThemesDir } = makeTempRoot();
     const raw = validThemeJson({
       name: "Meta Theme",
+      description: { en: "A quiet companion.", zh: "安静陪伴的小伙伴。" },
       preview: "preview.svg",
       layout: { contentBox: { x: 0, y: 10, width: 50, height: 50 } },
     });
@@ -181,6 +182,7 @@ describe("theme metadata facade helpers", () => {
 
     assert.strictEqual(meta.id, "meta-theme");
     assert.strictEqual(meta.name, "Meta Theme");
+    assert.deepStrictEqual(meta.description, raw.description);
     assert.strictEqual(meta.builtin, false);
     assert.ok(meta.previewFileUrl.includes("preview.svg"));
     assert.strictEqual(meta.previewContentRatio, 0.5);
@@ -214,7 +216,7 @@ describe("theme metadata facade helpers", () => {
 
   it("scans built-in and user metadata while skipping scaffold, malformed, and duplicate user themes", () => {
     const { builtinThemesDir, userThemesDir } = makeTempRoot();
-    writeTheme(builtinThemesDir, "clawd", validThemeJson({ name: "Builtin Clawd" }));
+    writeTheme(builtinThemesDir, "clawd", validThemeJson({ name: "Builtin Clawd", description: "A helpful companion." }));
     writeTheme(builtinThemesDir, "template", validThemeJson({ name: "Template", _scaffoldOnly: true }));
     writeTheme(userThemesDir, "clawd", validThemeJson({ name: "User Clawd" }));
     writeTheme(userThemesDir, "user-cat", validThemeJson({ name: "User Cat" }));
@@ -226,5 +228,7 @@ describe("theme metadata facade helpers", () => {
 
     assert.deepStrictEqual(themes.map((theme) => theme.id), ["clawd", "user-cat"]);
     assert.strictEqual(themes.find((theme) => theme.id === "clawd").name, "Builtin Clawd");
+    assert.strictEqual(themes.find((theme) => theme.id === "clawd").description, "A helpful companion.");
+    assert.strictEqual(themes.find((theme) => theme.id === "user-cat").description, null);
   });
 });

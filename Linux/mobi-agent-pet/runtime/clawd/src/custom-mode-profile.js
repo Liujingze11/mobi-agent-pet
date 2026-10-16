@@ -4,6 +4,13 @@
  const DEFAULTS=Object.freeze({version:1,petVisible:true,states:PET_STATE_IDS,trayAlerts:true,agentBubbles:true,notificationSeconds:6,permissionSeconds:0,roamIntervalSeconds:120,sessionHud:true,hudStateLabels:true,hudContext:true,hudQuota:true,keepAwake:false,keepSizeAcrossDisplays:false,fullscreenOverlay:true,permissionAutomationMode:'off',flashIntervalMs:500,flashDurationMs:5000});
  const NUMBER_RANGES={roamIntervalSeconds:[10,3600],notificationSeconds:[1,3600],permissionSeconds:[0,3600],flashIntervalMs:[200,2000],flashDurationMs:[0,60000]};
  function defaultCustomModeProfile(){return {...DEFAULTS,states:[...PET_STATE_IDS]};}
+ function builtInModeProfile(mode){
+  if(!['normal','background','automatic'].includes(mode))throw new RangeError('Unknown built-in mode: '+mode);
+  const profile={...defaultCustomModeProfile(),keepAwake:true,keepSizeAcrossDisplays:true};
+  if(mode==='background')return {...profile,petVisible:false,sessionHud:false,hudQuota:false};
+  if(mode==='automatic')return {...profile,states:PET_STATE_IDS.filter(state=>state!=='roam'),agentBubbles:false,sessionHud:false,hudQuota:false,permissionAutomationMode:'unattended'};
+  return profile;
+ }
  function validateCustomModeProfile(value){
   if(!value||typeof value!=='object'||Array.isArray(value))return 'Custom mode profile must be an object';
   for(const key of Object.keys(value))if(!Object.hasOwn(DEFAULTS,key))return 'Unknown custom mode field: '+key;
@@ -24,6 +31,6 @@
   const candidate={...defaultCustomModeProfile(),...current};
   return validateCustomModeProfile(candidate)?defaultCustomModeProfile():{...candidate,states:[...candidate.states]};
  }
- const api={PET_STATE_IDS,defaultCustomModeProfile,validateCustomModeProfile,normalizeCustomModeProfile};
+ const api={PET_STATE_IDS,defaultCustomModeProfile,builtInModeProfile,validateCustomModeProfile,normalizeCustomModeProfile};
  if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.MobiCustomModeProfile=api;
 })(globalThis);

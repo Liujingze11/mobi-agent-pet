@@ -501,7 +501,7 @@ test("real Mobi theme action data loads in the action manager without a mocked r
     assert.strictEqual(w.document.querySelector('.pet-action-timing'), null);
     assert.strictEqual(w.document.querySelector('input'), null, 'native action timing is read-only');
     const nativeData = harness.runtime.buildAnimationOverrideData().actionManagement;
-    assert.strictEqual(nativeData.durations['error.svg'], 6000);
+    assert.strictEqual(nativeData.durations['error.svg'], 10000);
     assert.match(nativeData.labels['error.svg'], /[\u4e00-\u9fff]/);
     assert.doesNotMatch(w.document.getElementById('actions').textContent, /加载失败/);
     page.leave();
@@ -512,4 +512,23 @@ test("real Mobi theme action data loads in the action manager without a mocked r
 });
 test('legacy desktop preview cannot inject an unassigned file or schedule a state reset',()=>{
  const h=createRuntimeHarness();try{const result=h.runtime.previewAnimationOverride({stateKey:'thinking',file:'scripted.svg',durationMs:5000});assert.equal(result.code,'PET_PREVIEW_MOVED');assert.deepStrictEqual(h.stateCalls,[]);}finally{h.cleanup()}
+});
+
+test('Mobi action library exposes the frame and screen celebrations as two cards',async()=>{
+ const loader=require('../src/theme-loader'),{JSDOM}=require('jsdom');
+ const privateData=fs.mkdtempSync(path.join(os.tmpdir(),'mobi-two-celebrations-'));
+ loader.init(path.join(__dirname,'..','src'),privateData);
+ const h=createRuntimeHarness({activeTheme:loader.loadTheme('mobi-a'),themeLoader:loader});
+ const dom=new JSDOM('<div id="actions"></div>',{runScripts:'outside-only'});
+ try{
+  const w=dom.window;w.settingsAPI={getAnimationOverridesData:async()=>h.runtime.buildAnimationOverrideData()};
+  for(const file of ['pet-states.js','pet-action-plan.js','dashboard-actions.js'])w.eval(fs.readFileSync(path.join(__dirname,'..','src',file),'utf8'));
+  const page=w.MobiDashboardActions.create({container:w.document.getElementById('actions'),getLang:()=>'zh'});await page.enter();
+  const titles=[...w.document.querySelectorAll('.pet-actions-library .pet-action-title')].map(el=>el.textContent);
+  assert.ok(titles.includes('框内彩纸雨'));assert.ok(titles.includes('整屏彩纸雨'));
+  const data=h.runtime.buildAnimationOverrideData().actionManagement;
+  assert.equal(data.assets.filter(a=>['attention.svg','celebration-screen.svg'].includes(a.name)).length,2);
+  assert.equal(data.durations['attention.svg'],8000);assert.equal(data.durations['celebration-screen.svg'],8000);
+  page.leave();
+ }finally{dom.window.close();h.cleanup();fs.rmSync(privateData,{recursive:true,force:true});}
 });

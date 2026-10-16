@@ -143,6 +143,8 @@ const createThemeRuntime = require("./theme-runtime");
 const createAgentRuntimeMain = require("./agent-runtime-main");
 const createFloatingWindowRuntime = require("./floating-window-runtime");
 const createPetWindowRuntime = require("./pet-window-runtime");
+const { createPetCelebration } = require("./pet-celebration");
+let celebrationRuntime = null;
 const createMacHideController = require("./mac-hide");
 const {
   getFocusableLocalHudSessionIds: selectFocusableLocalHudSessionIds,
@@ -376,7 +378,6 @@ let themeRuntime = null;
 let agentRuntime = null;
 let systemWakeRecovery = null;
 let floatingWindowRuntime = null;
-let codexPetMain = null;
 let telegramApprovalSidecar = null;
 let telegramApprovalSyncPromise = Promise.resolve();
 let telegramApprovalConfigSignature = "";
@@ -677,7 +678,6 @@ function safeConsoleError(...args) {
 
 // ── Theme loader ──
 const themeLoader = require("./theme-loader");
-const createCodexPetMain = require("./codex-pet-main");
 themeLoader.init(__dirname, app.getPath("userData"));
 themeRuntime = createThemeRuntime({
   themeLoader,
@@ -702,7 +702,6 @@ themeRuntime = createThemeRuntime({
   startMainTick: () => startMainTick(),
   bumpAnimationOverridePreviewPosterGeneration,
   rebuildAllMenus: () => rebuildAllMenus(),
-  isManagedTheme: (themeId) => codexPetMain && codexPetMain.isManagedTheme(themeId),
 });
 themeLoader.bindActiveThemeRuntime(themeRuntime);
 
@@ -768,26 +767,6 @@ shortcutRuntime = createShortcutRuntime({
   disabledActionIds: ["togglePet"],
 });
 
-// The injected window/menu closures below are intentionally lazy. During
-// startup before themeRuntime / win / Settings window / rebuildAllMenus exist,
-// only the sync/summary/merge methods are safe to call.
-codexPetMain = createCodexPetMain({
-  app,
-  BrowserWindow,
-  dialog,
-  fs,
-  getActiveTheme: () => getActiveTheme(),
-  getLang: () => lang,
-  getMainWindow: () => win,
-  getSettingsWindow,
-  path,
-  reloadActiveTheme: () => themeRuntime.reloadActiveTheme(),
-  rebuildAllMenus: () => rebuildAllMenus(),
-  settingsController: _settingsController,
-  shell,
-  themeLoader,
-});
-const REGISTER_PROTOCOL_DEV_ARG = codexPetMain.REGISTER_PROTOCOL_DEV_ARG;
 // Lenient load so a missing/corrupt user-selected theme can't brick boot.
 // If lenient fell back to the product default OR the variant fell back to "default",
 // hydrate prefs to match so the store stays truth.
@@ -796,32 +775,7 @@ const REGISTER_PROTOCOL_DEV_ARG = codexPetMain.REGISTER_PROTOCOL_DEV_ARG;
 // load path, not activateTheme (which requires ready windows) and not the
 // setThemeSelection command (which goes through activateTheme). The runtime
 // switch path via UI goes through setThemeSelection post-window-ready.
-let _requestedThemeId = _settingsController.get("theme") || "clawd";
-let _startupCodexPetSyncSummary = codexPetMain.syncThemes(_requestedThemeId);
-if (codexPetMain.summaryHasActiveOrphan(_startupCodexPetSyncSummary, _requestedThemeId)) {
-  const orphanThemeId = _requestedThemeId;
-  const nextVariantMap = { ...(_settingsController.get("themeVariant") || {}) };
-  const nextOverrides = { ...(_settingsController.get("themeOverrides") || {}) };
-  delete nextVariantMap[orphanThemeId];
-  delete nextOverrides[orphanThemeId];
-
-  _requestedThemeId = themeLoader.getDefaultThemeId();
-  const result = _settingsController.hydrate({
-    theme: _requestedThemeId,
-    themeVariant: nextVariantMap,
-    themeOverrides: nextOverrides,
-  });
-  if (result && result.status === "error") {
-    console.warn("Clawd: Codex Pet active theme fallback hydrate failed:", result.message);
-  }
-  _startupCodexPetSyncSummary = codexPetMain.mergeSyncSummaries(
-    _startupCodexPetSyncSummary,
-    codexPetMain.syncThemes(_requestedThemeId)
-  );
-  codexPetMain.setLastSyncSummary(_startupCodexPetSyncSummary);
-}
-// Synchronization may rebuild a selected imported theme. Resolve availability
-// afterward, then read the final character's own saved settings.
+let _requestedThemeId = _settingsController.get("theme") || themeLoader.getDefaultThemeId();
 _requestedThemeId = themeLoader.resolveThemeId(_requestedThemeId);
 const _initialVariantMap = _settingsController.get("themeVariant") || {};
 let _requestedVariantId = _initialVariantMap[_requestedThemeId] || "default";
@@ -887,7 +841,10 @@ const petWindowRuntime = createPetWindowRuntime({
   syncPermissionShortcuts: () => syncPermissionShortcuts(),
   buildTrayMenu: () => buildTrayMenu(),
   buildContextMenu: () => buildContextMenu(),
-  onPetHiddenChanged: (hidden) => broadcastSettingsWindow("settings:pet-hidden-changed", hidden),
+  onPetHiddenChanged: (hidden) => {
+    if (hidden) celebrationRuntime?.stop();
+    broadcastSettingsWindow("settings:pet-hidden-changed", hidden);
+  },
   reapplyMacVisibility: () => reapplyMacVisibility(),
   reassertWinTopmost: () => reassertWinTopmost(),
   scheduleHwndRecovery: () => scheduleHwndRecovery(),
@@ -1173,6 +1130,8 @@ function togglePetVisibility() {
 }
 
 function sendToRenderer(channel, ...args) {
+  if (channel === "state-change") celebrationRuntime?.stateChanged(args[0]);
+  if (channel === "theme-config" || (channel === "dnd-change" && args[0])) celebrationRuntime?.stop();
   if (win && !win.isDestroyed()) win.webContents.send(channel, ...args);
 }
 function sendToHitWin(channel, ...args) {
@@ -2000,7 +1959,7 @@ const _sessionHud = require("./session-hud")({
   get sessionHudShowStateLabels() { return sessionHudShowStateLabels; },
   get sessionHudShowContextUsage() { return sessionHudShowContextUsage; },
   get sessionHudShowQuota() {
-    return getEffectiveAppModePolicy().suppressSessionHud ? false : sessionHudShowQuota;
+    return getEffectiveAppModePolicy().sessionHudShowQuota;
   },
   get sessionHudPinned() { return sessionHudPinned; },
   getSessionSnapshot: () => _state.buildSessionSnapshot(),
@@ -3577,7 +3536,6 @@ registerSettingsIpc({
   getActiveAppMode,
   onCustomModeSaved: (options) => _appModeController.refreshCustomMode(options),
   themeLoader,
-  codexPetMain,
   getSettingsWindow,
   getActiveTheme: () => getActiveTheme(),
   getLang: () => lang,
@@ -3647,6 +3605,14 @@ registerSessionIpc({
 });
 
 function createWindow() {
+  celebrationRuntime?.stop();
+  celebrationRuntime = createPetCelebration({
+    BrowserWindow, screen,
+    getPetBounds: () => getPetWindowBounds(),
+    isAllowed: () => !doNotDisturb && !petWindowRuntime.isPetHidden(),
+    topmostLevel: isWin ? WIN_TOPMOST_LEVEL : "screen-saver",
+    windowType: isLinux ? LINUX_WINDOW_TYPE : undefined,
+  });
   // Read everything from the settings controller. The mirror caches above
   // (lang/showTray/etc.) were already initialized at module-load time, so
   // here we just need the position fields plus the legacy size migration.
@@ -3750,7 +3716,7 @@ function createWindow() {
     sendToRenderer,
     updateActionVisual: (event, payload) => {
       if (!win || win.isDestroyed() || !event || event.sender !== win.webContents) return;
-      _state.reportPetActionFrame(payload);
+      if (_state.reportPetActionFrame(payload)) celebrationRuntime.playFrame(getActiveTheme(), payload);
     },
     recoverVisiblePetAfterRendererLoad: (event) => {
       if (!win || win.isDestroyed()) return;
@@ -4007,17 +3973,9 @@ function installTerminalFocusExtension() {
 }
 
 // ── Single instance lock ──
-app.on("open-url", (event, url) => {
-  event.preventDefault();
-  codexPetMain.enqueueImportUrl(url);
-});
 
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
-  if (process.argv.includes(REGISTER_PROTOCOL_DEV_ARG)) {
-    const protocolRegistered = codexPetMain.registerProtocolClient();
-    console.log(`Clawd: clawd:// dev protocol registration ${protocolRegistered ? "succeeded" : "failed"}`);
-  }
   // Another instance is already running — quit silently
   app.quit();
 } else {
@@ -4043,12 +4001,10 @@ if (!gotTheLock) {
       petWindowRuntime.recoverIfCloaked();
     }
     const opensSettings = shouldOpenSettingsWindowFromArgv(commandLine);
-    const importUrls = codexPetMain.extractClawdProtocolUrls(commandLine);
     if (opensSettings) {
       settingsWindowRuntime.openWhenReady();
     }
-    codexPetMain.enqueueImportUrlsFromArgv(commandLine);
-    if (!opensSettings && importUrls.length === 0) {
+    if (!opensSettings) {
       agentLogApp.openManager();
       if (process.env.AGENTLOG_SMOKE_MODE === "1") {
         process.stdout.write("AGENTLOG_SMOKE_MANAGER_ACTIVATED\n");
@@ -4111,12 +4067,6 @@ if (!gotTheLock) {
   }
 
   app.whenReady().then(async () => {
-    const protocolRegistered = codexPetMain.registerProtocolClient();
-    if (process.argv.includes(REGISTER_PROTOCOL_DEV_ARG)) {
-      console.log(`Clawd: clawd:// dev protocol registration ${protocolRegistered ? "succeeded" : "failed"}`);
-      app.quit();
-      return;
-    }
 
     // Import system-backed settings (openAtLogin) into prefs on first run.
     // Must run before createWindow() so the first menu draw sees the
@@ -4197,10 +4147,6 @@ if (!gotTheLock) {
     } catch (err) {
       console.warn("Clawd: failed to open first-run tutorial:", err && err.message);
     }
-    codexPetMain.enqueueImportUrlsFromArgv(process.argv);
-    codexPetMain.flushPendingImportUrls().catch((err) => {
-      console.warn("Clawd: Codex Pet import queue failed:", err && err.message);
-    });
 
     // Register persistent global shortcuts from the validated prefs snapshot.
     shortcutRuntime.registerPersistentShortcutsFromSettings();
@@ -4236,6 +4182,7 @@ if (!gotTheLock) {
   app.on("before-quit", (event) => {
     if (!trayShutdownGate.onBeforeQuit(event)) return;
     isQuitting = true;
+    celebrationRuntime?.stop();
     if (systemWakeRecovery) systemWakeRecovery.dispose();
     // #525: release the IVirtualDesktopManager COM ref and pay back our own
     // CoInitializeEx count (see win-cloak-recovery.js dispose()).

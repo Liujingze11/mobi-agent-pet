@@ -371,10 +371,10 @@ describe("buildElectronLaunchConfig()", () => {
     const cfg = buildElectronLaunchConfig("D:\\app", {
       platform: "win32",
       env: sourceEnv,
-      forwardedArgs: ["--register-protocol"],
+      forwardedArgs: ["--open-settings"],
     });
 
-    assert.deepStrictEqual(cfg.args, [".", "--register-protocol"]);
+    assert.deepStrictEqual(cfg.args, [".", "--open-settings"]);
     assert.strictEqual(cfg.cwd, "D:\\app");
     assert.strictEqual(cfg.env.ELECTRON_RUN_AS_NODE, undefined);
     assert.strictEqual(cfg.env.KEEP_ME, "yes");

@@ -30,11 +30,13 @@ binding under `.electron-native/`; Node-based tests continue using the normal
 Node binding.
 
 Built-in characters are **莫比**, **莫莫**, and **比比**. New installations
-start with 莫比, and user-installed themes remain supported.
+start with 莫比. The Characters page offers these built-in roles only; external
+character packages, automatic Codex Pet syncing, and import links are unsupported.
 
 The pet uses seven states: idle, roam, working, waiting, complete, error, and
-held. Each state plays the actions assigned in the action manager; mini mode
-uses the same states and action plan. See the [state mapping](runtime/clawd/docs/guides/state-mapping.md).
+held. Each character has one default action per state, with 43 actions available
+across the three characters in the action manager. Legacy mini animations have
+been retired. See the [state mapping](runtime/clawd/docs/guides/state-mapping.md).
 
 Modes are **Normal**, **Background**, **Automatic**, and **Custom**. The first
 three use fixed behavior; only **Edit Custom Mode** changes mode settings.

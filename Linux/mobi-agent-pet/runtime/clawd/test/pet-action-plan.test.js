@@ -24,7 +24,7 @@ test('automatic timing replaces old manual durations without changing assignment
     { file: 'off.svg', enabled: false, durationMs: 5000 },
     { file: 'build.svg', enabled: true, durationMs: 6000 },
   ] });
-  assert.ok(clean.states.idle.actions[0].durationMs > 3000);
+  assert.equal(clean.states.idle.actions[0].durationMs, 3000);
   assert.equal(value.states.working.actions[0].durationMs, 2000, 'migration must not mutate stored settings');
   const timers = clock(), frames = [];
   const player = createPlayer({ plan: clean, timers, random: () => 0, render: file => frames.push(file) });
@@ -72,6 +72,34 @@ test('defaults offer one work action and keep sleep poses as idle actions', () =
   assert.deepEqual(value.states.idle.actions.map(a=>a.file), ['rest.svg','sleep.svg']);
   assert.deepEqual(value.states.held.actions.map(a=>a.file), ['lift.svg']);
 });
+test('explicit defaults play one selected action instead of inherited idle and sleep variants', () => {
+  const theme = {
+    states: { idle: ['rest.svg'], sleeping: ['sleep.svg'], working: ['type.svg'] },
+    idleAnimations: [{ file: 'coffee.svg' }], actionLibrary: ['build.svg'],
+    actionDurations: { 'coffee.svg': 10000, 'build.svg': 6000 },
+    defaultActions: { idle: 'coffee.svg', working: 'build.svg' },
+  };
+  const before = structuredClone(theme), timers = clock(), frames = [];
+  const value = defaultPlan(theme);
+  const player = createPlayer({ plan: value, timers, render: file => frames.push(file) });
+  player.update('idle', 'rest.svg'); timers.advance(20000);
+  assert.deepEqual(frames, ['coffee.svg', 'coffee.svg', 'coffee.svg']);
+  assert.equal(value.states.idle.mode, 'sequence');
+  player.update('working', 'type.svg'); timers.advance(6000);
+  assert.deepEqual(frames.slice(-2), ['build.svg', 'build.svg']);
+  assert.deepEqual(theme, before, 'selecting defaults must preserve library and source bindings');
+  player.stop();
+});
+test('explicit defaults ignore unsafe or unlisted files and unknown states', () => {
+  const value = defaultPlan({
+    states: { idle: ['rest.svg'], working: ['type.svg'], roam: ['walk.svg'] },
+    defaultActions: { idle: '../outside.svg', working: 'missing.svg', roam: 'walk.svg', bogus: 'rest.svg' },
+  });
+  assert.deepEqual(value.states.idle.actions.map(a => a.file), ['rest.svg']);
+  assert.deepEqual(value.states.working.actions.map(a => a.file), ['type.svg']);
+  assert.equal(value.states.roam.mode, 'sequence');
+  assert.equal(value.states.bogus, undefined);
+});
 test('sequence uses each enabled action duration and does not restart across work subevents', () => {
   const timers = clock(), frames = [];
   const player = createPlayer({plan:plan(), timers, render:(file,state)=>frames.push([file,state])});
@@ -98,6 +126,30 @@ test('holding overrides new Agent events until release then restores the latest 
   player.update('error','error.svg'); timers.advance(8000);
   assert.deepEqual(frames.at(-1),['lift.svg','held']);
   player.release(); assert.deepEqual(frames.at(-1),['rest.svg','error']);
+  player.stop();
+});
+test('holding keeps an entry animation running until release and replays it on the next lift', () => {
+  const timers = clock(), frames = [];
+  const player = createPlayer({ plan: plan(), timers,
+    render: (file, state, duration, replay) => frames.push({ file, state, replay }) });
+  player.update('working', 'type.svg');
+  player.hold('lift.svg');
+  timers.advance(15000);
+  const held = frames.filter(frame => frame.state === 'held');
+  assert.deepEqual(held.map(frame => frame.replay), [true, false, false, false]);
+  player.release();
+  player.hold('lift.svg');
+  assert.deepEqual(frames.at(-1), { file: 'lift.svg', state: 'held', replay: true });
+  player.stop();
+});
+test('holding still switches and replays distinct assigned actions in sequence', () => {
+  const value = plan(), timers = clock(), frames = [];
+  value.states.held.actions.push({ file: 'sway.svg', enabled: true, durationMs: 5000 });
+  const player = createPlayer({ plan: value, timers,
+    render: (file, state, duration, replay) => frames.push([file, replay]) });
+  player.hold('lift.svg');
+  timers.advance(10000);
+  assert.deepEqual(frames, [['lift.svg', true], ['sway.svg', true], ['lift.svg', true]]);
   player.stop();
 });
 test('saving a plan reloads only the active theme and preserves prior sound and geometry overrides', () => {

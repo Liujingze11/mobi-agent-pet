@@ -3,7 +3,7 @@ const test=require('node:test'),assert=require('node:assert/strict'),path=requir
 const loader=require('../src/theme-loader'),model=require('../src/pet-action-plan'),{handleStatePost}=require('../src/server-route-state');
 loader.init(path.resolve(__dirname,'../src'));
 function fixture(){
- const theme=loader.loadTheme('mobi-a'),plan=model.defaultPlan(theme);plan.states.working.actions=[{file:'sleeping.svg',enabled:true,durationMs:5000}];theme._userOverrides={actionPlan:plan};
+ const theme=loader.loadTheme('mobi-a'),plan=model.defaultPlan(theme);plan.states.working.actions=[{file:'collapsing.svg',enabled:true,durationMs:10000}];theme._userOverrides={actionPlan:plan};
  const frames=[],events=[],ctx={theme,doNotDisturb:false,miniMode:false,miniTransitioning:false,pendingPermissions:[],playSound(){},syncHitWin(){},sendToHitWin(){},sendToRenderer:(channel,state,file,snapshot)=>{if(channel==='state-change')frames.push({state,file,...snapshot})},buildContextMenu(){},buildTrayMenu(){},miniPeekIn(){},miniPeekOut(){},t:x=>x,onAgentEvent:input=>events.push(input)};
  const state=require('../src/state')(ctx);
  function post(input){return new Promise(resolve=>{const req=new EventEmitter(),res={writeHead(code){this.statusCode=code},end(){resolve(this.statusCode)}};
@@ -15,7 +15,7 @@ function fixture(){
 test('real Agent ingress preserves raw events while configured actions and held state use the seven-state contract',async()=>{
  const h=fixture();try{
   assert.equal(await h.post({state:'thinking',event:'UserPromptSubmit'}),200);
-  assert.equal(h.state.getCurrentState(),'working');assert.equal(h.state.getCurrentSvg(),'sleeping.svg');
+  assert.equal(h.state.getCurrentState(),'working');assert.equal(h.state.getCurrentSvg(),'collapsing.svg');
   assert.equal(h.events.at(-1).state,'thinking');
   h.state.setPetHeld(true);assert.equal(h.state.getCurrentState(),'held');
   assert.equal(await h.post({state:'error',event:'PostToolUseFailure'}),200);assert.equal(h.state.getCurrentState(),'held');

@@ -1557,31 +1557,6 @@ html, body {
 }
 
 /* ── Theme grid ── */
-.theme-actions {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  align-items: start;
-  gap: 12px;
-  margin: -2px 0 14px;
-}
-.theme-action-group {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-.theme-action-label {
-  color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0;
-  text-transform: uppercase;
-}
-.theme-action-buttons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
 .theme-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -1637,25 +1612,6 @@ html, body {
   object-fit: contain;
   pointer-events: none;
 }
-.theme-thumb-atlas-frame {
-  position: relative;
-  display: block;
-  height: 100%;
-  aspect-ratio: 192 / 208;
-  overflow: hidden;
-  pointer-events: none;
-}
-.theme-thumb-atlas-frame img {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 800%;
-  height: 900%;
-  max-width: none;
-  max-height: none;
-  object-fit: fill;
-  pointer-events: none;
-}
 .theme-thumb-empty {
   font-size: 28px;
   color: var(--text-tertiary);
@@ -1667,14 +1623,24 @@ html, body {
   color: var(--text-primary);
   display: flex;
   align-items: center;
-  gap: 6px;
+  flex-wrap: nowrap;
+  gap: 8px;
   min-width: 0;
+  min-height: 26px;
 }
 .theme-card-name-text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+}
+.theme-card-description {
+  margin: -2px 0 0;
+  min-height: 3.1em;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
 }
 .theme-card-badge {
   font-size: 10px;
@@ -1706,12 +1672,19 @@ html, body {
   margin-top: auto;
 }
 .theme-card-check {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: var(--surface-alt, #eaf2ff);
   font-size: 11px;
   color: var(--accent);
   font-weight: 600;
-  line-height: 20px;
+  line-height: 16px;
   white-space: nowrap;
 }
+.theme-card-check:empty { display: none; }
 .theme-customize-btn {
   border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
   background: color-mix(in srgb, var(--accent) 8%, transparent);
@@ -1821,31 +1794,6 @@ html, body {
   background: rgba(185, 28, 28, 0.1);
 }
 .theme-delete-btn:focus-visible {
-  outline: 2px solid var(--toast-error);
-  outline-offset: 2px;
-}
-.theme-uninstall-btn {
-  border: 1px solid rgba(185, 28, 28, 0.18);
-  background: transparent;
-  color: var(--toast-error);
-  border-radius: 6px;
-  min-height: 26px;
-  padding: 3px 7px;
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-  font-family: inherit;
-  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
-}
-.theme-uninstall-btn:hover:not(:disabled) {
-  background: rgba(185, 28, 28, 0.1);
-  border-color: rgba(185, 28, 28, 0.3);
-}
-.theme-uninstall-btn:disabled {
-  opacity: 0.5;
-  cursor: wait;
-}
-.theme-uninstall-btn:focus-visible {
   outline: 2px solid var(--toast-error);
   outline-offset: 2px;
 }

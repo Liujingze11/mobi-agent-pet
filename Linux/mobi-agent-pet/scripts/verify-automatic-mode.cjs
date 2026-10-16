@@ -16,7 +16,6 @@ os.homedir = () => path.join(sandbox, 'home');
 app.setPath('appData', path.join(sandbox, 'data'));
 app.setPath('userData', path.join(sandbox, 'data/AgentLog Pet'));
 fs.mkdirSync(app.getPath('userData'), { recursive: true });
-app.setAsDefaultProtocolClient = () => true;
 app.getLoginItemSettings = () => ({ openAtLogin: false });
 app.setLoginItemSettings = () => {};
 globalShortcut.register = () => false;
@@ -257,6 +256,38 @@ app.whenReady().then(async () => {
   await menu.setAppMode('automatic'); await wait(100);
   assert.ok(!hud.getWindow()?.isVisible()); assert.ok(!hud.getQuotaRingWindow()?.isVisible());
   cases.push('Normal restores manual UI; returning to Automatic removes overlays');
+  menu.openCustomModeEditor();
+  let editor;
+  for (let n = 0; n < 60; n++) {
+    editor = BrowserWindow.getAllWindows().find(w => w.webContents.getURL().endsWith('/src/custom-mode.html'));
+    if (editor?.isVisible() && !editor.webContents.isLoadingMainFrame()) {
+      const ready = await editor.webContents.executeJavaScript('!!document.querySelector("[data-custom-mode-field=permissionAutomationMode]")');
+      if (ready) break;
+    }
+    await wait(30);
+  }
+  assert.ok(editor?.isVisible());
+  assert.equal(await editor.webContents.executeJavaScript('document.querySelector("option[value=unattended]").textContent'), '完全访问');
+  const customProfile = { ...require(path.join(src, 'custom-mode-profile')).defaultCustomModeProfile(),
+    sessionHud: false, hudQuota: true, roamIntervalSeconds: 300 };
+  async function saveCustom(profile) {
+    const result = await editor.webContents.executeJavaScript(`window.settingsAPI.saveCustomMode(${JSON.stringify(profile)})`);
+    assert.equal(result.status, 'ok', JSON.stringify(result));
+    assert.equal(result.profile.roamIntervalSeconds, 300);
+  }
+  await saveCustom(customProfile); assert.equal(menu.getAppMode(), 'automatic');
+  assert.ok(!hud.getWindow()?.isVisible()); assert.ok(!hud.getQuotaRingWindow()?.isVisible());
+  assert.equal((await menu.setAppMode('custom')).status, 'ok'); hud.revealFromPet();
+  for (let n = 0; n < 60 && !hud.getQuotaRingWindow()?.isVisible(); n++) await wait(30);
+  assert.ok(hud.getQuotaRingWindow()?.isVisible()); assert.ok(!hud.getWindow()?.isVisible());
+  await saveCustom({ ...customProfile, hudQuota: false }); await wait(80);
+  assert.ok(!hud.getQuotaRingWindow()?.isVisible()); assert.ok(!hud.getWindow()?.isVisible());
+  await saveCustom({ ...customProfile, sessionHud: true, hudQuota: false }); hud.revealFromPet();
+  for (let n = 0; n < 60 && !hud.getWindow()?.isVisible(); n++) await wait(30);
+  assert.ok(hud.getWindow()?.isVisible()); assert.ok(!hud.getQuotaRingWindow()?.isVisible());
+  await menu.setAppMode('automatic'); await wait(80);
+  assert.ok(!hud.getWindow()?.isVisible()); assert.ok(!hud.getQuotaRingWindow()?.isVisible());
+  cases.push('Custom card/quota switches are independent; saving preserves preset and other values');
   const saved = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'clawd-prefs.json'), 'utf8'));
   assert.equal(saved.agents.codex.permissionMode, 'intercept');
   assert.equal(saved.agents.codex.integrationInstalled, false);

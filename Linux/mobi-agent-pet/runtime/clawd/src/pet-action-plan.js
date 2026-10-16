@@ -23,7 +23,7 @@
   }
   function actionDuration(theme, file) {
     const duration = theme && theme.actionDurations && theme.actionDurations[file];
-    return Number.isFinite(duration) && duration > 3000 && duration <= 6e4 ? Math.ceil(duration) : 5e3;
+    return Number.isFinite(duration) && duration >= 3000 && duration <= 6e4 ? Math.ceil(duration) : 5e3;
   }
   function automaticPlan(value, theme) {
     const plan = normalizePlan(value);
@@ -51,6 +51,13 @@
     const drag = theme && theme.reactions && theme.reactions.drag;
     if (drag) for (const file of [drag.file, drag.fileLeft, drag.fileRight, ...drag.files || []]) add("held", file);
     states.idle.mode = "random";
+    // Explicit defaults select from the existing library without changing it.
+    const available = new Set(collectActionFiles(theme));
+    for (const id of STATE_IDS) {
+      const file = theme && theme.defaultActions && theme.defaultActions[id];
+      if (!safeFile(file) || !available.has(file)) continue;
+      states[id] = { mode: "sequence", actions: [{ file, enabled: true, durationMs: actionDuration(theme, file) }] };
+    }
     return { version: 1, states };
   }
   function collectActionFiles(theme) {
@@ -60,6 +67,7 @@
       if (safeFile(file)) files.add(file);
     };
     for (const values of Object.values(theme && theme.states || {})) for (const file of Array.isArray(values) ? values : []) add(file);
+    for (const file of Array.isArray(theme && theme.actionLibrary) ? theme.actionLibrary : []) add(file);
     for (const key of ["workingTiers", "jugglingTiers", "idleAnimations"]) for (const entry of theme && theme[key] || []) add(entry.file);
     for (const entry of Object.values(theme && theme.reactions || {})) {
       for (const file of [entry.file, entry.fileLeft, entry.fileRight, ...entry.files || []]) add(file);
@@ -128,11 +136,13 @@
         return;
       }
       const candidates = actions.map((_, i) => i).filter((i) => actions.length === 1 || i !== index);
+      const previousFile = index >= 0 ? actions[index].file : null;
       index = slot && slot.mode === "random" ? candidates[Math.min(candidates.length - 1, Math.floor(random() * candidates.length))] : (index + 1) % actions.length;
       const action = actions[index];
       lastDuration = action.durationMs;
       terminal = ["complete", "error"].includes(group) && (slot.mode === "random" || index === actions.length - 1);
-      render(action.file, state, action.durationMs, true);
+      // A held action can have a one-shot entry followed by a persistent loop.
+      render(action.file, state, action.durationMs, group !== "held" || action.file !== previousFile);
       schedule(action.durationMs);
     }
     function enter(group, fallback, state) {

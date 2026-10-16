@@ -315,7 +315,7 @@ describe("mode menu module", () => {
       const mode = getModeItem(template);
       assert.deepStrictEqual(
         mode.submenu.filter((item) => item.type !== "separator").map((item) => item.label),
-        ["常规模式", "后台模式", "自动模式", "自定义模式", "编辑自定义模式…"]
+        ["常规模式", "后台模式", "完全访问模式", "自定义模式", "编辑自定义模式…"]
       );
       assert.strictEqual(mode.submenu[0].type, "radio");
       assert.strictEqual(mode.submenu[2].checked, true, "DND and mini state must not choose the mode");
@@ -349,7 +349,7 @@ describe("mode menu module", () => {
     });
     const menu = initMenu(ctx);
     menu.buildContextMenu();
-    const automatic = getModeEntry(getModeItem(ctx.contextMenu.template), "自动模式");
+    const automatic = getModeEntry(getModeItem(ctx.contextMenu.template), "完全访问模式");
 
     await automatic.click();
 
@@ -358,7 +358,7 @@ describe("mode menu module", () => {
       ["automatic", { confirmed: true }],
     ]);
     assert.strictEqual(dialogs.length, 1);
-    assert.deepStrictEqual(dialogs[0].buttons, ["启用自动模式", "取消"]);
+    assert.deepStrictEqual(dialogs[0].buttons, ["启用完全访问模式", "取消"]);
     assert.strictEqual(dialogs[0].defaultId, 1);
     assert.strictEqual(dialogs[0].cancelId, 1);
     assert.strictEqual(activeMode, "automatic");
@@ -391,7 +391,7 @@ describe("mode menu module", () => {
     });
     const menu = initMenu(ctx);
     menu.buildContextMenu();
-    const automatic = getModeEntry(getModeItem(ctx.contextMenu.template), "自动模式");
+    const automatic = getModeEntry(getModeItem(ctx.contextMenu.template), "完全访问模式");
 
     const firstClick = automatic.click();
     const secondClick = automatic.click();
@@ -414,7 +414,7 @@ describe("mode menu module", () => {
     menu.buildContextMenu();
     const normalResult = await getModeEntry(getModeItem(ctx.contextMenu.template), "常规模式").click();
     menu.buildContextMenu();
-    const laterAutomaticResult = await getModeEntry(getModeItem(ctx.contextMenu.template), "自动模式").click();
+    const laterAutomaticResult = await getModeEntry(getModeItem(ctx.contextMenu.template), "完全访问模式").click();
 
     assert.deepStrictEqual(normalResult, { status: "ok", mode: "normal" });
     assert.deepStrictEqual(laterAutomaticResult, { status: "ok", mode: "automatic" });
@@ -444,7 +444,7 @@ describe("mode menu module", () => {
     const menu = initMenu(ctx);
     menu.buildContextMenu();
 
-    await getModeEntry(getModeItem(ctx.contextMenu.template), "自动模式").click();
+    await getModeEntry(getModeItem(ctx.contextMenu.template), "完全访问模式").click();
 
     assert.deepStrictEqual(calls, [["automatic", undefined]]);
     assert.strictEqual(getModeItem(ctx.contextMenu.template).submenu[0].checked, true);
@@ -476,11 +476,11 @@ describe("mode menu module", () => {
     const menu = initMenu(ctx);
 
     menu.buildContextMenu();
-    await getModeEntry(getModeItem(ctx.contextMenu.template), "自动模式").click();
+    await getModeEntry(getModeItem(ctx.contextMenu.template), "完全访问模式").click();
     menu.buildContextMenu();
     await getModeEntry(getModeItem(ctx.contextMenu.template), "常规模式").click();
     menu.buildContextMenu();
-    await getModeEntry(getModeItem(ctx.contextMenu.template), "自动模式").click();
+    await getModeEntry(getModeItem(ctx.contextMenu.template), "完全访问模式").click();
 
     assert.strictEqual(dialogCount, 1);
     assert.strictEqual(activeMode, "automatic");

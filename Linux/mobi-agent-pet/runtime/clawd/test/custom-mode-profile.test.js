@@ -149,3 +149,15 @@ test('retired edge and mini settings are ignored while cross-display size is fix
  }
  assert.equal(resolveAppModePolicy('custom',{customModeProfile:{...current,keepSizeAcrossDisplays:true}}).keepSizeAcrossDisplays,true);
 });
+
+
+test('built-in templates project exactly the corresponding mode and are independent editable copies',()=>{
+ const model=require('../src/custom-mode-profile');
+ for(const mode of ['normal','background','automatic']){
+  const profile=model.builtInModeProfile(mode);assert.equal(model.validateCustomModeProfile(profile),null);
+  assert.deepEqual(resolveAppModePolicy('custom',{customModeProfile:profile}),resolveAppModePolicy(mode),mode);
+  const before=model.builtInModeProfile(mode);profile.states.pop();profile.trayAlerts=false;
+  assert.deepEqual(model.builtInModeProfile(mode),before);
+ }
+ assert.throws(()=>model.builtInModeProfile('custom'),/built-in/i);
+});

@@ -50,6 +50,7 @@ const PET_TINT_FILTER_TOKEN_RE =
 let tc = window.themeConfig || {};
 let actionPlayer = null;
 let petStateSnapshot = null;
+let heldRelease = null;
 
 function initWithConfig(cfg) {
   tc = cfg || {};
@@ -303,6 +304,7 @@ initWithConfig(tc);
 
 // Theme switch: reload + IPC push overrides additionalArguments
 window.electronAPI.onThemeConfig((newConfig) => {
+  cancelHeldRelease();
   // Clean up layered tracking before reinitializing
   _cleanupLayeredTracking();
   cancelPendingSwap("theme-config");
@@ -790,6 +792,7 @@ function needsObjectChannel(state, file) {
     && accessoryDescriptor.followTarget
   );
   return _forceSvgObjectChannel
+    || (state === "held" && file === _dragSvg && tc.dragReleaseDuration > 0)
     || needsEyeTracking(state)
     || _trustedScriptedSvgFiles.has(file)
     || needsAccessoryFollow;
@@ -1299,19 +1302,77 @@ function configureActionPlayer() {
   actionPlayer = globalThis.MobiPetActions ? globalThis.MobiPetActions.createPlayer({
     plan: tc.actionPlan,
     render: (file, state, durationMs, replay) => {
-      container.classList.toggle("pet-lifted", state === "held");
+      // Release-aware art owns its hanging rig and must not get a second sway.
+      container.classList.toggle("pet-lifted", state === "held" && !(file === _dragSvg && tc.dragReleaseDuration > 0));
       displayStateFile(state, file, { replay: !!replay, playlistFrame: !!tc.actionPlan });
       const group = globalThis.MobiPetActions.groupForState(state);
       const slot = globalThis.MobiPetActions.playbackSlot(tc.actionPlan, group);
       const returnAfterMs = slot && slot.mode === "random" && ["complete", "error"].includes(group) ? durationMs : undefined;
-      if (tc.actionPlan && window.electronAPI.reportActionFrame) window.electronAPI.reportActionFrame({...petStateSnapshot, file, state});
+      if (tc.actionPlan && window.electronAPI.reportActionFrame) window.electronAPI.reportActionFrame({...petStateSnapshot, file, state, replay: !!replay});
     },
   }) : null;
 }
 configureActionPlayer();
-window.addEventListener("beforeunload", () => { if (actionPlayer) actionPlayer.stop(); });
+window.addEventListener("beforeunload", () => { cancelHeldRelease(); if (actionPlayer) actionPlayer.stop(); });
+
+function animateHeldRelease(objectEl) {
+  try {
+    const doc = objectEl && objectEl.contentDocument;
+    const root = doc && doc.documentElement;
+    if (!root || root.getAttribute("data-held-release") !== "true") return false;
+    // Preserve the pose at mouse-up, including release during the initial fall.
+    for (const element of doc.querySelectorAll("[data-held-release-pose]")) {
+      const style = doc.defaultView.getComputedStyle(element);
+      for (const property of ["translate", "rotate", "d"]) {
+        element.style.setProperty(`--held-${property}`, style.getPropertyValue(property));
+      }
+    }
+    doc.getAnimations().forEach(animation => animation.pause());
+    root.classList.add("pet-released");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function cancelHeldRelease() {
+  if (heldRelease) {
+    clearTimeout(heldRelease.timer);
+    currentState = heldRelease.state;
+  }
+  heldRelease = null;
+}
+
+function beginHeldRelease(state, svg) {
+  const duration = tc.dragReleaseDuration;
+  if (!Number.isFinite(duration) || duration <= 0 || duration > 60000
+      || currentDisplayedState !== "held" || currentDisplayedSvg !== _dragSvg
+      || pendingNext || !animateHeldRelease(clawdEl)) return false;
+  if (actionPlayer) actionPlayer.pause();
+  container.classList.remove("pet-lifted");
+  const release = { state, svg, timer: null };
+  heldRelease = release;
+  release.timer = setTimeout(() => {
+    if (heldRelease !== release) return;
+    heldRelease = null;
+    currentState = release.state;
+    renderStateFile(release.state, release.svg);
+  }, duration);
+  return true;
+}
 
 function renderStateFile(state, svg) {
+  if (heldRelease) {
+    if (state !== "held") {
+      heldRelease.state = state;
+      heldRelease.svg = svg;
+      return;
+    }
+    cancelHeldRelease();
+    if (actionPlayer) actionPlayer.stop();
+  } else if (currentState === "held" && state !== "held" && beginHeldRelease(state, svg)) {
+    return;
+  }
   currentState = state;
   if (actionPlayer) actionPlayer.update(state, svg);
   else if (!isDragReacting) displayStateFile(state, svg);

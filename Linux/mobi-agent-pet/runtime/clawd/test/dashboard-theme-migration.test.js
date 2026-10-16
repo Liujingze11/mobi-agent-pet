@@ -9,6 +9,7 @@ const { JSDOM } = require("jsdom");
 const src = path.join(__dirname, "..", "src");
 const read = (name) => fs.readFileSync(path.join(src, name), "utf8");
 const tick = () => new Promise((resolve) => setImmediate(resolve));
+const { i18n } = require("../src/i18n");
 
 test("pet status theme page selects pets and customizes the active pet", async () => {
   const dom = new JSDOM(read("dashboard.html"), { url: "file:///dashboard.html", runScripts: "outside-only" });
@@ -20,7 +21,7 @@ test("pet status theme page selects pets and customizes the active pet", async (
   window.setInterval = () => 1;
   window.dashboardAPI = {
     onLangChange: () => {}, onSessionSnapshot: () => {},
-    getI18n: async () => ({ lang: "zh", translations: { dashboardWindowTitle: "桌面宠物", dashboardStatusTab: "概览", dashboardOverviewTitle: "宠物概览", dashboardBehaviorTab: "桌宠行为", openDashboard: "桌面宠物" } }),
+    getI18n: async () => ({ lang: "zh", translations: i18n.zh }),
     getSnapshot: async () => ({ sessions: [], groups: [], accountQuota: {} }),
     getPetScene: async () => ({ name: "Pet" }),
     getPetBehavior: async () => ({ freeRoam: false, allowEdgePinning: false, keepSizeAcrossDisplays: false }),
@@ -30,8 +31,8 @@ test("pet status theme page selects pets and customizes the active pet", async (
     getPetTintOptions: async () => [{ id: "none", labelKey: "tintNone" }, { id: "blue", labelKey: "tintBlue" }],
     getPetAccessoryOptions: async () => [{ id: "none", labelKey: "accessoryNone" }],
     listThemes: async () => [
-      { id: "clawd", name: { zh: "小蟹" }, builtin: true, active: selected === "clawd", capabilities: {} },
-      { id: "cloudling", name: { zh: "云朵" }, builtin: true, active: selected === "cloudling", capabilities: { petTint: true, accessories: true } },
+      { id: "clawd", name: { zh: "小蟹" }, description: { en: "A busy companion.", zh: "认真忙碌的小伙伴。" }, builtin: true, active: selected === "clawd", capabilities: {} },
+      { id: "cloudling", name: { zh: "云朵" }, description: "轻轻飘来，安静陪伴。", builtin: true, active: selected === "cloudling", capabilities: { petTint: true, accessories: true } },
     ],
     command: async (action, payload) => {
       writes.push([action, payload]);
@@ -43,11 +44,6 @@ test("pet status theme page selects pets and customizes the active pet", async (
       if (key === "petTint") tint = value;
       return { status: "ok" };
     },
-    importCodexPetZip: async () => ({ status: "cancel" }),
-    refreshCodexPets: async () => ({ status: "ok", summary: {} }),
-    importUserThemeZip: async () => ({ status: "cancel" }),
-    openUserThemesDir: async () => ({ status: "ok" }),
-    removeCodexPet: async () => ({ status: "cancel" }),
     confirmRemoveTheme: async () => ({ confirmed: false }),
   };
   window.eval(fs.readFileSync(path.join(src, "..", "..", "agentlog", "brand-renderer.js"), "utf8"));
@@ -58,16 +54,22 @@ test("pet status theme page selects pets and customizes the active pet", async (
   window.eval(read("dashboard-renderer.js"));
   await tick();
 
-  assert.equal(window.document.querySelector("#themeTabLabel").textContent, "主题");
+  assert.equal(window.document.querySelector("#themeTabLabel").textContent, "角色");
   window.document.getElementById("themeTab").click();
   await tick();
   assert.equal(window.document.getElementById("themePage").hidden, false);
+  assert.equal(window.document.querySelector("#themePage h1").textContent, "角色");
+  assert.equal(window.document.querySelector("#themePage .theme-actions"), null);
   assert.equal(window.document.querySelectorAll("#themePage .theme-card").length, 2);
+  assert.deepEqual([...window.document.querySelectorAll("#themePage .theme-card-description")].map((description) => description.textContent), ["认真忙碌的小伙伴。", "轻轻飘来，安静陪伴。"]);
+  const activeName = window.document.querySelector("#themePage .theme-card.active .theme-card-name");
+  assert.equal(activeName.querySelector(".theme-card-check").textContent, "✓ 当前");
   const cloudling = [...window.document.querySelectorAll("#themePage .theme-card")].find((card) => card.textContent.includes("云朵"));
   cloudling.click();
   await tick();
   assert.equal(writes[0][0], "setThemeSelection");
   assert.equal(writes[0][1].themeId, "cloudling");
+  assert.equal(window.document.querySelector("#themePage .theme-card.active .theme-card-description").textContent, "轻轻飘来，安静陪伴。");
   const customize = [...window.document.querySelectorAll("#themePage .theme-customize-btn")].find((button) => button.getAttribute("aria-label").includes("云朵"));
   customize.click();
   await tick();

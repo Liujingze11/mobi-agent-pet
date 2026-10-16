@@ -2,7 +2,7 @@
   "name": "mobi-agent-pet",
   "productName": "Mobi Agent Pet",
   "desktopName": "mobi-agent-pet.desktop",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "Your Private AI Agent Work Journal",
   "author": "Liujingze11",
   "homepage": "https://github.com/Liujingze11/mobi-agent-pet",
@@ -35,6 +35,7 @@
     "better-sqlite3": "12.11.1",
     "htmlparser2": "^12.0.0",
     "js-yaml": "4.3.0",
+    "json5": "2.2.3",
     "jsonc-parser": "^3.3.1",
     "koffi": "^2.15.2",
     "smol-toml": "1.4.2",
@@ -74,14 +75,6 @@
       "output": "Linux",
       "buildResources": "runtime/clawd/build"
     },
-    "protocols": [
-      {
-        "name": "Mobi Agent Pet Import Protocol",
-        "schemes": [
-          "clawd"
-        ]
-      }
-    ],
     "files": [
       "package.json",
       "dist/manager/**/*",

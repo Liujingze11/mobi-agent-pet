@@ -97,13 +97,13 @@ describe("i18n locales", () => {
     }
   });
 
-  it("uses generic desktop pet names and overview headings in all languages", () => {
+  it("uses generic desktop pet names and matching navigation headings in all languages", () => {
     const labels = {
-      en: ["Desktop Pet", "Overview", "Pet Overview"],
-      zh: ["桌面宠物", "概览", "宠物概览"],
-      "zh-TW": ["桌面寵物", "概覽", "寵物概覽"],
-      ko: ["데스크톱 펫", "개요", "펫 개요"],
-      ja: ["デスクトップペット", "概要", "ペットの概要"],
+      en: ["Desktop Pet", "Home", "Home"],
+      zh: ["桌面宠物", "主页", "主页"],
+      "zh-TW": ["桌面寵物", "主頁", "主頁"],
+      ko: ["데스크톱 펫", "홈", "홈"],
+      ja: ["デスクトップペット", "ホーム", "ホーム"],
     };
     for (const [lang, [windowTitle, tab, heading]] of Object.entries(labels)) {
       assert.strictEqual(i18n[lang].openDashboard, windowTitle);
@@ -128,10 +128,10 @@ describe("i18n locales", () => {
       {
         appModeNormal: "常规模式",
         appModeBackground: "后台模式",
-        appModeAutomatic: "自动模式",
-        appModeAutomaticConfirmTitle: "启用自动模式？",
+        appModeAutomatic: "完全访问模式",
+        appModeAutomaticConfirmTitle: "启用完全访问模式？",
         appModeAutomaticConfirmDetail: "自动确认支持的新请求，优先选择推荐项；无明确推荐时交给 Agent 决定。已有请求不处理，退出后授权失效。",
-        appModeAutomaticConfirm: "启用自动模式",
+        appModeAutomaticConfirm: "启用完全访问模式",
       }
     );
   });
@@ -214,18 +214,4 @@ describe("i18n locales", () => {
     }
   });
 
-  it("keeps Codex Pet main dialog strings available for every supported language", () => {
-    const source = fs.readFileSync(path.join(ROOT, "src", "codex-pet-main.js"), "utf8");
-    for (const name of ["getImportDialogStrings", "getRemovalDialogStrings"]) {
-      const start = source.indexOf(`function ${name}()`);
-      assert.notStrictEqual(start, -1, `missing ${name}`);
-      const end = source.indexOf("\n  async function", start);
-      assert.notStrictEqual(end, -1, `unterminated ${name}`);
-      const block = source.slice(start, end);
-      for (const lang of SUPPORTED_LANGS) {
-        const escapedLang = regexEscape(lang);
-        assert.match(block, new RegExp(`\\n\\s*(?:"${escapedLang}"|${escapedLang}):`), `${name} missing ${lang}`);
-      }
-    }
-  });
 });

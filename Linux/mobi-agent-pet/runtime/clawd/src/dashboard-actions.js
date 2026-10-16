@@ -1,8 +1,8 @@
 "use strict";
 (function(root) {
   const labels = {
-    zh: { title: "动作管理", idle: "空闲", roam: "漫游", working: "工作", waiting: "等待", complete: "完成", error: "错误", held: "被提起", random: "随机", sequence: "顺序", seconds: "秒", add: "添加", save: "保存", reset: "恢复默认", saved: "已保存", dirty: "未保存", empty: "拖到这里", fallback: "空闲至少保留一个动作", duplicate: "此状态已有这个动作", move: "移到", remove: "移回动作库", preview: "播放预览", up: "上移", down: "下移", loadFail: "动作加载失败", restartRequired: "请从托盘完全退出桌面宠物，再重新启动开发版。", loading: "正在加载…", saveFail: "保存失败", tip: "拖动卡片，自由安排", library: "动作库", libraryTip: "拖回这里停用", reload: "重试", expand: "展开画布", collapse: "收起画布", help: "空状态使用空闲动作；配置按主题保存。", stop: "停止预览" },
-    en: { title: "Actions", idle: "Idle", roam: "Roam", working: "Work", waiting: "Waiting", complete: "Complete", error: "Error", held: "Held", random: "Random", sequence: "In order", seconds: "sec", add: "Add", save: "Save", reset: "Restore defaults", saved: "Saved", dirty: "Unsaved", empty: "Drop here", fallback: "Keep one idle action", duplicate: "Already in this state", move: "Move to", remove: "Return to library", preview: "Play preview", up: "Move up", down: "Move down", loadFail: "Unable to load actions", restartRequired: "Fully quit from the tray, then restart the development app.", loading: "Loading…", saveFail: "Unable to save", tip: "Drag actions into any state", library: "Action library", libraryTip: "Drop here to remove", reload: "Retry", expand: "Expand canvas", collapse: "Collapse canvas", help: "Empty states use idle actions. Saved per theme.", stop: "Stop preview" }
+    zh: { title: "动作管理", idle: "空闲", roam: "漫游", working: "工作", waiting: "等待", complete: "完成", error: "错误", held: "被提起", random: "随机播放", sequence: "按顺序播放", seconds: "秒", add: "添加", save: "保存", reset: "恢复默认", saved: "已保存", dirty: "未保存", empty: "拖到这里", fallback: "空闲至少保留一个动作", duplicate: "此状态已有这个动作", move: "移到", remove: "移回动作库", preview: "播放预览", up: "上移", down: "下移", loadFail: "动作加载失败", restartRequired: "请从托盘完全退出桌面宠物，再重新启动开发版。", loading: "正在加载…", saveFail: "保存失败", tip: "拖动卡片，自由安排", library: "动作库", libraryTip: "拖回这里停用", reload: "重试", help: "空状态使用空闲动作；配置按主题保存。", stop: "停止预览" },
+    en: { title: "Actions", idle: "Idle", roam: "Roam", working: "Work", waiting: "Waiting", complete: "Complete", error: "Error", held: "Held", random: "Play randomly", sequence: "Play in order", seconds: "sec", add: "Add", save: "Save", reset: "Restore defaults", saved: "Saved", dirty: "Unsaved", empty: "Drop here", fallback: "Keep one idle action", duplicate: "Already in this state", move: "Move to", remove: "Return to library", preview: "Play preview", up: "Move up", down: "Move down", loadFail: "Unable to load actions", restartRequired: "Fully quit from the tray, then restart the development app.", loading: "Loading…", saveFail: "Unable to save", tip: "Drag actions into any state", library: "Action library", libraryTip: "Drop here to remove", reload: "Retry", help: "Empty states use idle actions. Saved per theme.", stop: "Stop preview" }
   };
   const fileNames = { idle: "发呆", thinking: "思考", working: "打字", typing: "打字", juggling: "杂耍", building: "搭建", sweeping: "清扫", carrying: "搬运", attention: "庆祝", happy: "开心", notification: "提醒", error: "惊讶", yawning: "打哈欠", dozing: "打瞌睡", collapsing: "躺下", sleeping: "睡觉", waking: "醒来", roam: "走动", drag: "悬空", double: "欢呼", reading: "看书", patrol: "巡视", follow: "目光跟随", look: "张望", bubble: "吹泡泡" };
   const paths = {
@@ -10,7 +10,6 @@
     down: "m6 10 6 6 6-6",
     remove: "M6 6l12 12M18 6 6 18",
     reset: "M3 10a9 9 0 1 1 2 8M3 4v6h6",
-    expand: "M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5",
     save: "m5 12 4 4L19 6",
     add: "M12 5v14M5 12h14",
     random: "M3 7h3l12 10h3M3 17h3L18 7h3M17 3l4 4-4 4M17 13l4 4-4 4",
@@ -19,8 +18,7 @@
   const clone = (value) => JSON.parse(JSON.stringify(value));
   function create({ container, getLang = () => "en" }) {
     const api = root.settingsAPI, model = root.MobiPetActions;
-    const canvas = container.closest("#actionsPage") || container;
-    let data = null, draft = null, visible = false, dirty = false, busy = false, seq = 0, notice = "", dragged = null, reloadAfterSave = false, loading = false, expanded = false, previewSerial = 0;
+    let data = null, draft = null, visible = false, dirty = false, busy = false, seq = 0, notice = "", dragged = null, reloadAfterSave = false, loading = false, previewSerial = 0;
     const previewCleanups = /* @__PURE__ */ new Set();
     const t = (key) => (labels[getLang()] || labels.en)[key] || labels.en[key] || key;
     function element(tag, text, cls) {
@@ -261,23 +259,10 @@
       clearPreviews();
       dragged = null;
       container.replaceChildren();
-      const bar = element("header", void 0, "pet-actions-toolbar");
+      const bar = element("header", void 0, "pet-actions-toolbar dashboard-page-heading");
       const title = element("div", void 0, "pet-actions-heading");
       title.append(element("h1", t("title")), element("small", data ? data.theme.name : t("tip")));
       bar.append(title);
-      const expand = button("expand", () => {
-        expanded = !expanded;
-        document.body.classList.toggle("pet-actions-expanded", expanded);
-        if (expanded && typeof canvas.requestFullscreen === "function") Promise.resolve(canvas.requestFullscreen()).catch(() => {
-        });
-        else if (!expanded && document.fullscreenElement === canvas && typeof document.exitFullscreen === "function") Promise.resolve(document.exitFullscreen()).catch(() => {
-        });
-        render();
-      }, "data-expand-actions", true);
-      expand.title = t(expanded ? "collapse" : "expand");
-      expand.setAttribute("aria-label", expand.title);
-      expand.setAttribute("aria-pressed", String(expanded));
-      bar.append(expand);
       if (data && draft) {
         const message = element("span", notice || (dirty ? t("dirty") : ""), "pet-actions-notice");
         message.setAttribute("role", "status");
@@ -285,7 +270,7 @@
         bar.append(message);
         bar.append(button("reset", () => change(() => {
           draft = model.automaticPlan(data.actionManagement.defaults, { actionDurations: data.actionManagement.durations });
-        }), "data-reset-actions", true), button("save", () => void save(), "data-save-actions"));
+        }), "data-reset-actions"), button("save", () => void save(), "data-save-actions"));
       }
       container.append(bar);
       if (!data || !draft) {
@@ -310,6 +295,10 @@
             slot.mode = mode;
           }), void 0, true);
           b.dataset.playMode = mode;
+          b.removeAttribute("title");
+          const tip = element("span", t(mode), "pet-action-mode-tooltip");
+          tip.setAttribute("aria-hidden", "true");
+          b.append(tip);
           b.setAttribute("aria-pressed", String(slot.mode === mode));
           modes.append(b);
         }
@@ -386,16 +375,6 @@
         } else render();
       }
     }
-    document.addEventListener("fullscreenchange", () => {
-      if (document.fullscreenElement === canvas && (!visible || !expanded)) {
-        if (typeof document.exitFullscreen === "function") Promise.resolve(document.exitFullscreen()).catch(() => {});
-        return;
-      }
-      if (!visible) return;
-      expanded = document.fullscreenElement === canvas;
-      document.body.classList.toggle("pet-actions-expanded", expanded);
-      render();
-    });
     if (typeof api.onChanged === "function") api.onChanged((payload) => {
       if (!visible) return;
       const changed = payload && payload.changes || {};
@@ -414,10 +393,6 @@
       seq++;
       clearPreviews();
       dragged = null;
-      expanded = false;
-      document.body.classList.remove("pet-actions-expanded");
-      if (document.fullscreenElement === canvas && typeof document.exitFullscreen === "function") Promise.resolve(document.exitFullscreen()).catch(() => {
-      });
     }, refresh: load, render };
   }
   root.MobiDashboardActions = { create };

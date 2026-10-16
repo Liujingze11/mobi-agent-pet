@@ -3,41 +3,26 @@
   "name": "莫莫",
   "author": "Mobi Agent Pet",
   "version": "2.0.0",
-  "description": "圆头莫莫：靠咖啡硬撑，随时想偷偷摸鱼的困倦打工人。",
+  "description": "靠咖啡续命，偶尔偷偷摸鱼。",
   "preview": "idle.svg",
   "customization": {
     "petTint": false
   },
   "actionDurations": {
-    "idle.svg": 4000,
-    "thinking.svg": 5000,
+    "idle.svg": 10000,
+    "thinking.svg": 6000,
     "working.svg": 5000,
     "juggling.svg": 6000,
     "building.svg": 6000,
-    "sweeping.svg": 5000,
+    "sweeping.svg": 3000,
     "carrying.svg": 5000,
-    "attention.svg": 4000,
+    "attention.svg": 8000,
     "notification.svg": 5000,
-    "error.svg": 6000,
+    "error.svg": 7500,
     "yawning.svg": 5000,
-    "dozing.svg": 5000,
-    "collapsing.svg": 6000,
-    "sleeping.svg": 6000,
-    "waking.svg": 5000,
     "roam.svg": 5000,
     "drag.svg": 5000,
-    "poke-left.svg": 4000,
-    "poke-right.svg": 4000,
-    "double.svg": 4000,
-    "mini-idle.svg": 4000,
-    "mini-enter.svg": 5000,
-    "mini-enter-sleep.svg": 5000,
-    "mini-crabwalk.svg": 5000,
-    "mini-peek.svg": 5000,
-    "mini-alert.svg": 5000,
-    "mini-happy.svg": 4000,
-    "mini-sleep.svg": 6000,
-    "mini-working.svg": 5000
+    "celebration-screen.svg": 8000
   },
   "actionLabels": {
     "idle.svg": "咖啡续命",
@@ -46,29 +31,26 @@
     "juggling.svg": "困倦多开",
     "building.svg": "困倦搭建",
     "sweeping.svg": "困倦清扫",
-    "carrying.svg": "困倦搬箱",
-    "attention.svg": "举杯庆祝",
+    "carrying.svg": "困倦搬砖",
+    "attention.svg": "框内彩纸雨",
     "notification.svg": "困倦等待",
-    "error.svg": "咖啡事故",
-    "yawning.svg": "咖啡无效",
-    "dozing.svg": "抱杯点头",
-    "collapsing.svg": "抱杯趴倒",
-    "sleeping.svg": "咖啡陪睡",
-    "waking.svg": "起床续命",
+    "error.svg": "突然来活",
+    "yawning.svg": "伸腰续命",
     "roam.svg": "咖啡散步",
-    "drag.svg": "悬空护杯",
-    "poke-left.svg": "戳醒偷睡",
-    "poke-right.svg": "护住咖啡",
-    "double.svg": "短暂精神",
-    "mini-idle.svg": "小窗偷眠",
-    "mini-enter.svg": "抱杯入窗",
-    "mini-enter-sleep.svg": "抱杯缩睡",
-    "mini-crabwalk.svg": "抱杯横挪",
-    "mini-peek.svg": "探头摸鱼",
-    "mini-alert.svg": "困倦等待",
-    "mini-happy.svg": "举杯庆祝",
-    "mini-sleep.svg": "抱杯入梦",
-    "mini-working.svg": "困倦打字"
+    "drag.svg": "提起掉杯",
+    "celebration-screen.svg": "整屏彩纸雨"
+  },
+  "actionLibrary": [
+    "celebration-screen.svg"
+  ],
+  "defaultActions": {
+    "idle": "idle.svg",
+    "roam": "roam.svg",
+    "working": "working.svg",
+    "waiting": "notification.svg",
+    "complete": "attention.svg",
+    "error": "error.svg",
+    "held": "drag.svg"
   },
   "viewBox": {
     "x": 0,
@@ -131,20 +113,20 @@
     "yawning": [
       "yawning.svg"
     ],
-    "dozing": [
-      "dozing.svg"
-    ],
-    "collapsing": [
-      "collapsing.svg"
-    ],
-    "sleeping": [
-      "sleeping.svg"
-    ],
-    "waking": [
-      "waking.svg"
-    ],
     "roam": [
       "roam.svg"
+    ],
+    "dozing": [
+      "idle.svg"
+    ],
+    "collapsing": [
+      "idle.svg"
+    ],
+    "sleeping": [
+      "idle.svg"
+    ],
+    "waking": [
+      "idle.svg"
     ]
   },
   "sleepSequence": {
@@ -176,43 +158,25 @@
   ],
   "timings": {
     "yawnDuration": 5000,
-    "collapseDuration": 6000,
-    "wakeDuration": 5000,
     "minDisplay": {
-      "idle": 4000,
-      "thinking": 5000,
+      "idle": 10000,
+      "thinking": 6000,
       "working": 5000,
       "juggling": 6000,
       "building": 6000,
-      "sweeping": 5000,
+      "sweeping": 3000,
       "carrying": 5000,
-      "attention": 4000,
+      "attention": 8000,
       "notification": 5000,
-      "error": 6000,
+      "error": 7500,
       "yawning": 5000,
-      "dozing": 5000,
-      "collapsing": 6000,
-      "sleeping": 6000,
-      "waking": 5000,
       "roam": 5000,
-      "drag": 5000,
-      "poke-left": 4000,
-      "poke-right": 4000,
-      "double": 4000,
-      "mini-idle": 4000,
-      "mini-enter": 5000,
-      "mini-enter-sleep": 5000,
-      "mini-crabwalk": 5000,
-      "mini-peek": 5000,
-      "mini-alert": 5000,
-      "mini-happy": 4000,
-      "mini-sleep": 6000,
-      "mini-working": 5000
+      "drag": 5000
     },
     "autoReturn": {
-      "attention": 4000,
-      "error": 6000,
-      "sweeping": 5000,
+      "attention": 8000,
+      "error": 7500,
+      "sweeping": 3000,
       "notification": 5000,
       "carrying": 5000
     }
@@ -237,93 +201,20 @@
       "h": 112
     }
   },
-  "sleepingHitboxFiles": [
-    "sleeping.svg",
-    "collapsing.svg"
-  ],
+  "sleepingHitboxFiles": [],
   "wideHitboxFiles": [
     "juggling.svg",
     "building.svg",
     "attention.svg",
     "notification.svg",
     "drag.svg",
-    "double.svg"
+    "celebration-screen.svg"
   ],
   "reactions": {
     "drag": {
       "file": "drag.svg",
-      "duration": 5000
-    },
-    "clickLeft": {
-      "file": "poke-left.svg",
-      "duration": 4000
-    },
-    "clickRight": {
-      "file": "poke-right.svg",
-      "duration": 4000
-    },
-    "double": {
-      "files": [
-        "double.svg"
-      ],
-      "duration": 4000
-    }
-  },
-  "miniMode": {
-    "supported": true,
-    "enterDuration": 5000,
-    "enterSleepDuration": 5000,
-    "timings": {
-      "minDisplay": {
-        "mini-idle": 4000,
-        "mini-enter": 5000,
-        "mini-enter-sleep": 5000,
-        "mini-crabwalk": 5000,
-        "mini-peek": 5000,
-        "mini-alert": 5000,
-        "mini-happy": 4000,
-        "mini-sleep": 6000,
-        "mini-working": 5000
-      },
-      "autoReturn": {
-        "mini-alert": 5000,
-        "mini-happy": 4000
-      }
-    },
-    "viewBox": {
-      "x": 0,
-      "y": 12,
-      "width": 160,
-      "height": 118
-    },
-    "states": {
-      "mini-idle": [
-        "mini-idle.svg"
-      ],
-      "mini-enter": [
-        "mini-enter.svg"
-      ],
-      "mini-enter-sleep": [
-        "mini-enter-sleep.svg"
-      ],
-      "mini-crabwalk": [
-        "mini-crabwalk.svg"
-      ],
-      "mini-peek": [
-        "mini-peek.svg"
-      ],
-      "mini-alert": [
-        "mini-alert.svg"
-      ],
-      "mini-happy": [
-        "mini-happy.svg"
-      ],
-      "mini-sleep": [
-        "mini-sleep.svg"
-      ],
-      "mini-working": [
-        "mini-working.svg"
-      ]
+      "duration": 5000,
+      "releaseDuration": 1600
     }
   },
   "objectScale": {

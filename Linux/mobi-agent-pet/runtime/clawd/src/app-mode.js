@@ -1,7 +1,5 @@
 "use strict";
-const { PET_STATE_IDS } = require("./pet-states");
-const { defaultCustomModeProfile, normalizeCustomModeProfile } = require("./custom-mode-profile");
-const AUTOMATIC_PET_STATES = Object.freeze(PET_STATE_IDS.filter(state => state !== "roam"));
+const { defaultCustomModeProfile, builtInModeProfile, normalizeCustomModeProfile } = require("./custom-mode-profile");
 const HIDDEN_PET_STATES = Object.freeze([]);
 
 const APP_MODE = Object.freeze({
@@ -22,14 +20,8 @@ function isAppMode(value) {
 }
 
 function resolveAppModePolicy(mode, snapshot = {}) {
-  let profile = defaultCustomModeProfile();
-  if (mode === APP_MODE.CUSTOM) profile = normalizeCustomModeProfile(snapshot.customModeProfile);
-  else if (mode === APP_MODE.BACKGROUND || mode === APP_MODE.AUTOMATIC) {
-    profile = {...profile, petVisible: mode !== APP_MODE.BACKGROUND,
-      states: mode === APP_MODE.AUTOMATIC ? AUTOMATIC_PET_STATES : PET_STATE_IDS,
-      trayAlerts: true, agentBubbles: mode === APP_MODE.BACKGROUND, sessionHud: false,
-      permissionAutomationMode: mode === APP_MODE.AUTOMATIC ? "unattended" : "off"};
-  }
+  const profile = mode === APP_MODE.CUSTOM ? normalizeCustomModeProfile(snapshot.customModeProfile)
+    : builtInModeProfile(mode === APP_MODE.BACKGROUND || mode === APP_MODE.AUTOMATIC ? mode : APP_MODE.NORMAL);
   const states = profile.petVisible ? Object.freeze([...profile.states]) : HIDDEN_PET_STATES;
   return {
     muteSound: true,
@@ -57,9 +49,9 @@ function resolveAppModePolicy(mode, snapshot = {}) {
     sessionHudEnabled: profile.sessionHud,
     sessionHudShowStateLabels: profile.hudStateLabels,
     sessionHudShowContextUsage: profile.hudContext,
-    sessionHudShowQuota: profile.hudQuota,
-    keepAwakeWhileWorking: mode === APP_MODE.CUSTOM ? profile.keepAwake : true,
-    keepSizeAcrossDisplays: mode === APP_MODE.CUSTOM ? profile.keepSizeAcrossDisplays : true,
+    sessionHudShowQuota: profile.hudQuota && (mode === APP_MODE.NORMAL || mode === APP_MODE.CUSTOM),
+    keepAwakeWhileWorking: profile.keepAwake,
+    keepSizeAcrossDisplays: profile.keepSizeAcrossDisplays,
   };
 }
 

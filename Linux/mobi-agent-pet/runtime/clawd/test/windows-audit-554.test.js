@@ -14,7 +14,7 @@ function readMain() {
 test("second-instance relaunch exits hidden state through the pet visibility state machine", () => {
   const source = readMain();
   const start = source.indexOf('app.on("second-instance"');
-  const end = source.indexOf("codexPetMain.enqueueImportUrlsFromArgv(commandLine);", start);
+  const end = source.indexOf("reapplyMacVisibility();", start);
   assert.ok(start >= 0 && end > start, "second-instance handler should be present");
 
   const handler = source.slice(start, end);

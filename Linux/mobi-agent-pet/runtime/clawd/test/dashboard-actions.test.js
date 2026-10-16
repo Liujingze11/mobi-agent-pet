@@ -114,43 +114,37 @@ test('ordinary previews use animated assets and script previews live only while 
   w.close();
 });
 
-test('canvas expands on demand and leaving restores the application layout', async () => {
+test('the compact toolbar restores and saves defaults without changing the window layout', async () => {
   const dom = new JSDOM('<div id="actionsPage"><div id="actions"></div></div>', { runScripts: 'outside-only' }), w = dom.window;
   w.eval(read('pet-states.js')); w.eval(read('pet-action-plan.js'));
-  const defaults = w.MobiPetActions.defaultPlan({ states: { idle: ['idle.svg'] } });
+  const defaults = w.MobiPetActions.defaultPlan({ states: { idle: ['idle.svg'], working: ['working.svg'] } });
+  const plan = structuredClone(defaults);
+  plan.states.working.actions = [];
+  const saved = [];
   let entered = 0, exited = 0;
   const canvas = w.document.getElementById('actionsPage');
   canvas.requestFullscreen = async () => { entered++; };
   w.document.exitFullscreen = async () => { exited++; };
-  w.settingsAPI = { getAnimationOverridesData: async () => ({ theme: { id: 'pet', name: 'Pet' }, actionManagement: { defaults, assets: [] } }) };
+  w.settingsAPI = {
+    getAnimationOverridesData: async () => ({ theme: { id: 'pet', name: 'Pet' }, actionManagement: { defaults, plan, assets: [] } }),
+    command: async (action, payload) => { saved.push([action, structuredClone(payload)]); return { status: 'ok' }; },
+  };
   w.eval(read('dashboard-actions.js'));
   const page = w.MobiDashboardActions.create({ container: w.document.getElementById('actions'), getLang: () => 'zh' }); await page.enter();
-  w.document.querySelector('[data-expand-actions]').click();
-  assert.equal(entered, 1); assert.ok(w.document.body.classList.contains('pet-actions-expanded'));
-  Object.defineProperty(w.document, 'fullscreenElement', { value: canvas, configurable: true });
-  page.leave(); assert.equal(exited, 1); assert.ok(!w.document.body.classList.contains('pet-actions-expanded'));
-  w.close();
-});
-
-test('late fullscreen entry is cancelled after leaving or collapsing the canvas', async () => {
-  for (const exitEarly of ['leave', 'collapse']) {
-    const dom = new JSDOM('<div id="actionsPage"><div id="actions"></div></div>', { runScripts: 'outside-only' }), w = dom.window;
-    w.eval(read('pet-states.js')); w.eval(read('pet-action-plan.js'));
-    const defaults = w.MobiPetActions.defaultPlan({ states: { idle: ['idle.svg'] } });
-    let finish, exited = 0;
-    const canvas = w.document.getElementById('actionsPage');
-    canvas.requestFullscreen = () => new Promise(resolve => { finish = resolve; });
-    w.document.exitFullscreen = async () => { exited++; };
-    w.settingsAPI = { getAnimationOverridesData: async () => ({ theme: { id: 'pet', name: 'Pet' }, actionManagement: { defaults, assets: [] } }) };
-    w.eval(read('dashboard-actions.js'));
-    const page = w.MobiDashboardActions.create({ container: w.document.getElementById('actions'), getLang: () => 'zh' }); await page.enter();
-    w.document.querySelector('[data-expand-actions]').click();
-    if (exitEarly === 'leave') page.leave(); else w.document.querySelector('[data-expand-actions]').click();
-    Object.defineProperty(w.document, 'fullscreenElement', { value: canvas, configurable: true });
-    finish(); w.document.dispatchEvent(new w.Event('fullscreenchange'));
-    assert.equal(exited, 1, `late fullscreen should be exited after ${exitEarly}`);
-    assert.ok(!w.document.body.classList.contains('pet-actions-expanded'));
-    Object.defineProperty(w.document, 'fullscreenElement', { value: null, configurable: true });
+  try {
+    assert.equal(w.document.querySelectorAll('.pet-actions-toolbar button').length, 2);
+    assert.equal(lane(w, 'working').querySelectorAll('[data-action-card]').length, 0);
+    const reset = w.document.querySelector('[data-reset-actions]');
+    assert.ok(reset.textContent.trim(), 'restore defaults should have a visible label');
+    reset.click();
+    assert.equal(lane(w, 'working').querySelector('[data-action-card]').dataset.file, 'working.svg');
+    w.document.querySelector('[data-save-actions]').click(); await tick();
+    assert.equal(saved[0][0], 'setPetActionPlan');
+    assert.equal(saved[0][1].plan.states.working.actions[0].file, 'working.svg');
+    page.leave(); await page.enter();
+    assert.equal(entered, 0); assert.equal(exited, 0);
+    assert.equal(w.document.body.classList.contains('pet-actions-expanded'), false);
+  } finally {
     page.leave(); w.close();
   }
 });

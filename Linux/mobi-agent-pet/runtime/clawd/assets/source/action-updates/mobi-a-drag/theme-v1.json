@@ -1,0 +1,326 @@
+{
+  "schemaVersion": 1,
+  "name": "莫比",
+  "author": "Mobi Agent Pet",
+  "version": "2.0.0",
+  "description": "认真又有点冒失，总会努力补救。",
+  "preview": "standing.svg",
+  "customization": {
+    "petTint": false
+  },
+  "actionDurations": {
+    "standing.svg": 4000,
+    "thinking.svg": 6000,
+    "working.svg": 5000,
+    "juggling.svg": 6000,
+    "building.svg": 6000,
+    "sweeping.svg": 3000,
+    "carrying.svg": 5000,
+    "attention.svg": 8000,
+    "notification.svg": 5000,
+    "error.svg": 7500,
+    "collapsing.svg": 10000,
+    "roam.svg": 5000,
+    "drag.svg": 5000,
+    "poke-left.svg": 4000,
+    "poke-right.svg": 4000,
+    "double.svg": 4000,
+    "mini-idle.svg": 4000,
+    "mini-enter.svg": 5000,
+    "mini-enter-sleep.svg": 5000,
+    "mini-crabwalk.svg": 5000,
+    "mini-peek.svg": 5000,
+    "mini-alert.svg": 5000,
+    "mini-happy.svg": 4000,
+    "mini-sleep.svg": 6000,
+    "mini-working.svg": 5000,
+    "celebration-screen.svg": 8000
+  },
+  "actionLabels": {
+    "standing.svg": "静止站立",
+    "thinking.svg": "认真琢磨",
+    "working.svg": "认真打字",
+    "juggling.svg": "协调任务",
+    "building.svg": "认真搭建",
+    "sweeping.svg": "认真清扫",
+    "carrying.svg": "小步搬砖",
+    "attention.svg": "框内彩纸雨",
+    "notification.svg": "等待回复",
+    "error.svg": "捂脸抢修",
+    "collapsing.svg": "纸箱躺平",
+    "roam.svg": "撑伞溜达",
+    "drag.svg": "提起掉落",
+    "poke-left.svg": "戳歪工牌",
+    "poke-right.svg": "护住文件",
+    "double.svg": "吓跳鞠躬",
+    "mini-idle.svg": "小窗工牌",
+    "mini-enter.svg": "抱纸入窗",
+    "mini-enter-sleep.svg": "抱纸缩睡",
+    "mini-crabwalk.svg": "抱纸横挪",
+    "mini-peek.svg": "探头看活",
+    "mini-alert.svg": "小窗等待",
+    "mini-happy.svg": "小窗庆祝",
+    "mini-sleep.svg": "抱纸入梦",
+    "mini-working.svg": "小窗打字",
+    "celebration-screen.svg": "整屏彩纸雨"
+  },
+  "actionLibrary": [
+    "celebration-screen.svg"
+  ],
+  "viewBox": {
+    "x": 0,
+    "y": 0,
+    "width": 160,
+    "height": 180
+  },
+  "layout": {
+    "contentBox": {
+      "x": 12,
+      "y": 20,
+      "width": 140,
+      "height": 149
+    },
+    "centerX": 80,
+    "baselineY": 164,
+    "visibleHeightRatio": 0.75,
+    "baselineBottomRatio": 0.05
+  },
+  "eyeTracking": {
+    "enabled": true,
+    "states": [
+      "idle"
+    ],
+    "maxOffset": 3,
+    "bodyScale": 0.16,
+    "ids": {
+      "eyes": "eyes-js",
+      "body": "body-js"
+    }
+  },
+  "states": {
+    "idle": [
+      "standing.svg"
+    ],
+    "thinking": [
+      "thinking.svg"
+    ],
+    "working": [
+      "working.svg"
+    ],
+    "juggling": [
+      "juggling.svg"
+    ],
+    "sweeping": [
+      "sweeping.svg"
+    ],
+    "carrying": [
+      "carrying.svg"
+    ],
+    "attention": [
+      "attention.svg"
+    ],
+    "notification": [
+      "notification.svg"
+    ],
+    "error": [
+      "error.svg"
+    ],
+    "collapsing": [
+      "collapsing.svg"
+    ],
+    "roam": [
+      "roam.svg"
+    ],
+    "yawning": [
+      "standing.svg"
+    ],
+    "dozing": [
+      "standing.svg"
+    ],
+    "sleeping": [
+      "collapsing.svg"
+    ],
+    "waking": [
+      "standing.svg"
+    ]
+  },
+  "sleepSequence": {
+    "mode": "full"
+  },
+  "workingTiers": [
+    {
+      "minSessions": 3,
+      "file": "building.svg"
+    },
+    {
+      "minSessions": 2,
+      "file": "juggling.svg"
+    },
+    {
+      "minSessions": 1,
+      "file": "working.svg"
+    }
+  ],
+  "jugglingTiers": [
+    {
+      "minSessions": 2,
+      "file": "building.svg"
+    },
+    {
+      "minSessions": 1,
+      "file": "juggling.svg"
+    }
+  ],
+  "timings": {
+    "collapseDuration": 10000,
+    "minDisplay": {
+      "idle": 4000,
+      "thinking": 6000,
+      "working": 5000,
+      "juggling": 6000,
+      "building": 6000,
+      "sweeping": 3000,
+      "carrying": 5000,
+      "attention": 8000,
+      "notification": 5000,
+      "error": 7500,
+      "collapsing": 10000,
+      "roam": 5000,
+      "drag": 5000,
+      "poke-left": 4000,
+      "poke-right": 4000,
+      "double": 4000,
+      "mini-idle": 4000,
+      "mini-enter": 5000,
+      "mini-enter-sleep": 5000,
+      "mini-crabwalk": 5000,
+      "mini-peek": 5000,
+      "mini-alert": 5000,
+      "mini-happy": 4000,
+      "mini-sleep": 6000,
+      "mini-working": 5000
+    },
+    "autoReturn": {
+      "attention": 8000,
+      "error": 7500,
+      "sweeping": 3000,
+      "notification": 5000,
+      "carrying": 5000
+    }
+  },
+  "hitBoxes": {
+    "default": {
+      "x": 25,
+      "y": 25,
+      "w": 110,
+      "h": 142
+    },
+    "wide": {
+      "x": 12,
+      "y": 8,
+      "w": 140,
+      "h": 161
+    },
+    "sleeping": {
+      "x": 28,
+      "y": 58,
+      "w": 105,
+      "h": 112
+    }
+  },
+  "sleepingHitboxFiles": [
+    "collapsing.svg"
+  ],
+  "wideHitboxFiles": [
+    "juggling.svg",
+    "building.svg",
+    "attention.svg",
+    "notification.svg",
+    "drag.svg",
+    "double.svg",
+    "celebration-screen.svg"
+  ],
+  "reactions": {
+    "drag": {
+      "file": "drag.svg",
+      "duration": 5000
+    },
+    "clickLeft": {
+      "file": "poke-left.svg",
+      "duration": 4000
+    },
+    "clickRight": {
+      "file": "poke-right.svg",
+      "duration": 4000
+    },
+    "double": {
+      "files": [
+        "double.svg"
+      ],
+      "duration": 4000
+    }
+  },
+  "miniMode": {
+    "supported": true,
+    "enterDuration": 5000,
+    "enterSleepDuration": 5000,
+    "timings": {
+      "minDisplay": {
+        "mini-idle": 4000,
+        "mini-enter": 5000,
+        "mini-enter-sleep": 5000,
+        "mini-crabwalk": 5000,
+        "mini-peek": 5000,
+        "mini-alert": 5000,
+        "mini-happy": 4000,
+        "mini-sleep": 6000,
+        "mini-working": 5000
+      },
+      "autoReturn": {
+        "mini-alert": 5000,
+        "mini-happy": 4000
+      }
+    },
+    "viewBox": {
+      "x": 0,
+      "y": 12,
+      "width": 160,
+      "height": 118
+    },
+    "states": {
+      "mini-idle": [
+        "mini-idle.svg"
+      ],
+      "mini-enter": [
+        "mini-enter.svg"
+      ],
+      "mini-enter-sleep": [
+        "mini-enter-sleep.svg"
+      ],
+      "mini-crabwalk": [
+        "mini-crabwalk.svg"
+      ],
+      "mini-peek": [
+        "mini-peek.svg"
+      ],
+      "mini-alert": [
+        "mini-alert.svg"
+      ],
+      "mini-happy": [
+        "mini-happy.svg"
+      ],
+      "mini-sleep": [
+        "mini-sleep.svg"
+      ],
+      "mini-working": [
+        "mini-working.svg"
+      ]
+    }
+  },
+  "objectScale": {
+    "widthRatio": 1,
+    "heightRatio": 1,
+    "offsetX": 0,
+    "offsetY": 0
+  }
+}

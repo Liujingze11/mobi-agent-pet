@@ -1,5 +1,4 @@
 #actionsPage {
-  padding: 26px 28px;
   overflow: hidden;
 }
 #actionsContent {
@@ -10,36 +9,40 @@
   gap: 20px;
   container-type: inline-size;
 }
-.pet-actions-expanded .dashboard-sidebar {
-  display: none;
-}
 .pet-actions-toolbar {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   flex: none;
   min-height: 40px;
 }
 .pet-actions-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin-right: auto;
   min-width: 0;
 }
-.pet-actions-heading h1 {
-  margin: 0;
-  font-size: 21px;
-  font-weight: 730;
-  letter-spacing: -.035em;
-}
 .pet-actions-heading small {
-  display: block;
-  margin-top: 3px;
-  color: var(--muted);
-  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 5px 12px;
+  border: 1px solid #c8daf7;
+  border-radius: 8px;
+  background: #e6efff;
+  color: #285db1;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 20px;
+  white-space: nowrap;
 }
-#actionsPage button,
 #actionsPage select,
 #actionsPage input {
   font: inherit;
+}
+#actionsPage button {
+  min-width: 0;
 }
 .pet-action-button,
 .pet-action-icon {
@@ -47,11 +50,17 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 7px 11px;
+  height: 34px;
+  padding: 7px 12px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--surface);
   color: #66758c;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  white-space: nowrap;
   cursor: pointer;
   transition:
     background .15s,
@@ -69,8 +78,8 @@
   height: 16px;
   flex: none;
 }
-.pet-action-button:hover,
-.pet-action-icon:hover {
+.pet-action-button:hover:not(:disabled),
+.pet-action-icon:hover:not(:disabled) {
   background: #edf3ff;
   color: #3569c4;
   border-color: #c8d9f6;
@@ -79,13 +88,21 @@
   background: #356bd6;
   border-color: #356bd6;
   color: white;
-  box-shadow: 0 3px 8px #356bd625;
+  box-shadow: 0 2px 5px #356bd61a;
   font-weight: 650;
-  padding: 8px 15px;
+  padding: 7px 14px;
 }
 .pet-actions-toolbar [data-save-actions]:hover {
   background: #285bc1;
-  box-shadow: 0 4px 11px #356bd640;
+  box-shadow: 0 3px 8px #356bd62a;
+}
+.pet-actions-toolbar [data-reset-actions] {
+  border-color: transparent;
+  background: transparent;
+}
+.pet-actions-toolbar [data-reset-actions]:hover:not(:disabled) {
+  border-color: #c8d9f6;
+  background: #edf3ff;
 }
 .pet-actions-notice {
   color: var(--muted);
@@ -174,6 +191,7 @@
   padding: 2px;
 }
 .pet-actions-modes .pet-action-icon {
+  position: relative;
   border: 0;
   background: transparent;
   width: 28px;
@@ -191,15 +209,42 @@
   background: #fff;
   box-shadow: 0 1px 3px #34507018;
 }
+.pet-action-mode-tooltip {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 7px);
+  right: 0;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: #33475f;
+  color: #fff;
+  box-shadow: 0 3px 8px #17253d20;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 16px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-3px);
+  transition: opacity .12s, transform .12s;
+}
+.pet-actions-modes button:hover .pet-action-mode-tooltip,
+.pet-actions-modes button:focus-visible .pet-action-mode-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
 .pet-actions-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 96px), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 104px), 104px));
+  grid-auto-rows: max-content;
   align-content: start;
   gap: 12px;
   flex: 1;
   min-width: 0;
-  min-height: 116px;
-  max-height: 248px;
+  min-height: 140px;
+  max-height: 304px;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 3px;
@@ -239,8 +284,13 @@
 }
 .pet-action-preview {
   position: relative;
-  height: 80px;
-  margin-bottom: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  height: 96px;
+  padding: 6px;
+  margin-bottom: 8px;
   overflow: hidden;
   border-radius: 7px;
   background: #f5f5f1;
@@ -253,6 +303,7 @@
   width: 100%;
   height: 100%;
   object-fit: contain;
+  object-position: center;
   pointer-events: none;
 }
 .pet-action-preview [hidden] {
@@ -291,12 +342,17 @@
 .pet-actions-library {
   flex: none;
   min-width: 0;
-  border-top: 1px solid var(--border);
-  padding-top: 16px;
+  border: 1px solid #d9e3f0;
+  border-radius: 15px;
+  background: #eaf0f8;
+  padding: 14px 16px 8px;
+  transition:
+    border-color .15s,
+    background .15s,
+    box-shadow .15s;
 }
 .pet-actions-library.is-drop-target {
-  border-top-color: #7da8e8;
-  border-radius: 10px;
+  border-color: #7da8e8;
   background: #f2f7ff;
   box-shadow: 0 0 0 2px #7da8e8;
 }
@@ -308,12 +364,12 @@
 }
 .pet-actions-library h2 {
   margin: 0;
-  color: #55667d;
-  font-size: 12px;
+  color: #33475f;
+  font-size: 13px;
   font-weight: 600;
 }
 .pet-actions-library header > span {
-  color: #a0adbf;
+  color: #728299;
   font-size: 10px;
 }
 .pet-actions-shelf {
@@ -323,10 +379,8 @@
   padding: 3px 3px 8px;
 }
 .pet-actions-shelf .pet-action-card {
-  flex: 0 0 100px;
-}
-.pet-actions-shelf .pet-action-preview {
-  height: 72px;
+  flex: 0 0 104px;
+  background: #fff;
 }
 #actionsPage button:disabled,
 #actionsPage input:disabled,
@@ -349,9 +403,6 @@
   border-radius: 4px;
 }
 @media (max-width: 740px) {
-  #actionsPage {
-    padding: 16px;
-  }
   .pet-actions-notice {
     max-width: 25%;
   }
@@ -360,12 +411,4 @@
   #actionsPage * {
     transition: none;
   }
-}
-#actionsPage:fullscreen,
-#actionsContent:fullscreen {
-  box-sizing: border-box;
-  width: 100%;
-  height: 100%;
-  background: var(--bg);
-  padding: 28px 32px;
 }

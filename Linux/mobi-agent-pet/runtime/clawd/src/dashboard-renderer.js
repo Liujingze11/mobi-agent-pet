@@ -60,7 +60,9 @@ const quotaHintEl = document.getElementById("quotaHint");
 const petSceneEl = document.getElementById("petScene");
 const petMoodEl = document.getElementById("petMood");
 const petNameEl = document.getElementById("petName");
-const petImageEl = document.getElementById("petImage");
+const officeScene = globalThis.MobiDashboardOffice ? globalThis.MobiDashboardOffice.create({
+  container: document.getElementById("officeScene"),
+}) : null;
 const statusTabEl = document.getElementById("statusTab");
 const actionsTabEl = document.getElementById("actionsTab");
 const actionsPageEl = document.getElementById("actionsPage");
@@ -75,17 +77,7 @@ const themePage = globalThis.ClawdDashboardTheme.create({
   getLang: () => i18nPayload.lang || "en",
 });
 
-const FALLBACK_PET_IMAGE = "../assets/svg/clawd-idle-follow.svg";
-let failedPetImageUrl = null;
 let petSceneRefreshPending = false;
-let usingFallbackPetImage = true;
-
-petImageEl.addEventListener("error", () => {
-  if (usingFallbackPetImage) return;
-  failedPetImageUrl = petImageEl.src;
-  usingFallbackPetImage = true;
-  petImageEl.src = FALLBACK_PET_IMAGE;
-});
 
 async function refreshPetScene() {
   if (petSceneRefreshPending || typeof window.dashboardAPI.getPetScene !== "function") return;
@@ -93,13 +85,7 @@ async function refreshPetScene() {
   try {
     const scene = await window.dashboardAPI.getPetScene();
     if (!scene || typeof scene !== "object") return;
-    const nextImage = typeof scene.imageUrl === "string" && scene.imageUrl !== failedPetImageUrl
-      ? scene.imageUrl
-      : FALLBACK_PET_IMAGE;
-    if (petImageEl.src !== nextImage) {
-      usingFallbackPetImage = nextImage === FALLBACK_PET_IMAGE;
-      petImageEl.src = nextImage;
-    }
+    if (officeScene) officeScene.setTheme(scene);
     petNameEl.textContent = scene.name || "Clawd";
   } catch {
     // A missing theme preview must not interrupt session and quota updates.
@@ -138,9 +124,16 @@ function selectDashboardPage(page) {
   themePageEl.hidden = !showTheme;
   statusTabEl.setAttribute("aria-selected", String(!showTheme && !showActions));
   themeTabEl.setAttribute("aria-selected", String(showTheme));
+  syncOfficeVisibility();
   if (showTheme) void themePage.enter();
   if (showActions && actionsPage) void actionsPage.enter();
 }
+
+function syncOfficeVisibility() {
+  if (officeScene) officeScene.setActive(!statusPageEl.hidden && !document.hidden);
+}
+document.addEventListener("visibilitychange", syncOfficeVisibility);
+window.addEventListener("pagehide", () => { if (officeScene) officeScene.destroy(); });
 
 
 statusTabEl.addEventListener("click", () => selectDashboardPage("status"));
@@ -911,6 +904,7 @@ function render(options = {}) {
   document.title = t("dashboardWindowTitle");
   const runningCount = sessions.filter((session) => session && session.badge === "running").length;
   const working = runningCount > 0;
+  if (officeScene) officeScene.setSessions(sessions);
   petSceneEl.className = working ? "pet-scene is-working" : "pet-scene";
   petMoodEl.textContent = t(working ? "dashboardPetWorking" : "dashboardPetResting");
   quotaHintEl.textContent = t("dashboardQuotaHint");
@@ -979,6 +973,7 @@ async function init() {
   renderNavigation();
   render();
   refreshPetScene();
+  syncOfficeVisibility();
 
   setInterval(() => {
     render();

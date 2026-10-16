@@ -4,7 +4,6 @@ const defaultFs = require("fs");
 const defaultPath = require("path");
 const { pathToFileURL } = require("node:url");
 const { detectAgentInstallations: defaultDetectAgentInstallations } = require("./agent-installation-detector");
-const settingsThemeImporter = require("./settings-theme-importer");
 const {
   listPetTintOptions,
   listPetAccessoryOptions,
@@ -160,7 +159,6 @@ function registerSettingsIpc(options = {}) {
   const ipcMain = requiredDependency(options.ipcMain, "ipcMain");
   const settingsController = requiredDependency(options.settingsController, "settingsController");
   const themeLoader = requiredDependency(options.themeLoader, "themeLoader");
-  const codexPetMain = requiredDependency(options.codexPetMain, "codexPetMain");
   const dialog = requiredDependency(options.dialog, "dialog");
   const shell = requiredDependency(options.shell, "shell");
   const app = requiredDependency(options.app, "app");
@@ -350,13 +348,13 @@ function registerSettingsIpc(options = {}) {
           && isPlainObject(activeTheme._capabilities)
           ? activeTheme._capabilities
           : null;
-        return codexPetMain.decorateThemeMetadata({
+        return {
           ...theme,
           active,
           ...(runtimeCapabilities
             ? { capabilities: { ...(theme.capabilities || {}), ...runtimeCapabilities } }
             : {}),
-        });
+        };
       });
     } catch (err) {
       console.warn("Clawd: settings:list-themes failed:", err && err.message);
@@ -364,48 +362,6 @@ function registerSettingsIpc(options = {}) {
     }
   });
 
-  handle("settings:open-user-themes-dir", async () => {
-    const dir = typeof themeLoader.ensureUserThemesDir === "function"
-      ? themeLoader.ensureUserThemesDir()
-      : null;
-    if (!dir) return { status: "error", message: "user themes directory unavailable" };
-    const openResult = await shell.openPath(dir);
-    if (openResult) return { status: "error", message: openResult };
-    return { status: "ok", path: dir };
-  });
-
-  handle("settings:import-user-theme-zip", async (event) => {
-    let result;
-    try {
-      result = await dialog.showOpenDialog(getDialogParent(event), {
-        properties: ["openFile"],
-        filters: [{ name: "Clawd theme zip", extensions: ["zip"] }],
-      });
-    } catch (err) {
-      return { status: "error", message: `theme zip picker failed: ${err && err.message}` };
-    }
-    if (!result || result.canceled || !result.filePaths || !result.filePaths[0]) {
-      return { status: "cancel" };
-    }
-
-    try {
-      const userThemesDir = typeof themeLoader.ensureUserThemesDir === "function"
-        ? themeLoader.ensureUserThemesDir()
-        : null;
-      return settingsThemeImporter.importUserThemeZip(result.filePaths[0], {
-        fs,
-        path,
-        userThemesDir,
-      });
-    } catch (err) {
-      return { status: "error", message: (err && err.message) || String(err) };
-    }
-  });
-
-  handle("settings:refresh-codex-pets", () => codexPetMain.refreshFromSettings());
-  handle("settings:open-codex-pets-dir", () => codexPetMain.openCodexPetsDir());
-  handle("settings:import-codex-pet-zip", (event) => codexPetMain.importCodexPetZip(event));
-  handle("settings:remove-codex-pet", (_event, themeId) => codexPetMain.removeCodexPet(themeId));
 
   handle("settings:confirm-remove-theme", async (event, themeId) => {
     if (typeof themeId !== "string" || !themeId) return { confirmed: false };

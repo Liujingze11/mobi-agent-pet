@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 180" role="img" aria-labelledby="title description">
+<title id="title">莫比 · 静止站立</title>
+<desc id="description">待机默认站姿。</desc>
+<g fill="#fffef9" stroke="#242424" stroke-width="4.2" stroke-linejoin="round" stroke-linecap="round" id="body-js">
+<g class="actor pose-stand" transform=""><path d="M69 145 L65 163 L57 163 M91 145 L95 163 L104 163" fill="none"/><path d="M65 106 Q58 118 60 143 Q60 149 70 148 L91 148 Q101 149 101 140 Q101 119 95 107 Z" /><g class="limb limb-0"><path d="M63 115 Q47 127 47 139" fill="none"/><ellipse cx="47" cy="139" rx="5" ry="5.5"/></g><g class="limb limb-1"><path d="M97 115 Q113 127 113 139" fill="none"/><ellipse cx="113" cy="139" rx="5" ry="5.5"/></g><g class="head-pose" transform=" rotate(0 80 104)"><path d="M53 28 Q37 27 37 46 L38 95 Q37 113 54 113 L105 112 Q123 112 122 94 L122 45 Q121 28 105 29 Z" /><g id="eyes-js" class="eyes"><circle cx="60" cy="78" r="3.5" fill="#242424" stroke="none"/><circle cx="100" cy="78" r="3.5" fill="#242424" stroke="none"/></g><g stroke-width="2.8"></g><g stroke-width="3"><path d="M75 98 Q80 100 85 98" fill="none"/></g><path d="M45 64 L49 59" fill="none"/></g><ellipse cx="47" cy="139" rx="5" ry="5.5"/><ellipse cx="113" cy="139" rx="5" ry="5.5"/></g>
+</g>
+</svg>

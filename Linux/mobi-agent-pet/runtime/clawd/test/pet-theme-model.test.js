@@ -15,11 +15,11 @@ test('loaded pet themes expose only seven runtime states and a default plan befo
 });
 test('effective plans preserve assignments without mutating saved settings and remove unavailable files',()=>{
  assert.equal(typeof model.resolveEffectivePlan,'function');
- const saved={version:1,states:{idle:{mode:'random',actions:[{file:'idle.svg',enabled:true,durationMs:5000}]},working:{mode:'sequence',actions:[{file:'sleeping.svg',enabled:true,durationMs:5000},{file:'gone.svg',enabled:true,durationMs:5000}]}}};
+ const saved={version:1,states:{idle:{mode:'random',actions:[{file:'standing.svg',enabled:true,durationMs:5000}]},working:{mode:'sequence',actions:[{file:'collapsing.svg',enabled:true,durationMs:5000},{file:'gone.svg',enabled:true,durationMs:5000}]}}};
  const before=JSON.stringify(saved);
  const theme=loader.loadTheme('mobi-a'); theme._userOverrides={actionPlan:saved};
  const plan=model.resolveEffectivePlan(theme);
- assert.deepEqual(plan.states.working.actions.map(a=>a.file),['sleeping.svg']);
+ assert.deepEqual(plan.states.working.actions.map(a=>a.file),['collapsing.svg']);
  assert.equal(JSON.stringify(saved),before);
 });
 test('seven-state theme input does not require legacy thinking or sleep bindings',()=>{

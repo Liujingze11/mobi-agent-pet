@@ -37,13 +37,10 @@
 
     const h1 = document.createElement("h1");
     h1.textContent = t("themeTitle");
-    parent.appendChild(h1);
-
-    const subtitle = document.createElement("p");
-    subtitle.className = "subtitle";
-    subtitle.textContent = t("themeSubtitle");
-    parent.appendChild(subtitle);
-    parent.appendChild(buildThemeActions());
+    const heading = document.createElement("header");
+    heading.className = "dashboard-page-heading";
+    heading.appendChild(h1);
+    parent.appendChild(heading);
 
     if (runtime.themeList === null) {
       const loading = document.createElement("div");
@@ -66,13 +63,14 @@
     for (const section of getThemeSections(runtime.themeList)) {
       const sectionEl = document.createElement("section");
       sectionEl.className = "theme-section";
-      sectionEl.setAttribute("aria-labelledby", `theme-section-${section.id}`);
-
-      const title = document.createElement("h2");
-      title.id = `theme-section-${section.id}`;
-      title.className = "theme-section-title";
-      title.textContent = section.title;
-      sectionEl.appendChild(title);
+      if (section.title) {
+        sectionEl.setAttribute("aria-labelledby", `theme-section-${section.id}`);
+        const title = document.createElement("h2");
+        title.id = `theme-section-${section.id}`;
+        title.className = "theme-section-title";
+        title.textContent = section.title;
+        sectionEl.appendChild(title);
+      }
 
       const grid = document.createElement("div");
       grid.className = "theme-grid";
@@ -87,17 +85,14 @@
   function getThemeSections(themes) {
     const groups = {
       builtin: [],
-      importedCodexPets: [],
       user: [],
     };
     for (const theme of themes || []) {
       if (theme && theme.builtin) groups.builtin.push(theme);
-      else if (theme && theme.managedCodexPet) groups.importedCodexPets.push(theme);
       else groups.user.push(theme);
     }
     return [
-      { id: "builtin", title: t("themeGroupBuiltIn"), themes: groups.builtin },
-      { id: "imported-codex-pets", title: t("themeGroupImportedCodexPets"), themes: groups.importedCodexPets },
+      { id: "builtin", title: null, themes: groups.builtin },
       { id: "user", title: t("themeGroupUserThemes"), themes: groups.user },
     ].filter((section) => section.themes.length > 0);
   }
@@ -133,31 +128,8 @@
     el.style.transform = `translate(${x.toFixed(2)}%, ${y.toFixed(2)}%)`;
   }
 
-  function getCodexPetPreviewAtlasUrl(theme) {
-    return theme
-      && theme.codexPet
-      && typeof theme.codexPet.previewAtlasUrl === "string"
-      && theme.codexPet.previewAtlasUrl;
-  }
-
-  function buildCodexPetAtlasPreview(theme) {
-    const frame = document.createElement("span");
-    frame.className = "theme-thumb-atlas-frame";
-    applyThemePreviewScale(frame, theme.previewContentRatio);
-    applyThemePreviewOffset(frame, theme.previewContentOffsetPct);
-
-    const img = document.createElement("img");
-    img.src = getCodexPetPreviewAtlasUrl(theme);
-    img.alt = "";
-    img.draggable = false;
-    frame.appendChild(img);
-    return frame;
-  }
 
   function buildThemePreviewMedia(theme) {
-    if (theme.managedCodexPet && getCodexPetPreviewAtlasUrl(theme)) {
-      return buildCodexPetAtlasPreview(theme);
-    }
     const img = document.createElement("img");
     img.src = theme.previewFileUrl;
     img.alt = "";
@@ -171,8 +143,7 @@
     const caps = theme && theme.capabilities;
     if (!caps || typeof caps !== "object") return [];
     const badges = [];
-    if (caps.idleMode === "tracked") badges.push(t("themeCapabilityTracked"));
-    else if (caps.idleMode === "animated") badges.push(t("themeCapabilityAnimated"));
+    if (caps.idleMode === "animated") badges.push(t("themeCapabilityAnimated"));
     else if (caps.idleMode === "static") badges.push(t("themeCapabilityStatic"));
     if (caps.sleepMode === "direct") badges.push(t("themeCapabilityDirectSleep"));
     if (caps.powerProfile === "scripted") badges.push(t("themeCapabilityFineMotion"));
@@ -265,7 +236,7 @@
     hero.className = "theme-detail-hero";
     const preview = document.createElement("div");
     preview.className = "theme-thumb theme-detail-preview";
-    if (theme.previewFileUrl || getCodexPetPreviewAtlasUrl(theme)) {
+    if (theme.previewFileUrl) {
       preview.appendChild(buildThemePreviewMedia(theme));
     } else {
       const glyph = document.createElement("span");
@@ -506,81 +477,6 @@
     return row;
   }
 
-  function buildThemeActions() {
-    const row = document.createElement("div");
-    row.className = "theme-actions";
-
-    const codexGroup = buildThemeActionGroup(t("themeActionGroupCodexPets"));
-    const importBtn = document.createElement("button");
-    importBtn.type = "button";
-    importBtn.className = "soft-btn";
-    importBtn.textContent = t("themeImportPetZip");
-    importBtn.disabled = !!runtime.codexPetZipImportPending
-      || !themeApi()
-      || typeof themeApi().importCodexPetZip !== "function";
-    if (runtime.codexPetZipImportPending) importBtn.classList.add("pending");
-    importBtn.addEventListener("click", handleImportCodexPetZip);
-    codexGroup.buttons.appendChild(importBtn);
-
-    const refreshBtn = document.createElement("button");
-    refreshBtn.type = "button";
-    refreshBtn.className = "soft-btn";
-    refreshBtn.textContent = t("themeRefreshImportedPets");
-    refreshBtn.disabled = !!runtime.codexPetsRefreshPending
-      || !themeApi()
-      || typeof themeApi().refreshCodexPets !== "function";
-    if (runtime.codexPetsRefreshPending) refreshBtn.classList.add("pending");
-    refreshBtn.addEventListener("click", handleRefreshCodexPets);
-    codexGroup.buttons.appendChild(refreshBtn);
-    row.appendChild(codexGroup.group);
-
-    const userThemeGroup = buildThemeActionGroup(t("themeActionGroupUserThemes"));
-    const importThemeBtn = document.createElement("button");
-    importThemeBtn.type = "button";
-    importThemeBtn.className = "soft-btn";
-    importThemeBtn.textContent = t("themeImportUserThemeZip");
-    importThemeBtn.title = t("themeImportUserThemeZipHint");
-    importThemeBtn.disabled = !!runtime.userThemeZipImportPending
-      || !themeApi()
-      || typeof themeApi().importUserThemeZip !== "function";
-    if (runtime.userThemeZipImportPending) importThemeBtn.classList.add("pending");
-    importThemeBtn.addEventListener("click", handleImportUserThemeZip);
-    userThemeGroup.buttons.appendChild(importThemeBtn);
-
-    const userThemeFolderBtn = document.createElement("button");
-    userThemeFolderBtn.type = "button";
-    userThemeFolderBtn.className = "soft-btn";
-    userThemeFolderBtn.textContent = t("themeOpenUserThemesFolder");
-    userThemeFolderBtn.disabled = !themeApi()
-      || typeof themeApi().openUserThemesDir !== "function";
-    userThemeFolderBtn.addEventListener("click", handleOpenUserThemesFolder);
-    userThemeGroup.buttons.appendChild(userThemeFolderBtn);
-
-    const refreshThemesBtn = document.createElement("button");
-    refreshThemesBtn.type = "button";
-    refreshThemesBtn.className = "soft-btn";
-    refreshThemesBtn.textContent = t("themeRefreshThemes");
-    refreshThemesBtn.disabled = !themeApi()
-      || typeof themeApi().listThemes !== "function";
-    refreshThemesBtn.addEventListener("click", handleRefreshThemes);
-    userThemeGroup.buttons.appendChild(refreshThemesBtn);
-    row.appendChild(userThemeGroup.group);
-
-    return row;
-  }
-
-  function buildThemeActionGroup(title) {
-    const group = document.createElement("div");
-    group.className = "theme-action-group";
-    const label = document.createElement("div");
-    label.className = "theme-action-label";
-    label.textContent = title;
-    group.appendChild(label);
-    const buttons = document.createElement("div");
-    buttons.className = "theme-action-buttons";
-    group.appendChild(buttons);
-    return { group, buttons };
-  }
 
   function stopThemeCardButtonKeydown(ev) {
     ev.stopPropagation();
@@ -596,7 +492,7 @@
 
     const thumb = document.createElement("div");
     thumb.className = "theme-thumb";
-    if (theme.previewFileUrl || getCodexPetPreviewAtlasUrl(theme)) {
+    if (theme.previewFileUrl) {
       thumb.appendChild(buildThemePreviewMedia(theme));
     } else {
       const glyph = document.createElement("span");
@@ -612,19 +508,20 @@
     nameText.className = "theme-card-name-text";
     nameText.textContent = localizeField(theme.name) || theme.id;
     name.appendChild(nameText);
-    if (theme.builtin) {
-      const badge = document.createElement("span");
-      badge.className = "theme-card-badge";
-      badge.textContent = t("themeBadgeBuiltin");
-      name.appendChild(badge);
-    }
-    if (theme.managedCodexPet) {
-      const badge = document.createElement("span");
-      badge.className = "theme-card-badge accent";
-      badge.textContent = t("themeBadgeCodexPet");
-      name.appendChild(badge);
-    }
+    const indicator = document.createElement("span");
+    indicator.className = "theme-card-check";
+    indicator.textContent = theme.active ? t("themeActiveIndicator") : "";
+    if (!theme.active) indicator.setAttribute("aria-hidden", "true");
+    name.appendChild(indicator);
     card.appendChild(name);
+
+    const descriptionText = localizeField(theme.description).trim();
+    if (descriptionText) {
+      const description = document.createElement("p");
+      description.className = "theme-card-description";
+      description.textContent = descriptionText;
+      card.appendChild(description);
+    }
 
     const capLabels = getThemeCapabilityBadgeLabels(theme);
     if (capLabels.length) {
@@ -639,15 +536,9 @@
       card.appendChild(caps);
     }
 
-    const canDelete = !theme.builtin && !theme.active && !theme.managedCodexPet;
-    const canRemoveCodexPet = !!theme.managedCodexPet;
+    const canDelete = !theme.builtin && !theme.active;
     const footer = document.createElement("div");
     footer.className = "theme-card-footer";
-    const indicator = document.createElement("span");
-    indicator.className = "theme-card-check";
-    indicator.textContent = theme.active ? t("themeActiveIndicator") : "";
-    if (!theme.active) indicator.setAttribute("aria-hidden", "true");
-    footer.appendChild(indicator);
     if (supportsThemeCustomization(theme)) {
       const btn = document.createElement("button");
       btn.className = "theme-customize-btn";
@@ -677,22 +568,7 @@
       btn.addEventListener("keydown", stopThemeCardButtonKeydown);
       footer.appendChild(btn);
     }
-    if (canRemoveCodexPet) {
-      const btn = document.createElement("button");
-      btn.className = "theme-uninstall-btn";
-      btn.type = "button";
-      btn.textContent = t("themeUninstallPetLabel");
-      btn.title = t("themeUninstallPetLabel");
-      btn.setAttribute("aria-label", t("themeUninstallPetLabel"));
-      btn.disabled = runtime.codexPetRemovalPendingThemeId === theme.id;
-      btn.addEventListener("click", (ev) => {
-        ev.stopPropagation();
-        handleRemoveCodexPet(theme);
-      });
-      btn.addEventListener("keydown", stopThemeCardButtonKeydown);
-      footer.appendChild(btn);
-    }
-    card.appendChild(footer);
+    if (footer.children.length) card.appendChild(footer);
 
     if (!theme.active) {
       helpers.attachActivation(card, () => (
@@ -709,186 +585,6 @@
     return card;
   }
 
-  function formatCodexPetsRefreshOk(result) {
-    const summary = (result && result.summary) || {};
-    const formatter = t("toastCodexPetsRefreshOk");
-    if (typeof formatter === "function") {
-      return formatter(
-        summary.imported || 0,
-        summary.updated || 0,
-        summary.unchanged || 0,
-        summary.removed || 0,
-        summary.invalid || 0,
-        !!(result && result.switchedToFallback)
-      );
-    }
-    return String(formatter);
-  }
-
-  function formatCodexPetsRefreshFailed(message) {
-    const formatter = t("toastCodexPetsRefreshFailed");
-    if (typeof formatter === "function") return formatter(message || "unknown error");
-    return String(formatter) + (message || "unknown error");
-  }
-
-  function handleRefreshCodexPets() {
-    if (!themeApi() || typeof themeApi().refreshCodexPets !== "function") return;
-    runtime.codexPetsRefreshPending = true;
-    if (state.activeTab === "theme") ops.requestRender({ content: true });
-    themeApi().refreshCodexPets()
-      .then((result) => {
-        if (!result || result.status !== "ok") {
-          ops.showToast(formatCodexPetsRefreshFailed(result && result.message), { error: true });
-          return null;
-        }
-        ops.showToast(formatCodexPetsRefreshOk(result));
-        return ops.fetchThemes().then(() => {
-          if (state.activeTab === "theme") ops.requestRender({ content: true });
-        });
-      })
-      .catch((err) => {
-        ops.showToast(formatCodexPetsRefreshFailed(err && err.message), { error: true });
-      })
-      .finally(() => {
-        runtime.codexPetsRefreshPending = false;
-        if (state.activeTab === "theme") ops.requestRender({ content: true });
-      });
-  }
-
-  function handleOpenUserThemesFolder() {
-    if (!themeApi() || typeof themeApi().openUserThemesDir !== "function") return;
-    themeApi().openUserThemesDir()
-      .then((result) => {
-        if (!result || result.status !== "ok") {
-          ops.showToast(t("toastUserThemesFolderFailed") + ((result && result.message) || "unknown error"), { error: true });
-        }
-      })
-      .catch((err) => {
-        ops.showToast(t("toastUserThemesFolderFailed") + (err && err.message), { error: true });
-      });
-  }
-
-  function handleRefreshThemes() {
-    ops.fetchThemes().then(() => {
-      if (state.activeTab === "theme") ops.requestRender({ content: true });
-    });
-  }
-
-  function formatUserThemeZipImportOk(result) {
-    const formatter = t("toastUserThemeZipImportOk");
-    const name = localizeField(result && result.name) || (result && result.themeId) || "theme";
-    if (typeof formatter === "function") return formatter(name);
-    return String(formatter);
-  }
-
-  function formatUserThemeZipImportFailed(message) {
-    const formatter = t("toastUserThemeZipImportFailed");
-    if (typeof formatter === "function") return formatter(message || "unknown error");
-    return String(formatter) + (message || "unknown error");
-  }
-
-  function handleImportUserThemeZip() {
-    if (!themeApi() || typeof themeApi().importUserThemeZip !== "function") return;
-    runtime.userThemeZipImportPending = true;
-    if (state.activeTab === "theme") ops.requestRender({ content: true });
-    themeApi().importUserThemeZip()
-      .then((result) => {
-        if (!result || result.status === "cancel") return null;
-        if (result.status !== "ok") {
-          ops.showToast(formatUserThemeZipImportFailed(result && result.message), { error: true });
-          return null;
-        }
-        ops.showToast(formatUserThemeZipImportOk(result));
-        return ops.fetchThemes().then(() => {
-          if (state.activeTab === "theme") ops.requestRender({ content: true });
-        });
-      })
-      .catch((err) => {
-        ops.showToast(formatUserThemeZipImportFailed(err && err.message), { error: true });
-      })
-      .finally(() => {
-        runtime.userThemeZipImportPending = false;
-        if (state.activeTab === "theme") ops.requestRender({ content: true });
-      });
-  }
-
-  function formatCodexPetZipImportOk(result) {
-    const imported = result && result.imported;
-    const name = imported && (imported.displayName || imported.id);
-    const formatter = t("toastCodexPetZipImportOk");
-    if (typeof formatter === "function") return formatter(name || "Codex Pet");
-    return String(formatter);
-  }
-
-  function formatCodexPetZipImportFailed(message) {
-    const formatter = t("toastCodexPetZipImportFailed");
-    if (typeof formatter === "function") return formatter(message || "unknown error");
-    return String(formatter) + (message || "unknown error");
-  }
-
-  function handleImportCodexPetZip() {
-    if (!themeApi() || typeof themeApi().importCodexPetZip !== "function") return;
-    runtime.codexPetZipImportPending = true;
-    if (state.activeTab === "theme") ops.requestRender({ content: true });
-    themeApi().importCodexPetZip()
-      .then((result) => {
-        if (!result || result.status === "cancel") return null;
-        if (result.status !== "ok") {
-          ops.showToast(formatCodexPetZipImportFailed(result && result.message), { error: true });
-          return null;
-        }
-        ops.showToast(formatCodexPetZipImportOk(result));
-        return ops.fetchThemes().then(() => {
-          if (state.activeTab === "theme") ops.requestRender({ content: true });
-        });
-      })
-      .catch((err) => {
-        ops.showToast(formatCodexPetZipImportFailed(err && err.message), { error: true });
-      })
-      .finally(() => {
-        runtime.codexPetZipImportPending = false;
-        if (state.activeTab === "theme") ops.requestRender({ content: true });
-      });
-  }
-
-  function formatCodexPetRemoveOk(result) {
-    const removed = result && result.removed;
-    const name = removed && (removed.displayName || removed.id);
-    const formatter = t("toastCodexPetRemoveOk");
-    if (typeof formatter === "function") return formatter(name || "Codex Pet", !!(result && result.switchedToFallback));
-    return String(formatter);
-  }
-
-  function formatCodexPetRemoveFailed(message) {
-    const formatter = t("toastCodexPetRemoveFailed");
-    if (typeof formatter === "function") return formatter(message || "unknown error");
-    return String(formatter) + (message || "unknown error");
-  }
-
-  function handleRemoveCodexPet(theme) {
-    if (!themeApi() || typeof themeApi().removeCodexPet !== "function") return;
-    runtime.codexPetRemovalPendingThemeId = theme.id;
-    if (state.activeTab === "theme") ops.requestRender({ content: true });
-    themeApi().removeCodexPet(theme.id)
-      .then((result) => {
-        if (!result || result.status === "cancel") return null;
-        if (result.status !== "ok") {
-          ops.showToast(formatCodexPetRemoveFailed(result && result.message), { error: true });
-          return null;
-        }
-        ops.showToast(formatCodexPetRemoveOk(result));
-        return ops.fetchThemes().then(() => {
-          if (state.activeTab === "theme") ops.requestRender({ content: true });
-        });
-      })
-      .catch((err) => {
-        ops.showToast(formatCodexPetRemoveFailed(err && err.message), { error: true });
-      })
-      .finally(() => {
-        runtime.codexPetRemovalPendingThemeId = null;
-        if (state.activeTab === "theme") ops.requestRender({ content: true });
-      });
-  }
 
   function handleDeleteTheme(theme) {
     if (!themeApi()) return;

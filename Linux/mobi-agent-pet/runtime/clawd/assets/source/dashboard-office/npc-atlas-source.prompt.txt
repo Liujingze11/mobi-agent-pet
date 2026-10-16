@@ -1,0 +1,14 @@
+Use case: precise-object-edit
+Asset type: transparent 4-column by 3-row NPC sprite atlas.
+Image 1 is the EDIT TARGET: fix this sprite sheet. Image 2 is the APPROVED character/style reference.
+Preserve the exact three character identities, light gray outlines, white solid face/body fills, and small alternating typing hands from image 1.
+REPAIR ONLY TWO PROBLEMS:
+1. Remove EVERY stray pixel, patch, white fleck, broken halo or translucent texture outside the 12 character silhouettes. There must be 12 clean self-contained drawings, with PERFECTLY EMPTY true transparent alpha everywhere else. Smooth antialiased outer edges only, with no exterior white halo.
+2. Register these 12 drawings into a mathematically strict 4 columns × 3 rows equal-square grid. Keep the image 4:3, exactly 1448x1086 if possible; each square cell is 362x362. Row 1 must fit wholly in y=0..361; row 2 wholly in y=362..723; row 3 wholly in y=724..1085. Never let a torso cross a cell boundary. Four cell columns are x=0..361, x=362..723, x=724..1085, x=1086..1447.
+Place each head center at LOCAL CELL POSITION x=181,y=142. Place torso bottom at local y=277 maximum. All twelve drawings have transparent margins at least 42px. Four repeats within each row have perfectly identical fixed head/body anchors and exactly the same head size.
+Row 1: round-headed left-facing coworker, white fill, gray dot eyes left of face, no mouth. Head diameter 140px; hands low at local y=236 to 266.
+Row 2: smaller round-headed front/three-quarter slightly right-facing coworker, white fill, gray eyes and dash mouth. Head diameter 120px; hands low at local y=232 to 262.
+Row 3: wide rounded-rectangular-headed right-facing Mobi C coworker, white fill, gray eyes and dash mouth. Head dimensions about 146px wide by124px high; hands low at local y=232 to 262.
+Four sequential frames in each row: alternate just the hands/wrists by 5-8px; NO head movement, NO torso movement, NO breathing or turning.
+Drawing style exactly like reference: simple clean flat monochrome line art, outlines light gray #858585/#a0a0a0, opaque pure white interiors, 3-4px stroke, smooth anti-alias, no texture or shading.
+The image contains ONLY 12 small waist-up coworker cutouts on true transparency. NO desk, chair, monitor, keyboard, mouse, object, background, grid line, labels, text, shadows. Do not display a checkerboard texture or any backdrop. Keep generous transparent margins.

@@ -1,0 +1,39 @@
+.pet-scene { position: relative; isolation: isolate; overflow: hidden; background: #fff; }
+.pet-scene__mood { position: absolute; z-index: 4; margin: 0; padding: 0; border: 0; background: transparent; color: #252525; box-shadow: none; backdrop-filter: none; font-size: 13px; font-weight: 600; line-height: 20px; text-shadow: -1px 0 1px #fff, 1px 0 1px #fff, 0 -1px 1px #fff, 0 1px 1px #fff; pointer-events: none; }
+.pet-scene__mood { top: 20px; left: 20px; max-width: calc(100% - 40px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pet-scene__accessible-name { position: absolute; top: 0; left: 0; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.pet-scene__mood::before { display: inline-block; width: 4px; height: 4px; margin-right: 6px; border-radius: 50%; background: currentColor; content: ""; vertical-align: 2px; }
+.office-scene { position: absolute; inset: 0; overflow: hidden; container-type: size; }
+/* Cover the tile as one registered layer; a small overscan removes the
+   baked-in white frame without stretching the characters or monitor. */
+.office-art { position: absolute; top: 50%; left: 50%; width: max(112cqw,168cqh); height: max(74.6667cqw,112cqh); transform: translate(-50%,-50%); container-type: inline-size; }
+.office-scene [hidden] { display: none !important; }
+.office-background { width: 100%; height: 100%; object-fit: fill; opacity: .76; pointer-events: none; }
+.office-npc { position: absolute; z-index: 1; overflow: hidden; pointer-events: none; }
+.office-npc img { position: absolute; width: 400%; height: 300%; max-width: none; pointer-events: none; }
+.office-npc--0 { left: 12%; top: 17%; width: 15.3%; height: 22.95%; }
+.office-npc--1 { left: 49%; top: 14%; width: 11.2%; height: 16.8%; }
+.office-npc--2 { left: 70.5%; top: 21.8%; width: 17%; height: 25.5%; }
+.office-screen { position: absolute; z-index: 1; left: 49.25%; top: 37.7%; width: 25.5%; height: 23%; overflow: hidden; background: #fff; color: #414141; transform: matrix(1,.164,-.068,1,0,0); transform-origin: top left; font: 1.48cqw/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.office-editor-bar { display: flex; align-items: center; gap: 8%; height: 15%; padding: 0 4%; border-bottom: 1px solid #eee; background: #f5f5f5; font-size: .85em; }
+.office-editor-bar span { color: #aaa; font-size: .65em; white-space: nowrap; }
+.office-editor-bar b { font-weight: 500; }
+.office-editor-body { display: flex; position: relative; height: 62%; padding-top: 5%; }
+.office-files { flex: 0 0 24%; padding-left: 4%; color: #aaa; background: #fafafa; font-size: .7em; line-height: 1.9; }
+.office-code { flex: 1; margin: 0; padding: 0 5%; white-space: pre; font: inherit; }
+.office-terminal { height: 23%; margin: 0; padding: 2% 5%; border-top: 1px solid #eee; font: .86em/1.35 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre; }
+.office-caret { position: absolute; right: 8%; bottom: 9%; animation: office-caret 1s steps(1) infinite; }
+.office-pointer { position: absolute; left: 69%; top: 44%; font-size: 1.3em; opacity: 0; }
+.office-scene[data-action="mouse"] .office-pointer { opacity: 1; animation: office-pointer 2.8s ease-in-out infinite; }
+.office-actor { position: absolute; z-index: 2; left: 17%; top: 19%; width: 35.5%; height: 75%; overflow: hidden; pointer-events: none; }
+.office-actor img { position: absolute; width: 400%; height: 400%; max-width: none; pointer-events: none; }
+.office-chair-front { position: absolute; z-index: 3; inset: 0; width: 100%; height: 100%; pointer-events: none; clip-path: polygon(19.7% 65.7%, 24.9% 68.3%, 33.1% 75%, 36.4% 94.9%, 34.1% 97.4%, 25.5% 95%, 20% 83%, 18.8% 70.1%); }
+.office-custom-pet { position: absolute; z-index: 2; left: 23%; top: 36%; width: 24%; height: 38%; object-fit: contain; pointer-events: none; }
+.office-scene[data-paused="true"] .office-caret, .office-scene[data-paused="true"] .office-pointer { animation-play-state: paused; }
+@keyframes office-caret { 0%,49% { opacity: 1; } 50%,100% { opacity: 0; } }
+@keyframes office-pointer { 0%,100% { transform: translate(0,0); } 35% { transform: translate(-150%,-80%); } 65% { transform: translate(40%,130%); } }
+@media (prefers-reduced-motion: reduce) { .office-caret, .office-pointer { animation: none !important; } }
+.dashboard-overview { height: clamp(330px, calc(44vh / var(--clawd-text-zoom, 1)), 420px); }
+@media (max-width: 800px) {
+  .pet-scene { height: clamp(280px, calc(55vw / var(--clawd-text-zoom, 1)), 380px); }
+}

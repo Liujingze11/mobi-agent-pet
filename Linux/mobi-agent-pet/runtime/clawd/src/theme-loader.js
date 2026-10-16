@@ -54,16 +54,19 @@ let themeCacheDir = null;      // {userData}/theme-cache/
 let soundOverridesRoot = null; // {userData}/sound-overrides/ — per-theme copied audio
 let defaultThemeId = "clawd";
 let excludedBuiltinThemeIds = new Set();
+let userThemesAllowed = true;
 
-// Product catalog policy is installed before initialization. It does not affect
-// user-created themes or delete preferences associated with retired characters.
-function setThemePolicy({ defaultThemeId: nextDefault = "clawd", excludedBuiltinThemeIds: excluded = [] } = {}) {
+// Product catalog policy is installed before initialization. Unsupported roles
+// are omitted without deleting their files or saved preferences.
+function setThemePolicy({ defaultThemeId: nextDefault = "clawd", excludedBuiltinThemeIds: excluded = [], allowUserThemes = true } = {}) {
   if (typeof nextDefault !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(nextDefault)
-      || !Array.isArray(excluded) || excluded.some(id => typeof id !== "string") || excluded.includes(nextDefault)) {
+      || !Array.isArray(excluded) || excluded.some(id => typeof id !== "string") || excluded.includes(nextDefault)
+      || typeof allowUserThemes !== "boolean") {
     throw new TypeError("Invalid theme catalog policy");
   }
   defaultThemeId = nextDefault;
   excludedBuiltinThemeIds = new Set(excluded);
+  userThemesAllowed = allowUserThemes;
 }
 
 function getDefaultThemeId() { return defaultThemeId; }
@@ -135,7 +138,7 @@ function discoverThemes() {
   }
 
   // User-installed themes (same id as built-in is skipped — built-in takes priority)
-  if (userThemesDir) {
+  if (userThemesAllowed && userThemesDir) {
     _scanThemesDir(userThemesDir, false, themes, seen);
   }
 
@@ -296,7 +299,7 @@ function _readThemeJson(themeId) {
   }
 
   // User themes
-  if (userThemesDir) {
+  if (userThemesAllowed && userThemesDir) {
     const userPath = path.resolve(userThemesDir, themeId, "theme.json");
     if (fs.existsSync(userPath)) {
       // Path traversal check: resolved path must be within userThemesDir
@@ -492,7 +495,7 @@ function getThemeMetadata(themeId) {
  * `theme` / `themeOverrides` broadcast.
  */
 function listThemesWithMetadata() {
-  return _listThemesWithMetadata({ builtinThemesDir, userThemesDir, assetsSvgDir, excludedBuiltinThemeIds: [...excludedBuiltinThemeIds] });
+  return _listThemesWithMetadata({ builtinThemesDir, userThemesDir: userThemesAllowed ? userThemesDir : null, assetsSvgDir, excludedBuiltinThemeIds: [...excludedBuiltinThemeIds] });
 }
 
 module.exports = {

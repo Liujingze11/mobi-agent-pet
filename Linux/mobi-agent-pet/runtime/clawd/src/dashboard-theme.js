@@ -1,20 +1,27 @@
 "use strict";
 
 (function initDashboardTheme(root) {
+  const characterLabels = {
+    en: "Characters",
+    zh: "角色",
+    "zh-TW": "角色",
+    ko: "캐릭터",
+    ja: "キャラクター",
+  };
+
   function create({ container, getLang }) {
     const state = { activeTab: null, snapshot: {} };
     const runtime = {
       themeList: null,
       petTintOptions: [],
       petAccessoryOptions: [],
-      codexPetsRefreshPending: false,
-      codexPetZipImportPending: false,
-      userThemeZipImportPending: false,
-      codexPetRemovalPendingThemeId: null,
     };
     const tabs = {};
 
     function t(key) {
+      if (key === "sidebarTheme" || key === "themeTitle") {
+        return characterLabels[getLang()] || characterLabels.en;
+      }
       const strings = root.ClawdSettingsI18n && root.ClawdSettingsI18n.STRINGS;
       const dict = strings && (strings[getLang()] || strings.en);
       return (dict && dict[key]) || key;

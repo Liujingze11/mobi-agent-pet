@@ -64,7 +64,7 @@ contextBridge.exposeInMainWorld("dashboardAPI", {
   },
 });
 
-// The pet's Theme page reuses the existing Settings theme controller. Keep
+// The pet's Character page reuses the existing Settings theme controller. Keep
 // this bridge limited to theme operations rather than exposing all Settings.
 contextBridge.exposeInMainWorld("petThemeAPI", {
   getSnapshot: () => ipcRenderer.invoke("settings:get-snapshot"),
@@ -77,11 +77,6 @@ contextBridge.exposeInMainWorld("petThemeAPI", {
   command: (action, payload) => ["setThemeSelection", "removeTheme"].includes(action)
     ? ipcRenderer.invoke("settings:command", { action, payload })
     : Promise.resolve({ status: "error", message: "unsupported theme command" }),
-  openUserThemesDir: () => ipcRenderer.invoke("settings:open-user-themes-dir"),
-  importUserThemeZip: () => ipcRenderer.invoke("settings:import-user-theme-zip"),
-  refreshCodexPets: () => ipcRenderer.invoke("settings:refresh-codex-pets"),
-  importCodexPetZip: () => ipcRenderer.invoke("settings:import-codex-pet-zip"),
-  removeCodexPet: (themeId) => ipcRenderer.invoke("settings:remove-codex-pet", themeId),
   confirmRemoveTheme: (themeId) => ipcRenderer.invoke("settings:confirm-remove-theme", themeId),
 });
 
